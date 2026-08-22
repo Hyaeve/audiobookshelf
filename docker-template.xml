@@ -48,8 +48,18 @@
       <Mode>rw</Mode>
     </Volume>
   </Data>
+  <Environment>
+    <Variable>
+      <Name>STRM_LOCAL_ROOTS</Name>
+      <Value>/NetDisk</Value>
+      <Mode></Mode>
+      <Mask>false</Mask>
+      <Description>允许 STRM 本地目标访问的容器根目录，多个目录用逗号分隔</Description>
+    </Variable>
+  </Environment>
   <Labels/>
   <Config Name="Audiobooks" Target="/audiobooks" Default="" Mode="rw" Description="Container Path: /audiobooks" Type="Path" Display="always" Required="true" Mask="false" />
+  <Config Name="NetDisk" Target="/NetDisk" Default="/mnt/user/NetDisk/" Mode="rw" Description="容器内 STRM 目标路径对应的宿主机网盘目录" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/NetDisk/</Config>
   <Config Name="Config" Target="/config" Default="/mnt/user/appdata/audiobookshelf/config/" Mode="rw" Description="Container Path: /config" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/audiobookshelf/config/</Config>
   <Config Name="Metadata" Target="/metadata" Default="/mnt/user/appdata/audiobookshelf/metadata/" Mode="rw" Description="Container Path: /metadata" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/audiobookshelf/metadata/</Config>
   <Config Name="Web UI Port" Target="80" Default="13378" Mode="tcp" Description="Container Port: 80" Type="Port" Display="always" Required="false" Mask="false">13378</Config>
