@@ -91,7 +91,7 @@ class PlaybackSessionManager {
 
     // Do not delay the first playback response while the rest of the book is probed.
     if (!episodeId && libraryItem.mediaType === 'book') {
-      void this.completeStrmBookAfterPlayback(libraryItem)
+      void this.completeStrmBookAfterPlayback(libraryItem, session)
     }
   }
 
@@ -495,7 +495,7 @@ class PlaybackSessionManager {
       && Number(audioFile.channels) > 0
   }
 
-  completeStrmBookAfterPlayback(libraryItem) {
+  completeStrmBookAfterPlayback(libraryItem, session = null) {
     if (!libraryItem?.media || libraryItem.mediaType !== 'book') return Promise.resolve(false)
 
     const strmFiles = (libraryItem.media.audioFiles || []).filter((audioFile) => {
@@ -506,7 +506,7 @@ class PlaybackSessionManager {
     const existingTask = this.strmCompletionTasks.get(libraryItem.id)
     if (existingTask) return existingTask
 
-    const task = this.completeStrmBook(libraryItem, strmFiles)
+    const task = this.completeStrmBook(libraryItem, strmFiles, session?.strmPlaybackWindow)
       .catch((error) => {
         Logger.warn(`[PlaybackSessionManager] STRM metadata completion failed for book "${libraryItem.id}": ${error.message}`)
         return false
@@ -516,17 +516,20 @@ class PlaybackSessionManager {
     return task
   }
 
-  async completeStrmBook(libraryItem, strmFiles) {
+  async completeStrmBook(libraryItem, strmFiles, playbackWindow = null) {
     const library = await Database.libraryModel.findByIdWithFolders(libraryItem.libraryId)
     const allowedLocalRoots = (library?.libraryFolders || []).map((folder) => folder.path)
-    let updated = false
+    let updatedCount = 0
+    let nextIndex = 0
 
-    for (const audioFile of strmFiles) {
+    const completeAudioFile = async (audioFile) => {
       try {
-        const probeData = await probeStrmTargetMedia(audioFile.metadata.path, allowedLocalRoots)
+        const cachedEntry = playbackWindow?.entries.get(audioFile.metadata.path) || null
+        const probeData = await probeStrmTargetMedia(audioFile.metadata.path, allowedLocalRoots, cachedEntry)
         if (!probeData || probeData.error || !(Number(probeData.duration) > 0)) {
-          Logger.warn(`[PlaybackSessionManager] Unable to probe STRM target for "${audioFile.metadata.path}"`)
-          continue
+          const reason = probeData?.error || 'duration was not detected'
+          Logger.warn(`[PlaybackSessionManager] Unable to probe STRM target for "${audioFile.metadata.path}": ${reason}`)
+          return
         }
 
         // Keep the STRM identity and pointer path so playback remains proxied.
@@ -542,13 +545,23 @@ class PlaybackSessionManager {
         if (audioFile.metaTags?.trackNumber !== undefined) audioFile.trackNumFromMeta = audioFile.metaTags.trackNumber
         if (audioFile.metaTags?.discNumber !== undefined) audioFile.discNumFromMeta = audioFile.metaTags.discNumber
         audioFile.updatedAt = Date.now()
-        updated = true
+        updatedCount += 1
       } catch (error) {
         Logger.warn(`[PlaybackSessionManager] Failed to complete STRM metadata for "${audioFile.metadata.path}": ${error.message}`)
       }
     }
 
-    if (!updated) return false
+    const workers = Array.from({ length: Math.min(3, strmFiles.length) }, async () => {
+      while (nextIndex < strmFiles.length) {
+        const audioFile = strmFiles[nextIndex]
+        nextIndex += 1
+        await completeAudioFile(audioFile)
+      }
+    })
+    await Promise.all(workers)
+
+    if (!updatedCount) return false
+    Logger.info(`[PlaybackSessionManager] Completed metadata for ${updatedCount}/${strmFiles.length} STRM tracks in book "${libraryItem.id}"`)
 
     libraryItem.media.audioFiles = AudioFileScanner.runSmartTrackOrder(libraryItem.relPath, libraryItem.media.audioFiles)
     let duration = 0
@@ -571,7 +584,8 @@ class PlaybackSessionManager {
     libraryItem.media.changed('chapters', true)
     await libraryItem.media.save()
     await libraryItem.saveMetadataFile()
-    Logger.info(`[PlaybackSessionManager] Completed STRM metadata for book "${libraryItem.id}" (${strmFiles.length} files)`)
+    SocketAuthority.libraryItemEmitter('item_updated', libraryItem)
+    Logger.info(`[PlaybackSessionManager] Completed STRM metadata for book "${libraryItem.id}" (${updatedCount}/${strmFiles.length} files)`)
     return true
   }
 

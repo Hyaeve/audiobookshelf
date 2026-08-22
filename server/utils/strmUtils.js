@@ -117,23 +117,32 @@ function getRange(rangeHeader, size) {
   return { start, end }
 }
 
-async function createRemoteEntry(target, filePath) {
-  const disableSsrfFilter = shouldBypassStrmSsrfFilter(target.value)
+async function requestRemoteMedia(targetUrl) {
+  const disableSsrfFilter = shouldBypassStrmSsrfFilter(targetUrl)
   const response = await axios({
-    url: target.value,
+    url: targetUrl,
     method: 'GET',
     responseType: 'arraybuffer',
-    timeout: 30000,
+    timeout: 120000,
     maxRedirects: 5,
     maxContentLength: STRM_PREFETCH_MAX_BYTES,
     maxBodyLength: STRM_PREFETCH_MAX_BYTES,
     validateStatus: () => true,
-    httpAgent: disableSsrfFilter ? null : ssrfFilter(target.value),
-    httpsAgent: disableSsrfFilter ? null : ssrfFilter(target.value)
+    httpAgent: disableSsrfFilter ? null : ssrfFilter(targetUrl),
+    httpsAgent: disableSsrfFilter ? null : ssrfFilter(targetUrl)
   })
   const body = Buffer.from(response.data)
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(`Remote STRM target returned HTTP ${response.status}`)
+  }
+  if (!body.length) throw new Error('Remote STRM target returned an empty response')
   if (body.length > STRM_PREFETCH_MAX_BYTES) throw new Error(`Remote STRM target exceeds ${STRM_PREFETCH_MAX_BYTES} bytes`)
-  const entry = { type: 'remote', filePath, target: target.value, body, status: response.status, headers: response.headers, duration: 0 }
+  return { body, status: response.status, headers: response.headers }
+}
+
+async function createRemoteEntry(target, filePath) {
+  const response = await requestRemoteMedia(target.value)
+  const entry = { type: 'remote', filePath, target: target.value, ...response, duration: 0 }
   entry.duration = await probeDuration(entry)
   return entry
 }
@@ -159,7 +168,7 @@ async function createLocalEntry(target, filePath) {
   return entry
 }
 
-async function probeStrmTargetMedia(filePath, allowedLocalRoots = []) {
+async function probeStrmTargetMedia(filePath, allowedLocalRoots = [], cachedEntry = null) {
   const target = await resolveStrmTarget(filePath, allowedLocalRoots)
   if (!target) return null
 
@@ -167,22 +176,17 @@ async function probeStrmTargetMedia(filePath, allowedLocalRoots = []) {
     return prober.probe(target.value)
   }
 
-  const disableSsrfFilter = shouldBypassStrmSsrfFilter(target.value)
-  const response = await axios({
-    url: target.value,
-    method: 'GET',
-    responseType: 'arraybuffer',
-    timeout: 30000,
-    maxRedirects: 5,
-    maxContentLength: STRM_PREFETCH_MAX_BYTES,
-    maxBodyLength: STRM_PREFETCH_MAX_BYTES,
-    validateStatus: () => true,
-    httpAgent: disableSsrfFilter ? null : ssrfFilter(target.value),
-    httpsAgent: disableSsrfFilter ? null : ssrfFilter(target.value)
-  })
-  const body = Buffer.from(response.data)
-  if (body.length > STRM_PREFETCH_MAX_BYTES) throw new Error(`Remote STRM target exceeds ${STRM_PREFETCH_MAX_BYTES} bytes`)
-  return prober.probeBuffer(body)
+  const cachedBody = cachedEntry?.type === 'remote' && Buffer.isBuffer(cachedEntry.body)
+    ? cachedEntry.body
+    : null
+  const response = cachedBody
+    ? { body: cachedBody, status: cachedEntry.status || 200 }
+    : await requestRemoteMedia(target.value)
+  const probeData = await prober.probeBuffer(response.body)
+  if (probeData?.error) {
+    throw new Error(`Unable to probe remote STRM media (HTTP ${response.status}): ${probeData.error}`)
+  }
+  return probeData
 }
 
 async function createStrmPlaybackWindow(filePaths, startIndex, allowedLocalRoots = []) {
