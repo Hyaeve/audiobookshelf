@@ -175,9 +175,17 @@ async function closeStrmPlaybackWindow(window) {
   window.entries.clear()
 }
 
+function getTargetExtension(target) {
+  try {
+    return Path.extname(new URL(target).pathname)
+  } catch (error) {
+    return Path.extname(target || '')
+  }
+}
+
 async function serveStrmPlaybackWindowEntry(entry, req, res) {
   const size = entry.type === 'remote' ? entry.body.length : entry.stat.size
-  const mimeType = getAudioMimeTypeFromExtname(Path.extname(entry.target))
+  const mimeType = getAudioMimeTypeFromExtname(getTargetExtension(entry.target))
   if (mimeType) res.setHeader('Content-Type', mimeType)
   res.setHeader('Accept-Ranges', 'bytes')
   const range = getRange(req.headers.range, size)
@@ -224,6 +232,10 @@ async function proxyStrm(req, res, filePath, allowedLocalRoots = []) {
     const disableSsrfFilter = global.DisableSsrfRequestFilter?.(target.value)
     const response = await axios({ url: target.value, method: 'GET', responseType: 'stream', headers, timeout: 30000, maxRedirects: 5, validateStatus: () => true, httpAgent: disableSsrfFilter ? null : ssrfFilter(target.value), httpsAgent: disableSsrfFilter ? null : ssrfFilter(target.value) })
     copyRemoteHeaders(response.headers, res)
+    if (!response.headers['content-type'] || response.headers['content-type'] === 'application/octet-stream') {
+      const mimeType = getAudioMimeTypeFromExtname(getTargetExtension(target.value))
+      if (mimeType) res.setHeader('Content-Type', mimeType)
+    }
     res.status(response.status)
     response.data.on('error', (error) => res.headersSent ? res.destroy(error) : res.sendStatus(502))
     req.on('close', () => response.data.destroy())

@@ -1,7 +1,7 @@
 <template>
   <div ref="themeSwitcher" class="theme-switcher relative mx-1 sm:mx-2">
     <ui-tooltip text="切换主题" direction="bottom" class="flex items-center">
-      <button type="button" class="theme-switcher__button w-9 h-9 flex items-center justify-center rounded-md" aria-label="切换主题" aria-haspopup="menu" :aria-expanded="showMenu" @click.stop="showMenu = !showMenu">
+      <button type="button" class="theme-switcher__button w-9 h-9 flex items-center justify-center" aria-label="切换主题" aria-haspopup="menu" :aria-expanded="showMenu" @click.stop="showMenu = !showMenu">
         <img src="~static/themes/theme-switch.png" alt="" class="w-6 h-6 object-contain" />
       </button>
     </ui-tooltip>

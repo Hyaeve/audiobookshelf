@@ -489,10 +489,17 @@ class PlaybackSessionManager {
     }
   }
 
+  isCompleteStrmAudioFile(audioFile) {
+    return Number(audioFile.duration) > 0
+      && !!audioFile.codec
+      && Number(audioFile.channels) > 0
+  }
+
   completeStrmBookAfterPlayback(libraryItem) {
     if (!libraryItem?.media || libraryItem.mediaType !== 'book') return Promise.resolve(false)
+
     const strmFiles = (libraryItem.media.audioFiles || []).filter((audioFile) => {
-      return isStrmPath(audioFile.metadata?.path) && !(Number(audioFile.duration) > 0 && audioFile.codec)
+      return isStrmPath(audioFile.metadata?.path) && !this.isCompleteStrmAudioFile(audioFile)
     })
     if (!strmFiles.length) return Promise.resolve(false)
 

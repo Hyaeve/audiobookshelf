@@ -63,14 +63,16 @@ html[data-abs-theme] ::-webkit-scrollbar-thumb {
 }
 
 .theme-switcher__button {
-  border: 1px solid transparent;
-  transition: background-color 150ms ease, border-color 150ms ease, transform 150ms ease;
+  border: 0;
+  background: transparent;
+  transition: opacity 150ms ease, transform 150ms ease;
 }
 
 .theme-switcher__button:hover,
 .theme-switcher__button[aria-expanded='true'] {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: var(--abs-theme-border);
+  background: transparent;
+  border-color: transparent;
+  opacity: 0.86;
   transform: translateY(-1px);
 }
 
