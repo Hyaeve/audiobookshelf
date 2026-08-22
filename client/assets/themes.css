@@ -46,34 +46,6 @@
   --abs-theme-menu-bg: rgba(15, 18, 28, 0.98);
 }
 
-:root[data-abs-theme='appletv'] {
-  --color-bg: #e9f4f7;
-  --color-primary: #d7eaf1;
-  --color-accent: #4caf50;
-  --color-success: #4caf50;
-  --color-info: #2585a6;
-  --color-warning: #d58b22;
-  --color-black-50: #374151;
-  --color-black-100: #4b5563;
-  --color-black-200: #64748b;
-  --color-black-300: #94a3b8;
-  --color-black-400: #cbd5e1;
-  --color-black-500: #e2e8f0;
-  --color-black-600: #eef4f5;
-  --color-black-700: #f7fbfa;
-  --abs-theme-page-bg: linear-gradient(145deg, #d9edf5 0%, #edf6f4 48%, #d9e1df 100%);
-  --abs-theme-surface: #f6faf9;
-  --abs-theme-surface-raised: #d8ebf1;
-  --abs-theme-border: rgba(38, 58, 65, 0.18);
-  --abs-theme-text: #172026;
-  --abs-theme-muted: #56636a;
-  --abs-theme-accent: #4caf50;
-  --abs-theme-scrollbar: #718188;
-  --abs-theme-bookshelf: linear-gradient(145deg, rgba(226, 240, 244, 0.98), rgba(246, 250, 248, 0.98));
-  --bookshelf-texture-img: var(--abs-theme-bookshelf);
-  --abs-theme-menu-bg: rgba(247, 251, 250, 0.98);
-}
-
 html[data-abs-theme] body,
 html[data-abs-theme] #__nuxt,
 html[data-abs-theme] #__layout {
@@ -134,43 +106,4 @@ html[data-abs-theme='cosmos'] .box-shadow-md,
 html[data-abs-theme='cosmos'] .box-shadow-xl,
 html[data-abs-theme='cosmos'] .box-shadow-book {
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.46), 0 0 24px rgba(111, 98, 169, 0.08);
-}
-
-html[data-abs-theme='appletv'] .text-white,
-html[data-abs-theme='appletv'] .text-gray-100,
-html[data-abs-theme='appletv'] .text-gray-200,
-html[data-abs-theme='appletv'] .text-gray-300,
-html[data-abs-theme='appletv'] .text-white\/80,
-html[data-abs-theme='appletv'] .text-white\/90 {
-  color: var(--abs-theme-text);
-}
-
-html[data-abs-theme='appletv'] .border-white\/10,
-html[data-abs-theme='appletv'] .border-white\/5,
-html[data-abs-theme='appletv'] .border-gray-500,
-html[data-abs-theme='appletv'] .border-gray-600 {
-  border-color: var(--abs-theme-border);
-}
-
-html[data-abs-theme='appletv'] input,
-html[data-abs-theme='appletv'] textarea,
-html[data-abs-theme='appletv'] select,
-html[data-abs-theme='appletv'] .tracksTable tr {
-  color: var(--abs-theme-text);
-  background-color: rgba(255, 255, 255, 0.56);
-  border-color: var(--abs-theme-border);
-}
-
-html[data-abs-theme='appletv'] .tracksTable tr:nth-child(even) {
-  background-color: rgba(222, 236, 239, 0.75);
-}
-
-html[data-abs-theme='appletv'] .box-shadow-md,
-html[data-abs-theme='appletv'] .box-shadow-xl,
-html[data-abs-theme='appletv'] .box-shadow-book {
-  box-shadow: 0 10px 28px rgba(49, 69, 75, 0.14);
-}
-
-html[data-abs-theme='appletv'] .theme-switcher__button img {
-  filter: invert(1);
 }
