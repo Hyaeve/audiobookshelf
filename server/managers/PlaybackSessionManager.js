@@ -11,7 +11,8 @@ const uaParserJs = require('../libs/uaParser')
 const requestIp = require('../libs/requestIp')
 
 const { PlayMethod } = require('../utils/constants')
-const { isStrmPath, createStrmPlaybackWindow, closeStrmPlaybackWindow } = require('../utils/strmUtils')
+const { isStrmPath, createStrmPlaybackWindow, closeStrmPlaybackWindow, probeStrmTargetMedia } = require('../utils/strmUtils')
+const AudioFileScanner = require('../scanner/AudioFileScanner')
 
 const PlaybackSession = require('../objects/PlaybackSession')
 const DeviceInfo = require('../objects/DeviceInfo')
@@ -25,6 +26,9 @@ class PlaybackSessionManager {
 
     /** @type {PlaybackSession[]} */
     this.sessions = []
+
+    // Book ids currently being fully probed after STRM playback starts.
+    this.strmCompletionTasks = new Map()
   }
 
   /**
@@ -84,6 +88,11 @@ class PlaybackSessionManager {
     const { libraryItem, body: options } = req
     const session = await this.startSession(req.user, deviceInfo, libraryItem, episodeId, options)
     res.json(session.toJSONForClient(libraryItem))
+
+    // Do not delay the first playback response while the rest of the book is probed.
+    if (!episodeId && libraryItem.mediaType === 'book') {
+      void this.completeStrmBookAfterPlayback(libraryItem)
+    }
   }
 
   /**
@@ -478,6 +487,85 @@ class PlaybackSessionManager {
       session.lastSave = Date.now()
       return Database.createPlaybackSession(session)
     }
+  }
+
+  completeStrmBookAfterPlayback(libraryItem) {
+    if (!libraryItem?.media || libraryItem.mediaType !== 'book') return Promise.resolve(false)
+    const strmFiles = (libraryItem.media.audioFiles || []).filter((audioFile) => {
+      return isStrmPath(audioFile.metadata?.path) && !(Number(audioFile.duration) > 0 && audioFile.codec)
+    })
+    if (!strmFiles.length) return Promise.resolve(false)
+
+    const existingTask = this.strmCompletionTasks.get(libraryItem.id)
+    if (existingTask) return existingTask
+
+    const task = this.completeStrmBook(libraryItem, strmFiles)
+      .catch((error) => {
+        Logger.warn(`[PlaybackSessionManager] STRM metadata completion failed for book "${libraryItem.id}": ${error.message}`)
+        return false
+      })
+      .finally(() => this.strmCompletionTasks.delete(libraryItem.id))
+    this.strmCompletionTasks.set(libraryItem.id, task)
+    return task
+  }
+
+  async completeStrmBook(libraryItem, strmFiles) {
+    const library = await Database.libraryModel.findByIdWithFolders(libraryItem.libraryId)
+    const allowedLocalRoots = (library?.libraryFolders || []).map((folder) => folder.path)
+    let updated = false
+
+    for (const audioFile of strmFiles) {
+      try {
+        const probeData = await probeStrmTargetMedia(audioFile.metadata.path, allowedLocalRoots)
+        if (!probeData || probeData.error || !(Number(probeData.duration) > 0)) {
+          Logger.warn(`[PlaybackSessionManager] Unable to probe STRM target for "${audioFile.metadata.path}"`)
+          continue
+        }
+
+        // Keep the STRM identity and pointer path so playback remains proxied.
+        audioFile.duration = probeData.duration
+        audioFile.bitRate = probeData.bitRate || null
+        audioFile.codec = probeData.codec || null
+        audioFile.timeBase = probeData.timeBase || null
+        audioFile.language = probeData.language || null
+        audioFile.channels = probeData.channels || null
+        audioFile.channelLayout = probeData.channelLayout || null
+        audioFile.chapters = probeData.chapters || []
+        audioFile.metaTags = probeData.audioMetaTags || audioFile.metaTags
+        if (audioFile.metaTags?.trackNumber !== undefined) audioFile.trackNumFromMeta = audioFile.metaTags.trackNumber
+        if (audioFile.metaTags?.discNumber !== undefined) audioFile.discNumFromMeta = audioFile.metaTags.discNumber
+        audioFile.updatedAt = Date.now()
+        updated = true
+      } catch (error) {
+        Logger.warn(`[PlaybackSessionManager] Failed to complete STRM metadata for "${audioFile.metadata.path}": ${error.message}`)
+      }
+    }
+
+    if (!updated) return false
+
+    libraryItem.media.audioFiles = AudioFileScanner.runSmartTrackOrder(libraryItem.relPath, libraryItem.media.audioFiles)
+    let duration = 0
+    const chapters = []
+    for (const [index, audioFile] of libraryItem.media.audioFiles.entries()) {
+      const fileDuration = Number(audioFile.duration) > 0 ? Number(audioFile.duration) : 0
+      if (fileDuration > 0) {
+        chapters.push({
+          id: index,
+          start: duration,
+          end: duration + fileDuration,
+          title: audioFile.metadata?.filename || `Chapter ${index + 1}`
+        })
+        duration += fileDuration
+      }
+    }
+    libraryItem.media.duration = duration
+    libraryItem.media.chapters = chapters
+    libraryItem.media.changed('audioFiles', true)
+    libraryItem.media.changed('chapters', true)
+    await libraryItem.media.save()
+    await libraryItem.saveMetadataFile()
+    Logger.info(`[PlaybackSessionManager] Completed STRM metadata for book "${libraryItem.id}" (${strmFiles.length} files)`)
+    return true
   }
 
   rebuildStrmSessionTimeline(session) {

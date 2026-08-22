@@ -122,6 +122,32 @@ async function createLocalEntry(target, filePath) {
   return entry
 }
 
+async function probeStrmTargetMedia(filePath, allowedLocalRoots = []) {
+  const target = await resolveStrmTarget(filePath, allowedLocalRoots)
+  if (!target) return null
+
+  if (target.type === 'local') {
+    return prober.probe(target.value)
+  }
+
+  const disableSsrfFilter = global.DisableSsrfRequestFilter?.(target.value)
+  const response = await axios({
+    url: target.value,
+    method: 'GET',
+    responseType: 'arraybuffer',
+    timeout: 30000,
+    maxRedirects: 5,
+    maxContentLength: STRM_PREFETCH_MAX_BYTES,
+    maxBodyLength: STRM_PREFETCH_MAX_BYTES,
+    validateStatus: () => true,
+    httpAgent: disableSsrfFilter ? null : ssrfFilter(target.value),
+    httpsAgent: disableSsrfFilter ? null : ssrfFilter(target.value)
+  })
+  const body = Buffer.from(response.data)
+  if (body.length > STRM_PREFETCH_MAX_BYTES) throw new Error(`Remote STRM target exceeds ${STRM_PREFETCH_MAX_BYTES} bytes`)
+  return prober.probeBuffer(body)
+}
+
 async function createStrmPlaybackWindow(filePaths, startIndex, allowedLocalRoots = []) {
   const window = { entries: new Map(), closed: false }
   const paths = filePaths.slice(startIndex, startIndex + STRM_PREFETCH_SIZE).filter(isStrmPath)
@@ -209,4 +235,4 @@ async function proxyStrm(req, res, filePath, allowedLocalRoots = []) {
   }
 }
 
-module.exports = { STRM_PREFETCH_SIZE, isStrmPath, resolveStrmUrl, resolveStrmTarget, prefetchStrmUrls, createStrmPlaybackWindow, closeStrmPlaybackWindow, serveStrmPlaybackWindowEntry, proxyStrm }
+module.exports = { STRM_PREFETCH_SIZE, isStrmPath, resolveStrmUrl, resolveStrmTarget, probeStrmTargetMedia, prefetchStrmUrls, createStrmPlaybackWindow, closeStrmPlaybackWindow, serveStrmPlaybackWindowEntry, proxyStrm }
