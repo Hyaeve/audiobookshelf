@@ -1,20 +1,20 @@
 <?xml version="1.0"?>
 <Container version="2">
   <Name>audiobookshelf</Name>
-  <Repository>ghcr.io/advplyr/audiobookshelf</Repository>
-  <Registry>https://hub.docker.com/r/advplyr/audiobookshelf/</Registry>
+  <Repository>ghcr.io/hyaeve/audiobookshelf</Repository>
+  <Registry>https://github.com/Hyaeve/audiobookshelf/pkgs/container/audiobookshelf</Registry>
   <Network>bridge</Network>
   <MyIP/>
   <Shell>sh</Shell>
   <Privileged>false</Privileged>
-  <Support>https://forums.unraid.net/topic/112698-support-audiobookshelf/</Support>
-  <Project>https://github.com/advplyr/audiobookshelf</Project>
+  <Support>https://github.com/Hyaeve/audiobookshelf/issues</Support>
+  <Project>https://github.com/Hyaeve/audiobookshelf</Project>
   <Overview>Self-hosted audiobook and podcast server and web app. Supports multi-user w/ permissions and keeps progress in sync across devices. Free &amp; open source mobile apps. Consider contributing by posting feedback, suggestions, feature requests on github or the forums.</Overview>
   <Category>MediaApp:Books MediaServer:Books MediaApp:Other MediaServer:Other</Category>
   <WebUI>http://[IP]:[PORT:80]</WebUI>
-  <TemplateURL>https://raw.githubusercontent.com/advplyr/docker-templates/master/audiobookshelf.xml</TemplateURL>
-  <Icon>https://github.com/advplyr/audiobookshelf/raw/master/client/static/Logo.png</Icon>
-  <ExtraParams/>
+  <TemplateURL>https://raw.githubusercontent.com/Hyaeve/audiobookshelf/main/docker-template.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/Hyaeve/audiobookshelf/main/client/static/Logo.png</Icon>
+  <ExtraParams>--platform=linux/amd64</ExtraParams>
   <PostArgs/>
   <CPUset/>
   <DateInstalled>1629238508</DateInstalled>

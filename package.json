@@ -13,9 +13,8 @@
     "build-win": "npm run client && pkg -t node20-win-x64 -o ./dist/win/audiobookshelf -C GZip .",
     "build-win-no-compress": "npm run client && pkg -t node20-win-x64 -o ./dist/win/audiobookshelf .",
     "build-linux": "build/linuxpackager",
-    "docker": "docker buildx build --platform linux/amd64,linux/arm64 --push .  -t advplyr/audiobookshelf",
-    "docker-amd64-local": "docker buildx build --platform linux/amd64 --load .  -t advplyr/audiobookshelf-amd64-local",
-    "docker-arm64-local": "docker buildx build --platform linux/arm64 --load .  -t advplyr/audiobookshelf-arm64-local",
+    "docker": "docker buildx build --platform linux/amd64 --push . -t ghcr.io/hyaeve/audiobookshelf:latest",
+    "docker-amd64-local": "docker buildx build --platform linux/amd64 --load . -t ghcr.io/hyaeve/audiobookshelf:local",
     "deploy-linux": "node deploy/linux",
     "test": "mocha",
     "coverage": "nyc mocha"
