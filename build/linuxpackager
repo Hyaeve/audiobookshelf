@@ -1,0 +1,57 @@
+#!/bin/bash
+set -e
+set -o pipefail
+
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+
+cd "$SCRIPT_DIR/.."
+
+# Get package version without double quotes
+VERSION="$( eval echo $( jq '.version' package.json) )"
+DESCRIPTION="$( eval echo $( jq '.description' package.json) )"
+OUTPUT_FILE="audiobookshelf_${VERSION}_amd64.deb"
+
+echo ">>> Building Client"
+echo "--------------------"
+
+cd client
+rm -rf node_modules
+npm ci --unsafe-perm=true --allow-root
+npm run generate
+cd ..
+
+echo ">>> Building Server"
+echo "--------------------"
+
+rm -rf node_modules
+npm ci --unsafe-perm=true --allow-root
+
+echo ">>> Packaging"
+echo "--------------------"
+
+# Create debian control file
+
+mkdir -p dist
+rm -rf dist/debian
+cp -R build/debian dist/debian
+chmod -R 775 dist/debian
+
+controlfile="Package: audiobookshelf
+Version: $VERSION
+Section: base
+Priority: optional
+Architecture: amd64
+Depends:
+Maintainer: advplyr
+Description: $DESCRIPTION"
+
+echo "$controlfile" > dist/debian/DEBIAN/control;
+
+# Package debian
+pkg -t node20-linux-x64 -o dist/debian/usr/share/audiobookshelf/audiobookshelf .
+
+fakeroot dpkg-deb -Zxz --build dist/debian
+
+mv dist/debian.deb "dist/$OUTPUT_FILE"
+
+echo "Finished! Filename: $OUTPUT_FILE"

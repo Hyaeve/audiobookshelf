@@ -1,0 +1,81 @@
+#!/bin/bash
+set -e
+set -o pipefail
+
+DEFAULT_DATA_DIR="/usr/share/audiobookshelf"
+CONFIG_PATH="/etc/default/audiobookshelf"
+DEFAULT_PORT=13378
+DEFAULT_HOST="0.0.0.0"
+
+add_user() {
+  : "${1:?'User was not defined'}"
+  declare -r user="$1"
+  declare -r uid="$2"
+
+  if [ -z "$uid" ]; then
+    declare -r uid_flags=""
+  else
+    declare -r uid_flags="--uid $uid"
+  fi
+
+  declare -r group="${3:-$user}"
+  declare -r descr="${4:-No description}"
+  declare -r shell="${5:-/bin/false}"
+
+  if ! getent passwd "$user" 2>&1 >/dev/null; then
+    echo "Creating system user: $user in $group with $descr and shell $shell"
+    useradd $uid_flags --gid $group --no-create-home --system --shell $shell -c "$descr" $user
+  fi
+}
+
+add_group() {
+  : "${1:?'Group was not defined'}"
+  declare -r group="$1"
+  declare -r gid="$2"
+
+  if [ -z "$gid" ]; then
+    declare -r gid_flags=""
+  else
+    declare -r gid_flags="--gid $gid"
+  fi
+
+  if ! getent group "$group" 2>&1 >/dev/null; then
+    echo "Creating system group: $group"
+    groupadd $gid_flags --system $group
+  fi
+}
+
+setup_config() {
+  if [ -f "$CONFIG_PATH" ]; then
+    echo "Existing config found."
+    cat $CONFIG_PATH
+
+  else
+
+    if [ ! -d "$DEFAULT_DATA_DIR" ]; then
+      # Create directory and set permissions
+      echo "Creating default data dir at $DEFAULT_DATA_DIR"
+      mkdir "$DEFAULT_DATA_DIR"
+      chown -R 'audiobookshelf:audiobookshelf' "$DEFAULT_DATA_DIR"
+    fi
+
+    echo "Creating default config."
+
+    config_text="METADATA_PATH=$DEFAULT_DATA_DIR/metadata
+CONFIG_PATH=$DEFAULT_DATA_DIR/config
+PORT=$DEFAULT_PORT
+HOST=$DEFAULT_HOST"
+
+    echo "$config_text"
+
+    echo "$config_text" > /etc/default/audiobookshelf;
+
+    echo "Config created"
+  fi
+}
+
+add_group 'audiobookshelf' ''
+
+add_user 'audiobookshelf' '' 'audiobookshelf' 'audiobookshelf user-daemon' '/bin/false'
+
+setup_config

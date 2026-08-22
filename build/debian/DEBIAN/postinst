@@ -1,0 +1,47 @@
+#!/bin/bash
+set -e
+set -o pipefail
+
+ABS_LOG_DIR="/var/log/audiobookshelf"
+
+declare -r init_type='auto'
+declare -ri no_rebuild='0'
+
+start_service () {
+  : "${1:?'Service name was not defined'}"
+  declare -r service_name="$1"
+
+  if hash systemctl 2> /dev/null; then
+    if [[ "$init_type" == 'auto' || "$init_type" == 'systemd' ]]; then
+      {
+        systemctl enable "$service_name.service" && \
+        systemctl start "$service_name.service"
+      } || echo "$service_name could not be registered or started"
+    fi
+  elif hash service 2> /dev/null; then
+    if [[ "$init_type" == 'auto' || "$init_type" == 'upstart' || "$init_type" == 'sysv' ]]; then
+      service "$service_name" start || echo "$service_name could not be registered or started"
+    fi
+  elif hash start 2> /dev/null; then
+    if [[ "$init_type" == 'auto' || "$init_type" == 'upstart' ]]; then
+      start "$service_name" || echo "$service_name could not be registered or started"
+    fi
+  elif hash update-rc.d 2> /dev/null; then
+      if [[ "$init_type" == 'auto' || "$init_type" == 'sysv' ]]; then
+      {
+        update-rc.d "$service_name" defaults && \
+        "/etc/init.d/$service_name" start
+      } || echo "$service_name could not be registered or started"
+    fi
+  else
+    echo 'Your system does not appear to use systemd, Upstart, or System V, so the service could not be started'
+  fi
+}
+
+# Create log directory if not there and set ownership
+if [ ! -d "$ABS_LOG_DIR" ]; then
+  mkdir -p "$ABS_LOG_DIR"
+  chown -R 'audiobookshelf:audiobookshelf' "$ABS_LOG_DIR"
+fi
+
+start_service 'audiobookshelf'
