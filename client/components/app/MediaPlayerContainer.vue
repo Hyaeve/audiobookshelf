@@ -143,7 +143,13 @@ export default {
     },
     chapters() {
       if (this.streamEpisode) return this.streamEpisode.chapters || []
-      return this.media.chapters || []
+      const mediaChapters = this.media.chapters || []
+      const audioTracks = this.playerHandler.player?.audioTracks || []
+      const hasStrmAudio = audioTracks.some((track) => /\.strm$/i.test(track.metadata?.path || ''))
+      if (hasStrmAudio && (mediaChapters.length === 0 || mediaChapters.every((chapter) => !chapter.end))) {
+        return this.playerHandler.player.getPlaybackChapters()
+      }
+      return mediaChapters
     },
     currentChapter() {
       return this.chapters.find((chapter) => chapter.start <= this.currentTime && this.currentTime < chapter.end)

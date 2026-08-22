@@ -374,12 +374,32 @@ class PlaybackSessionManager {
       const library = await Database.libraryModel.findByIdWithFolders(libraryItem.libraryId)
       const allowedLocalRoots = (library?.libraryFolders || []).map((folder) => folder.path)
       let startTrackIndex = 0
-      for (let index = 0; index < audioTracks.length; index += 1) {
-        if (audioTracks[index].startOffset <= userStartTime) startTrackIndex = index
-        else break
+      if (userStartTime > 0) {
+        for (let index = 0; index < audioTracks.length; index += 1) {
+          const startOffset = Number(audioTracks[index].startOffset) || 0
+          const duration = Number(audioTracks[index].duration) || 0
+          if (duration > 0 && userStartTime >= startOffset && userStartTime < startOffset + duration) {
+            startTrackIndex = index
+            break
+          }
+        }
       }
       const strmPaths = audioTracks.map((track) => track.metadata?.path || '')
       newPlaybackSession.strmPlaybackWindow = await createStrmPlaybackWindow(strmPaths, startTrackIndex, allowedLocalRoots)
+      newPlaybackSession.strmPlaybackWindow.startIndex = startTrackIndex
+      newPlaybackSession.strmPlaybackWindow.filePaths = strmPaths
+      newPlaybackSession.strmPlaybackWindow.allowedLocalRoots = allowedLocalRoots
+
+      // STRM files are scanned as zero-duration placeholders. Only the playback
+      // window is allowed to resolve real media metadata and update this session.
+      let startOffset = 0
+      for (const track of audioTracks) {
+        const entry = newPlaybackSession.strmPlaybackWindow.entries.get(track.metadata?.path)
+        if (entry?.duration > 0) track.duration = entry.duration
+        track.startOffset = startOffset
+        startOffset += Number(track.duration) > 0 ? Number(track.duration) : 0
+      }
+      newPlaybackSession.duration = Math.max(startOffset, Number(newPlaybackSession.duration) || 0)
     }
 
     this.sessions.push(newPlaybackSession)
@@ -466,10 +486,33 @@ class PlaybackSessionManager {
     }
   }
 
-  /**
-   *
-   * @param {string} sessionId
-   */
+  async refreshStrmPlaybackWindow(session, trackIndex) {
+    const currentWindow = session.strmPlaybackWindow
+    if (!currentWindow || !Array.isArray(currentWindow.filePaths) || trackIndex < 0) return
+    const currentStart = currentWindow.startIndex || 0
+    if (trackIndex >= currentStart && trackIndex < currentStart + 10) return
+
+    const nextWindow = await createStrmPlaybackWindow(
+      currentWindow.filePaths,
+      trackIndex,
+      currentWindow.allowedLocalRoots || []
+    )
+    nextWindow.startIndex = trackIndex
+    nextWindow.filePaths = currentWindow.filePaths
+    nextWindow.allowedLocalRoots = currentWindow.allowedLocalRoots || []
+    await closeStrmPlaybackWindow(currentWindow)
+    session.strmPlaybackWindow = nextWindow
+
+    let startOffset = 0
+    for (const track of session.audioTracks) {
+      const entry = nextWindow.entries.get(track.metadata?.path)
+      if (entry?.duration > 0) track.duration = entry.duration
+      track.startOffset = startOffset
+      startOffset += Number(track.duration) > 0 ? Number(track.duration) : 0
+    }
+    session.duration = Math.max(session.duration || 0, startOffset)
+  }
+
   async removeSession(sessionId) {
     const session = this.sessions.find((s) => s.id === sessionId)
     if (!session) return

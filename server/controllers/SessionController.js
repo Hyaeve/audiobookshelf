@@ -314,6 +314,10 @@ class SessionController {
     }
 
     if (isStrmPath(audioTrack.metadata.path)) {
+      const trackIndex = playbackSession.audioTracks.indexOf(audioTrack)
+      if (trackIndex >= 0 && playbackSession.strmPlaybackWindow) {
+        await this.playbackSessionManager.refreshStrmPlaybackWindow(playbackSession, trackIndex)
+      }
       const cachedEntry = playbackSession.strmPlaybackWindow?.entries.get(audioTrack.metadata.path)
       if (cachedEntry) return serveStrmPlaybackWindowEntry(cachedEntry, req, res)
 

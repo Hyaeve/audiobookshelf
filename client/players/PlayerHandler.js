@@ -115,6 +115,7 @@ export default class PlayerHandler {
     this.player.on('timeupdate', this.playerTimeupdate.bind(this))
     this.player.on('buffertimeUpdate', this.playerBufferTimeUpdate.bind(this))
     this.player.on('error', this.playerError.bind(this))
+    this.player.on('durationUpdate', this.playerDurationUpdate.bind(this))
     this.player.on('finished', this.playerFinished.bind(this))
   }
 
@@ -124,6 +125,10 @@ export default class PlayerHandler {
       console.log(`[PlayerHandler] Audio player error switching to HLS stream`)
       this.prepare(true)
     }
+  }
+
+  playerDurationUpdate(duration) {
+    this.ctx.setDuration(duration)
   }
 
   playerFinished() {
@@ -232,6 +237,7 @@ export default class PlayerHandler {
     }
 
     this.player.set(this.libraryItem, audioTracks, this.isHlsTranscode, this.startTime, this.playWhenReady)
+    this.ctx.setDuration(this.player.getDuration())
 
     // browser media session api
     this.ctx.setMediaSession()

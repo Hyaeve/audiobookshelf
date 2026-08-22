@@ -5,6 +5,7 @@ const axios = require('axios')
 const ssrfFilter = require('ssrf-req-filter')
 const fs = require('../libs/fsExtra')
 const Logger = require('../Logger')
+const prober = require('./prober')
 const { filePathToPOSIX, isSameOrSubPath, getAudioMimeTypeFromExtname } = require('./fileUtils')
 
 const STRM_PREFETCH_SIZE = 10
@@ -95,13 +96,30 @@ async function createRemoteEntry(target, filePath) {
   })
   const body = Buffer.from(response.data)
   if (body.length > STRM_PREFETCH_MAX_BYTES) throw new Error(`Remote STRM target exceeds ${STRM_PREFETCH_MAX_BYTES} bytes`)
-  return { type: 'remote', filePath, target: target.value, body, status: response.status, headers: response.headers }
+  const entry = { type: 'remote', filePath, target: target.value, body, status: response.status, headers: response.headers, duration: 0 }
+  entry.duration = await probeDuration(entry)
+  return entry
+}
+
+async function probeDuration(entry) {
+  try {
+    const result = entry.type === 'remote'
+      ? await prober.probeBuffer(entry.body)
+      : await prober.probe(entry.target)
+    const duration = Number(result?.duration)
+    return Number.isFinite(duration) && duration > 0 ? duration : 0
+  } catch (error) {
+    Logger.warn(`[strmUtils] Failed to probe STRM target duration "${entry.target}": ${error.message}`)
+    return 0
+  }
 }
 
 async function createLocalEntry(target, filePath) {
   const handle = await FsPromises.open(target.value, 'r')
   const stat = await handle.stat()
-  return { type: 'local', filePath, target: target.value, handle, stat }
+  const entry = { type: 'local', filePath, target: target.value, handle, stat, duration: 0 }
+  entry.duration = await probeDuration(entry)
+  return entry
 }
 
 async function createStrmPlaybackWindow(filePaths, startIndex, allowedLocalRoots = []) {

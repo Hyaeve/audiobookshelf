@@ -44,6 +44,7 @@ export default class LocalAudioPlayer extends EventEmitter {
     this.player.addEventListener('ended', this.evtEnded.bind(this))
     this.player.addEventListener('error', this.evtError.bind(this))
     this.player.addEventListener('loadedmetadata', this.evtLoadedMetadata.bind(this))
+    this.player.addEventListener('durationchange', this.evtDurationChange.bind(this))
     this.player.addEventListener('timeupdate', this.evtTimeupdate.bind(this))
 
     var mimeTypes = [
@@ -97,6 +98,7 @@ export default class LocalAudioPlayer extends EventEmitter {
   }
   evtLoadedMetadata(data) {
     if (!this.isHlsTranscode) {
+      this.updateCurrentTrackDuration(this.player.duration)
       this.player.currentTime = this.trackStartTime
     }
 
@@ -107,6 +109,23 @@ export default class LocalAudioPlayer extends EventEmitter {
       this.play()
     }
   }
+  evtDurationChange() {
+    if (!this.isHlsTranscode) this.updateCurrentTrackDuration(this.player.duration)
+  }
+
+  updateCurrentTrackDuration(duration) {
+    if (!this.isValidDuration(duration) || !this.currentTrack) return
+    const oldDuration = Number(this.currentTrack.duration) || 0
+    if (Math.abs(oldDuration - duration) < 0.01) return
+    this.currentTrack.duration = duration
+    let startOffset = 0
+    for (const track of this.audioTracks) {
+      track.startOffset = startOffset
+      startOffset += Number(track.duration) > 0 ? Number(track.duration) : 0
+    }
+    this.emit('durationUpdate', this.getDuration())
+  }
+
   evtTimeupdate() {
     if (this.player.paused) {
       this.emit('timeupdate', this.getCurrentTime())
@@ -261,7 +280,18 @@ export default class LocalAudioPlayer extends EventEmitter {
   getDuration() {
     if (!this.audioTracks.length) return 0
     var lastTrack = this.audioTracks[this.audioTracks.length - 1]
-    return lastTrack.startOffset + lastTrack.duration
+    return (lastTrack.startOffset || 0) + (lastTrack.duration || 0)
+  }
+
+  getPlaybackChapters() {
+    return this.audioTracks
+      .filter((track) => Number(track.duration) > 0)
+      .map((track, index) => ({
+        id: index,
+        start: track.startOffset || 0,
+        end: (track.startOffset || 0) + track.duration,
+        title: track.title || `Chapter ${index + 1}`
+      }))
   }
 
   setPlaybackRate(playbackRate) {
@@ -281,9 +311,9 @@ export default class LocalAudioPlayer extends EventEmitter {
       this.player.currentTime = Math.max(0, offsetTime)
     } else {
       // Seeking Direct play
-      if (time < this.currentTrack.startOffset || time > this.currentTrack.startOffset + this.currentTrack.duration) {
+      if (time < (this.currentTrack.startOffset || 0) || time >= (this.currentTrack.startOffset || 0) + (this.currentTrack.duration || 0)) {
         // Change Track
-        var trackIndex = this.audioTracks.findIndex((t) => time >= t.startOffset && time < t.startOffset + t.duration)
+        var trackIndex = this.audioTracks.findIndex((t) => time >= (t.startOffset || 0) && time < (t.startOffset || 0) + (t.duration || 0))
         if (trackIndex >= 0) {
           this.startTime = time
           this.currentTrackIndex = trackIndex

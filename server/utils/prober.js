@@ -295,32 +295,37 @@ function probe(filepath, verbose = false) {
     ffprobe.FFPROBE_PATH = process.env.FFPROBE_PATH
   }
 
-  return ffprobe(filepath)
+  return parseProbeResult(ffprobe(filepath), verbose)
+}
+
+function probeBuffer(buffer, verbose = false) {
+  if (process.env.FFPROBE_PATH) {
+    ffprobe.FFPROBE_PATH = process.env.FFPROBE_PATH
+  }
+
+  return parseProbeResult(ffprobe.probeBuffer(buffer), verbose)
+}
+
+function parseProbeResult(probePromise, verbose) {
+  return probePromise
     .then((raw) => {
       if (raw.error) {
-        return {
-          error: raw.error.string
-        }
+        return { error: raw.error.string || raw.error }
       }
 
       const rawProbeData = parseProbeData(raw, verbose)
       if (!rawProbeData || (!rawProbeData.audio_stream && !rawProbeData.video_stream)) {
-        return {
-          error: rawProbeData ? 'Invalid media file: no audio or video streams found' : 'Probe Failed'
-        }
-      } else {
-        const probeData = new MediaProbeData()
-        probeData.setData(rawProbeData)
-        return probeData
+        return { error: rawProbeData ? 'Invalid media file: no audio or video streams found' : 'Probe Failed' }
       }
+
+      const probeData = new MediaProbeData()
+      probeData.setData(rawProbeData)
+      return probeData
     })
-    .catch((err) => {
-      return {
-        error: err
-      }
-    })
+    .catch((err) => ({ error: err }))
 }
 module.exports.probe = probe
+module.exports.probeBuffer = probeBuffer
 
 /**
  * Ffprobe for audio file path
