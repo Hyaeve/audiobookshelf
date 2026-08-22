@@ -1,5 +1,6 @@
 const Path = require('path')
 const NativeFs = require('fs')
+const Net = require('net')
 const FsPromises = NativeFs.promises
 const axios = require('axios')
 const ssrfFilter = require('ssrf-req-filter')
@@ -11,6 +12,42 @@ const { filePathToPOSIX, isSameOrSubPath, getAudioMimeTypeFromExtname } = requir
 const STRM_PREFETCH_SIZE = 10
 const STRM_PREFETCH_MAX_BYTES = 512 * 1024 * 1024
 const strmUrlCache = new Map()
+
+function isPrivateStrmHost(targetUrl) {
+  let hostname
+  try {
+    hostname = new URL(targetUrl).hostname
+  } catch (error) {
+    return false
+  }
+
+  const ipVersion = Net.isIP(hostname)
+  if (ipVersion === 4) {
+    const octets = hostname.split('.').map(Number)
+    return octets[0] === 10
+      || octets[0] === 127
+      || (octets[0] === 169 && octets[1] === 254)
+      || (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31)
+      || (octets[0] === 192 && octets[1] === 168)
+  }
+
+  if (ipVersion === 6) {
+    const normalized = hostname.toLowerCase()
+    return normalized === '::1'
+      || normalized.startsWith('fc')
+      || normalized.startsWith('fd')
+      || normalized.startsWith('fe8')
+      || normalized.startsWith('fe9')
+      || normalized.startsWith('fea')
+      || normalized.startsWith('feb')
+  }
+
+  return false
+}
+
+function shouldBypassStrmSsrfFilter(targetUrl) {
+  return Boolean(global.DisableSsrfRequestFilter?.(targetUrl)) || isPrivateStrmHost(targetUrl)
+}
 
 function isStrmPath(filePath) {
   return Path.extname(filePath || '').toLowerCase() === '.strm'
@@ -81,7 +118,7 @@ function getRange(rangeHeader, size) {
 }
 
 async function createRemoteEntry(target, filePath) {
-  const disableSsrfFilter = global.DisableSsrfRequestFilter?.(target.value)
+  const disableSsrfFilter = shouldBypassStrmSsrfFilter(target.value)
   const response = await axios({
     url: target.value,
     method: 'GET',
@@ -130,7 +167,7 @@ async function probeStrmTargetMedia(filePath, allowedLocalRoots = []) {
     return prober.probe(target.value)
   }
 
-  const disableSsrfFilter = global.DisableSsrfRequestFilter?.(target.value)
+  const disableSsrfFilter = shouldBypassStrmSsrfFilter(target.value)
   const response = await axios({
     url: target.value,
     method: 'GET',
@@ -229,7 +266,7 @@ async function proxyStrm(req, res, filePath, allowedLocalRoots = []) {
   if (req.headers.range) headers.Range = req.headers.range
   if (req.headers['if-range']) headers['If-Range'] = req.headers['if-range']
   try {
-    const disableSsrfFilter = global.DisableSsrfRequestFilter?.(target.value)
+    const disableSsrfFilter = shouldBypassStrmSsrfFilter(target.value)
     const response = await axios({ url: target.value, method: 'GET', responseType: 'stream', headers, timeout: 30000, maxRedirects: 5, validateStatus: () => true, httpAgent: disableSsrfFilter ? null : ssrfFilter(target.value), httpsAgent: disableSsrfFilter ? null : ssrfFilter(target.value) })
     copyRemoteHeaders(response.headers, res)
     if (!response.headers['content-type'] || response.headers['content-type'] === 'application/octet-stream') {
@@ -247,4 +284,4 @@ async function proxyStrm(req, res, filePath, allowedLocalRoots = []) {
   }
 }
 
-module.exports = { STRM_PREFETCH_SIZE, isStrmPath, resolveStrmUrl, resolveStrmTarget, probeStrmTargetMedia, prefetchStrmUrls, createStrmPlaybackWindow, closeStrmPlaybackWindow, serveStrmPlaybackWindowEntry, proxyStrm }
+module.exports = { STRM_PREFETCH_SIZE, isStrmPath, isPrivateStrmHost, resolveStrmUrl, resolveStrmTarget, probeStrmTargetMedia, prefetchStrmUrls, createStrmPlaybackWindow, closeStrmPlaybackWindow, serveStrmPlaybackWindowEntry, proxyStrm }

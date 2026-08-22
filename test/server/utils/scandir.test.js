@@ -4,7 +4,7 @@ const os = require('os')
 const chai = require('chai')
 const expect = chai.expect
 const scanUtils = require('../../../server/utils/scandir')
-const { resolveStrmTarget } = require('../../../server/utils/strmUtils')
+const { resolveStrmTarget, isPrivateStrmHost } = require('../../../server/utils/strmUtils')
 
 describe('scanUtils', async () => {
   it('should properly group files into potential book library items', async () => {
@@ -78,6 +78,16 @@ describe('scanUtils', async () => {
     expect(scanUtils.groupFileItemsIntoLibraryItemDirs('book', fileItems, false)).to.deep.equal({
       A: ['A1/七玄门风云-01.strm', 'A1/七玄门风云-02.strm', 'A2/初踏修仙路-01.strm']
     })
+  })
+
+  it('should allow direct private IP STRM targets without disabling public SSRF protection', () => {
+    expect(isPrivateStrmHost('http://10.0.0.31:19527/d/audio.m4a?/chapter.m4a')).to.equal(true)
+    expect(isPrivateStrmHost('http://192.168.1.20/audio.mp3')).to.equal(true)
+    expect(isPrivateStrmHost('http://172.16.4.8/audio.flac')).to.equal(true)
+    expect(isPrivateStrmHost('http://127.0.0.1:8080/audio.m4a')).to.equal(true)
+    expect(isPrivateStrmHost('http://169.254.10.2/audio.m4a')).to.equal(true)
+    expect(isPrivateStrmHost('https://example.com/audio.m4a')).to.equal(false)
+    expect(isPrivateStrmHost('https://8.8.8.8/audio.m4a')).to.equal(false)
   })
 
   it('should resolve local STRM targets without probing the target during scanning', async () => {
