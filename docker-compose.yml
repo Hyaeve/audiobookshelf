@@ -12,9 +12,16 @@ services:
       # 媒体目录可以按需要修改或继续添加。
       - ./audiobooks:/audiobooks
       - ./podcasts:/podcasts
+      # STRM 指向 /NetDisk/... 时，必须把宿主机网盘目录挂载到同名容器路径，
+      # 并在 AudioBookShelf 中将媒体库目录配置为 /NetDisk 或其子目录。
+      # 可通过 NETDISK_PATH 指向宿主机实际网盘路径。
+      - ${NETDISK_PATH:-/NetDisk}:/NetDisk
       # 元数据和配置目录用于持久化服务数据。
       - ./metadata:/metadata
       - ./config:/config
+    environment:
+      # 允许 STRM 跨当前媒体库目录访问已挂载的网盘根目录。
+      - STRM_LOCAL_ROOTS=/NetDisk
     restart: unless-stopped
     # 如需指定用户运行容器，可取消下一行注释并填写正确 UID/GID。
     # user: 1000:1000

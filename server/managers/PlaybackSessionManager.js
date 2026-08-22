@@ -319,9 +319,18 @@ class PlaybackSessionManager {
       await this.closeSession(user, session, null)
     }
 
-    const hasStrmAudio = libraryItem.mediaType === 'podcast'
-      ? libraryItem.media.podcastEpisodes.find((episode) => episode.id === episodeId)?.audioFile?.metadata?.format === 'strm'
-      : libraryItem.media.includedAudioFiles.some((audioFile) => audioFile.metadata?.format === 'strm')
+    const bookStrmAudio = (libraryItem.media?.includedAudioFiles || []).some((audioFile) => {
+      return audioFile.metadata?.format === 'strm' || Path.extname(audioFile.metadata?.path || '').toLowerCase() === '.strm'
+    })
+    const podcastStrmAudio = (libraryItem.media?.podcastEpisodes || []).some((episode) => {
+      if (episodeId && episode.id !== episodeId) return false
+      const audioFile = episode.audioFile
+      return audioFile?.metadata?.format === 'strm' || Path.extname(audioFile?.metadata?.path || '').toLowerCase() === '.strm'
+    })
+    const hasStrmAudio = bookStrmAudio || podcastStrmAudio
+    if (hasStrmAudio) {
+      Logger.info(`[PlaybackSessionManager] STRM media detected for item "${libraryItem.id}"; forcing direct proxy playback`)
+    }
     const shouldDirectPlay = hasStrmAudio || options.forceDirectPlay || (!options.forceTranscode && libraryItem.media.checkCanDirectPlay(options.supportedMimeTypes, episodeId))
     const mediaPlayer = options.mediaPlayer || 'unknown'
 

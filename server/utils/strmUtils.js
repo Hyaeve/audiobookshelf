@@ -19,7 +19,12 @@ async function resolveStrmTarget(filePath, allowedLocalRoots = []) {
   if (!isStrmPath(filePath)) return null
 
   const fileStat = await fs.stat(filePath)
-  const cacheKey = `${filePath}|${fileStat.mtimeMs}|${allowedLocalRoots.join('|')}`
+  const configuredLocalRoots = (process.env.STRM_LOCAL_ROOTS || '')
+    .split(',')
+    .map((root) => root.trim())
+    .filter(Boolean)
+  const effectiveLocalRoots = [...new Set([...allowedLocalRoots, ...configuredLocalRoots])]
+  const cacheKey = `${filePath}|${fileStat.mtimeMs}|${effectiveLocalRoots.join('|')}`
   let cached = strmUrlCache.get(cacheKey)
   if (!cached) {
     cached = fs.readFile(filePath, 'utf8').then(async (contents) => {
@@ -37,7 +42,7 @@ async function resolveStrmTarget(filePath, allowedLocalRoots = []) {
       const isAbsoluteLocalPath = Path.isAbsolute(target) || Path.posix.isAbsolute(target) || Path.win32.isAbsolute(target)
       const localPath = isAbsoluteLocalPath ? target : Path.resolve(Path.dirname(filePath), target)
       const normalizedPath = filePathToPOSIX(Path.normalize(localPath))
-      const normalizedRoots = allowedLocalRoots.map((root) => filePathToPOSIX(Path.normalize(root)))
+      const normalizedRoots = effectiveLocalRoots.map((root) => filePathToPOSIX(Path.normalize(root)))
       if (!normalizedRoots.some((root) => isSameOrSubPath(root, normalizedPath))) {
         throw new Error(`Local STRM target is outside configured library folders: "${normalizedPath}"`)
       }
