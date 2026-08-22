@@ -19,11 +19,9 @@ async function resolveStrmTarget(filePath, allowedLocalRoots = []) {
   if (!isStrmPath(filePath)) return null
 
   const fileStat = await fs.stat(filePath)
-  const configuredLocalRoots = (process.env.STRM_LOCAL_ROOTS || '')
-    .split(',')
-    .map((root) => root.trim())
-    .filter(Boolean)
-  const effectiveLocalRoots = [...new Set([...allowedLocalRoots, ...configuredLocalRoots])]
+  // `/NetDisk` is the standard container mount point for local STRM targets.
+  // It is still checked with stat() and the target must remain inside this root.
+  const effectiveLocalRoots = [...new Set([...allowedLocalRoots, '/NetDisk'])]
   const cacheKey = `${filePath}|${fileStat.mtimeMs}|${effectiveLocalRoots.join('|')}`
   let cached = strmUrlCache.get(cacheKey)
   if (!cached) {
