@@ -1,7 +1,5 @@
 const Path = require('path')
-const NativeFs = require('fs')
 const Net = require('net')
-const FsPromises = NativeFs.promises
 const axios = require('axios')
 const ssrfFilter = require('ssrf-req-filter')
 const fs = require('../libs/fsExtra')
@@ -9,8 +7,7 @@ const Logger = require('../Logger')
 const prober = require('./prober')
 const { filePathToPOSIX, isSameOrSubPath, getAudioMimeTypeFromExtname } = require('./fileUtils')
 
-const STRM_PREFETCH_SIZE = 10
-const STRM_PREFETCH_MAX_BYTES = 512 * 1024 * 1024
+const STRM_SCAN_MAX_BYTES = 512 * 1024 * 1024
 const strmUrlCache = new Map()
 
 function isPrivateStrmHost(targetUrl) {
@@ -47,6 +44,12 @@ function isPrivateStrmHost(targetUrl) {
 
 function shouldBypassStrmSsrfFilter(targetUrl) {
   return Boolean(global.DisableSsrfRequestFilter?.(targetUrl)) || isPrivateStrmHost(targetUrl)
+}
+
+function getStrmScanQps(fileCount) {
+  if (fileCount < 800) return 1
+  if (fileCount <= 2000) return 0.8
+  return 0.5
 }
 
 function isStrmPath(filePath) {
@@ -106,17 +109,6 @@ function copyRemoteHeaders(remoteHeaders, res) {
   }
 }
 
-function getRange(rangeHeader, size) {
-  if (!rangeHeader) return null
-  const match = /^bytes=(\d*)-(\d*)$/i.exec(rangeHeader)
-  if (!match) return null
-  let start = match[1] ? Number.parseInt(match[1], 10) : Math.max(0, size - Number.parseInt(match[2], 10))
-  let end = match[2] ? Number.parseInt(match[2], 10) : size - 1
-  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start > end || start >= size) return 'invalid'
-  end = Math.min(end, size - 1)
-  return { start, end }
-}
-
 async function requestRemoteMedia(targetUrl) {
   const disableSsrfFilter = shouldBypassStrmSsrfFilter(targetUrl)
   const response = await axios({
@@ -125,8 +117,8 @@ async function requestRemoteMedia(targetUrl) {
     responseType: 'arraybuffer',
     timeout: 120000,
     maxRedirects: 5,
-    maxContentLength: STRM_PREFETCH_MAX_BYTES,
-    maxBodyLength: STRM_PREFETCH_MAX_BYTES,
+    maxContentLength: STRM_SCAN_MAX_BYTES,
+    maxBodyLength: STRM_SCAN_MAX_BYTES,
     validateStatus: () => true,
     httpAgent: disableSsrfFilter ? null : ssrfFilter(targetUrl),
     httpsAgent: disableSsrfFilter ? null : ssrfFilter(targetUrl)
@@ -136,39 +128,11 @@ async function requestRemoteMedia(targetUrl) {
     throw new Error(`Remote STRM target returned HTTP ${response.status}`)
   }
   if (!body.length) throw new Error('Remote STRM target returned an empty response')
-  if (body.length > STRM_PREFETCH_MAX_BYTES) throw new Error(`Remote STRM target exceeds ${STRM_PREFETCH_MAX_BYTES} bytes`)
+  if (body.length > STRM_SCAN_MAX_BYTES) throw new Error(`Remote STRM target exceeds ${STRM_SCAN_MAX_BYTES} bytes`)
   return { body, status: response.status, headers: response.headers }
 }
 
-async function createRemoteEntry(target, filePath) {
-  const response = await requestRemoteMedia(target.value)
-  const entry = { type: 'remote', filePath, target: target.value, ...response, duration: 0 }
-  entry.duration = await probeDuration(entry)
-  return entry
-}
-
-async function probeDuration(entry) {
-  try {
-    const result = entry.type === 'remote'
-      ? await prober.probeBuffer(entry.body)
-      : await prober.probe(entry.target)
-    const duration = Number(result?.duration)
-    return Number.isFinite(duration) && duration > 0 ? duration : 0
-  } catch (error) {
-    Logger.warn(`[strmUtils] Failed to probe STRM target duration "${entry.target}": ${error.message}`)
-    return 0
-  }
-}
-
-async function createLocalEntry(target, filePath) {
-  const handle = await FsPromises.open(target.value, 'r')
-  const stat = await handle.stat()
-  const entry = { type: 'local', filePath, target: target.value, handle, stat, duration: 0 }
-  entry.duration = await probeDuration(entry)
-  return entry
-}
-
-async function probeStrmTargetMedia(filePath, allowedLocalRoots = [], cachedEntry = null) {
+async function probeStrmTargetMedia(filePath, allowedLocalRoots = []) {
   const target = await resolveStrmTarget(filePath, allowedLocalRoots)
   if (!target) return null
 
@@ -176,44 +140,12 @@ async function probeStrmTargetMedia(filePath, allowedLocalRoots = [], cachedEntr
     return prober.probe(target.value)
   }
 
-  const cachedBody = cachedEntry?.type === 'remote' && Buffer.isBuffer(cachedEntry.body)
-    ? cachedEntry.body
-    : null
-  const response = cachedBody
-    ? { body: cachedBody, status: cachedEntry.status || 200 }
-    : await requestRemoteMedia(target.value)
+  const response = await requestRemoteMedia(target.value)
   const probeData = await prober.probeBuffer(response.body)
   if (probeData?.error) {
     throw new Error(`Unable to probe remote STRM media (HTTP ${response.status}): ${probeData.error}`)
   }
   return probeData
-}
-
-async function createStrmPlaybackWindow(filePaths, startIndex, allowedLocalRoots = []) {
-  const window = { entries: new Map(), closed: false }
-  const paths = filePaths.slice(startIndex, startIndex + STRM_PREFETCH_SIZE).filter(isStrmPath)
-  await Promise.all(paths.map(async (filePath) => {
-    try {
-      const target = await resolveStrmTarget(filePath, allowedLocalRoots)
-      const entry = target.type === 'remote'
-        ? await createRemoteEntry(target, filePath)
-        : await createLocalEntry(target, filePath)
-      window.entries.set(filePath, entry)
-    } catch (error) {
-      Logger.warn(`[strmUtils] Failed to prefetch STRM file "${filePath}": ${error.message}`)
-    }
-  }))
-  return window
-}
-
-async function closeStrmPlaybackWindow(window) {
-  if (!window || window.closed) return
-  window.closed = true
-  await Promise.all([...window.entries.values()].map(async (entry) => {
-    if (entry.type === 'local' && entry.handle) await entry.handle.close().catch(() => {})
-    if (entry.type === 'remote') entry.body = null
-  }))
-  window.entries.clear()
 }
 
 function getTargetExtension(target) {
@@ -222,33 +154,6 @@ function getTargetExtension(target) {
   } catch (error) {
     return Path.extname(target || '')
   }
-}
-
-async function serveStrmPlaybackWindowEntry(entry, req, res) {
-  const size = entry.type === 'remote' ? entry.body.length : entry.stat.size
-  const mimeType = getAudioMimeTypeFromExtname(getTargetExtension(entry.target))
-  if (mimeType) res.setHeader('Content-Type', mimeType)
-  res.setHeader('Accept-Ranges', 'bytes')
-  const range = getRange(req.headers.range, size)
-  if (range === 'invalid') return res.status(416).setHeader('Content-Range', `bytes */${size}`).send()
-  const start = range?.start || 0
-  const end = range?.end ?? size - 1
-  const length = end - start + 1
-  res.status(range ? 206 : 200)
-  res.setHeader('Content-Length', length)
-  if (range) res.setHeader('Content-Range', `bytes ${start}-${end}/${size}`)
-
-  if (entry.type === 'remote') return res.end(entry.body.subarray(start, end + 1))
-  const stream = entry.handle.createReadStream({ start, end, autoClose: false })
-  stream.on('error', (error) => {
-    if (!res.headersSent) res.sendStatus(502)
-    else res.destroy(error)
-  })
-  stream.pipe(res)
-}
-
-async function prefetchStrmUrls(filePaths, startIndex, allowedLocalRoots = []) {
-  return createStrmPlaybackWindow(filePaths, startIndex, allowedLocalRoots)
 }
 
 async function proxyStrm(req, res, filePath, allowedLocalRoots = []) {
@@ -288,4 +193,4 @@ async function proxyStrm(req, res, filePath, allowedLocalRoots = []) {
   }
 }
 
-module.exports = { STRM_PREFETCH_SIZE, isStrmPath, isPrivateStrmHost, resolveStrmUrl, resolveStrmTarget, probeStrmTargetMedia, prefetchStrmUrls, createStrmPlaybackWindow, closeStrmPlaybackWindow, serveStrmPlaybackWindowEntry, proxyStrm }
+module.exports = { isStrmPath, isPrivateStrmHost, getStrmScanQps, resolveStrmUrl, resolveStrmTarget, probeStrmTargetMedia, proxyStrm }

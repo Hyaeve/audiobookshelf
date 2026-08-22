@@ -4,7 +4,7 @@ const Logger = require('../Logger')
 const Database = require('../Database')
 const { toNumber, isUUID } = require('../utils/index')
 const { getAudioMimeTypeFromExtname, encodeUriPath } = require('../utils/fileUtils')
-const { isStrmPath, serveStrmPlaybackWindowEntry, proxyStrm } = require('../utils/strmUtils')
+const { isStrmPath, proxyStrm } = require('../utils/strmUtils')
 const { PlayMethod } = require('../utils/constants')
 
 const ShareManager = require('../managers/ShareManager')
@@ -314,13 +314,6 @@ class SessionController {
     }
 
     if (isStrmPath(audioTrack.metadata.path)) {
-      const trackIndex = playbackSession.audioTracks.indexOf(audioTrack)
-      if (trackIndex >= 0 && playbackSession.strmPlaybackWindow) {
-        await this.playbackSessionManager.refreshStrmPlaybackWindow(playbackSession, trackIndex)
-      }
-      const cachedEntry = playbackSession.strmPlaybackWindow?.entries.get(audioTrack.metadata.path)
-      if (cachedEntry) return serveStrmPlaybackWindowEntry(cachedEntry, req, res)
-
       const library = await Database.libraryModel.findByIdWithFolders(playbackSession.libraryId)
       const allowedLocalRoots = (library?.libraryFolders || []).map((folder) => folder.path)
       return proxyStrm(req, res, audioTrack.metadata.path, allowedLocalRoots)

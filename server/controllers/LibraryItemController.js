@@ -9,7 +9,7 @@ const Database = require('../Database')
 
 const zipHelpers = require('../utils/zipHelpers')
 const { reqSupportsWebp, clampPositiveInt } = require('../utils/index')
-const { isStrmPath, serveStrmPlaybackWindowEntry, proxyStrm } = require('../utils/strmUtils')
+const { isStrmPath, proxyStrm } = require('../utils/strmUtils')
 const { ScanResult, AudioMimeType } = require('../utils/constants')
 const { getAudioMimeTypeFromExtname, encodeUriPath } = require('../utils/fileUtils')
 const LibraryItemScanner = require('../scanner/LibraryItemScanner')
@@ -987,13 +987,6 @@ class LibraryItemController {
     const libraryFile = req.libraryFile
 
     if (isStrmPath(libraryFile.metadata.path)) {
-      const playbackSession = this.playbackSessionManager?.sessions.find((session) => {
-        if (session.userId !== req.user.id || session.libraryItemId !== req.libraryItem.id) return false
-        return session.audioTracks.some((track) => track.contentUrl?.endsWith(`/file/${req.params.fileid}`))
-      })
-      const cachedEntry = playbackSession?.strmPlaybackWindow?.entries.get(libraryFile.metadata.path)
-      if (cachedEntry) return serveStrmPlaybackWindowEntry(cachedEntry, req, res)
-
       const library = await Database.libraryModel.findByIdWithFolders(req.libraryItem.libraryId)
       const allowedLocalRoots = (library?.libraryFolders || []).map((folder) => folder.path)
       return proxyStrm(req, res, libraryFile.metadata.path, allowedLocalRoots)

@@ -39,7 +39,6 @@ class PlaybackSession {
     this.lastSave = 0
     this.audioTracks = []
     this.stream = null
-    this.strmPlaybackWindow = null
     // Used for share sessions
     this.shareSessionId = null
     this.mediaItemShareId = null

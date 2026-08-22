@@ -11,7 +11,7 @@ const uaParserJs = require('../libs/uaParser')
 const requestIp = require('../libs/requestIp')
 
 const { PlayMethod } = require('../utils/constants')
-const { isStrmPath, createStrmPlaybackWindow, closeStrmPlaybackWindow, probeStrmTargetMedia } = require('../utils/strmUtils')
+const { isStrmPath, getStrmScanQps, probeStrmTargetMedia } = require('../utils/strmUtils')
 const AudioFileScanner = require('../scanner/AudioFileScanner')
 
 const PlaybackSession = require('../objects/PlaybackSession')
@@ -89,9 +89,9 @@ class PlaybackSessionManager {
     const session = await this.startSession(req.user, deviceInfo, libraryItem, episodeId, options)
     res.json(session.toJSONForClient(libraryItem))
 
-    // Do not delay the first playback response while the rest of the book is probed.
+    // Do not delay the first playback response while an incomplete STRM book is scanned.
     if (!episodeId && libraryItem.mediaType === 'book') {
-      void this.completeStrmBookAfterPlayback(libraryItem, session)
+      void this.completeStrmBookAfterPlayback(libraryItem)
     }
   }
 
@@ -379,32 +379,6 @@ class PlaybackSessionManager {
     }
     newPlaybackSession.audioTracks = audioTracks
 
-    if (shouldDirectPlay && audioTracks.some((track) => isStrmPath(track.metadata?.path))) {
-      const library = await Database.libraryModel.findByIdWithFolders(libraryItem.libraryId)
-      const allowedLocalRoots = (library?.libraryFolders || []).map((folder) => folder.path)
-      let startTrackIndex = 0
-      if (userStartTime > 0) {
-        for (let index = 0; index < audioTracks.length; index += 1) {
-          const startOffset = Number(audioTracks[index].startOffset) || 0
-          const duration = Number(audioTracks[index].duration) || 0
-          if (duration > 0 && userStartTime >= startOffset && userStartTime < startOffset + duration) {
-            startTrackIndex = index
-            break
-          }
-        }
-      }
-      const strmPaths = audioTracks.map((track) => track.metadata?.path || '')
-      newPlaybackSession.strmPlaybackWindow = await createStrmPlaybackWindow(strmPaths, startTrackIndex, allowedLocalRoots)
-      newPlaybackSession.strmPlaybackWindow.startIndex = startTrackIndex
-      newPlaybackSession.strmPlaybackWindow.filePaths = strmPaths
-      newPlaybackSession.strmPlaybackWindow.allowedLocalRoots = allowedLocalRoots
-
-      // STRM files are scanned as zero-duration placeholders. Only the playback
-      // window may resolve real metadata. Unknown tracks get a session-only
-      // estimate so clients can seek and render a finite timeline immediately.
-      this.rebuildStrmSessionTimeline(newPlaybackSession)
-    }
-
     this.sessions.push(newPlaybackSession)
     SocketAuthority.adminEmitter('user_stream_update', user.toJSONForPublic(this.sessions))
 
@@ -495,18 +469,23 @@ class PlaybackSessionManager {
       && Number(audioFile.channels) > 0
   }
 
-  completeStrmBookAfterPlayback(libraryItem, session = null) {
+  completeStrmBookAfterPlayback(libraryItem) {
     if (!libraryItem?.media || libraryItem.mediaType !== 'book') return Promise.resolve(false)
 
-    const strmFiles = (libraryItem.media.audioFiles || []).filter((audioFile) => {
-      return isStrmPath(audioFile.metadata?.path) && !this.isCompleteStrmAudioFile(audioFile)
-    })
-    if (!strmFiles.length) return Promise.resolve(false)
+    const allAudioFiles = libraryItem.media.audioFiles || []
+    const allStrmFiles = allAudioFiles.filter((audioFile) => isStrmPath(audioFile.metadata?.path))
+    if (!allStrmFiles.length) return Promise.resolve(false)
+
+    const strmFiles = allStrmFiles.filter((audioFile) => !this.isCompleteStrmAudioFile(audioFile))
+    const hasCompleteBookMetadata = Number(libraryItem.media.duration) > 0
+      && Array.isArray(libraryItem.media.chapters)
+      && libraryItem.media.chapters.length === allAudioFiles.length
+    if (!strmFiles.length && hasCompleteBookMetadata) return Promise.resolve(false)
 
     const existingTask = this.strmCompletionTasks.get(libraryItem.id)
     if (existingTask) return existingTask
 
-    const task = this.completeStrmBook(libraryItem, strmFiles, session?.strmPlaybackWindow)
+    const task = this.completeStrmBook(libraryItem, strmFiles)
       .catch((error) => {
         Logger.warn(`[PlaybackSessionManager] STRM metadata completion failed for book "${libraryItem.id}": ${error.message}`)
         return false
@@ -516,16 +495,23 @@ class PlaybackSessionManager {
     return task
   }
 
-  async completeStrmBook(libraryItem, strmFiles, playbackWindow = null) {
+  async completeStrmBook(libraryItem, strmFiles) {
     const library = await Database.libraryModel.findByIdWithFolders(libraryItem.libraryId)
     const allowedLocalRoots = (library?.libraryFolders || []).map((folder) => folder.path)
+    const totalStrmFiles = (libraryItem.media.audioFiles || []).filter((audioFile) => isStrmPath(audioFile.metadata?.path)).length
+    const qps = getStrmScanQps(totalStrmFiles)
+    const requestIntervalMs = 1000 / qps
     let updatedCount = 0
-    let nextIndex = 0
+
+    if (strmFiles.length) {
+      Logger.info(`[PlaybackSessionManager] Starting full STRM scan for book "${libraryItem.id}" (${strmFiles.length}/${totalStrmFiles} incomplete files, QPS ${qps})`)
+    } else {
+      Logger.info(`[PlaybackSessionManager] Rebuilding book metadata from ${totalStrmFiles} completed STRM tracks for book "${libraryItem.id}"`)
+    }
 
     const completeAudioFile = async (audioFile) => {
       try {
-        const cachedEntry = playbackWindow?.entries.get(audioFile.metadata.path) || null
-        const probeData = await probeStrmTargetMedia(audioFile.metadata.path, allowedLocalRoots, cachedEntry)
+        const probeData = await probeStrmTargetMedia(audioFile.metadata.path, allowedLocalRoots)
         if (!probeData || probeData.error || !(Number(probeData.duration) > 0)) {
           const reason = probeData?.error || 'duration was not detected'
           Logger.warn(`[PlaybackSessionManager] Unable to probe STRM target for "${audioFile.metadata.path}": ${reason}`)
@@ -551,17 +537,15 @@ class PlaybackSessionManager {
       }
     }
 
-    const workers = Array.from({ length: Math.min(3, strmFiles.length) }, async () => {
-      while (nextIndex < strmFiles.length) {
-        const audioFile = strmFiles[nextIndex]
-        nextIndex += 1
-        await completeAudioFile(audioFile)
-      }
-    })
-    await Promise.all(workers)
+    for (const [index, audioFile] of strmFiles.entries()) {
+      if (index > 0) await new Promise((resolve) => setTimeout(resolve, requestIntervalMs))
+      await completeAudioFile(audioFile)
+    }
 
-    if (!updatedCount) return false
-    Logger.info(`[PlaybackSessionManager] Completed metadata for ${updatedCount}/${strmFiles.length} STRM tracks in book "${libraryItem.id}"`)
+    if (strmFiles.length && !updatedCount) return false
+    if (strmFiles.length) {
+      Logger.info(`[PlaybackSessionManager] Completed metadata for ${updatedCount}/${strmFiles.length} STRM tracks in book "${libraryItem.id}"`)
+    }
 
     libraryItem.media.audioFiles = AudioFileScanner.runSmartTrackOrder(libraryItem.relPath, libraryItem.media.audioFiles)
     let duration = 0
@@ -589,69 +573,9 @@ class PlaybackSessionManager {
     return true
   }
 
-  rebuildStrmSessionTimeline(session) {
-    const windowDurations = session.audioTracks.map((track) => {
-      const entry = session.strmPlaybackWindow?.entries.get(track.metadata?.path)
-      const duration = Number(entry?.duration)
-      return Number.isFinite(duration) && duration > 0 ? duration : 0
-    })
-    const knownDurations = session.audioTracks
-      .map((track, index) => Number(track.duration) > 0 ? Number(track.duration) : windowDurations[index])
-      .filter((duration) => Number.isFinite(duration) && duration > 0)
-    const sortedDurations = [...knownDurations].sort((a, b) => a - b)
-    const medianDuration = sortedDurations.length
-      ? sortedDurations[Math.floor(sortedDurations.length / 2)]
-      : 0
-
-    let startOffset = 0
-    const chapters = []
-    for (const [index, track] of session.audioTracks.entries()) {
-      const realDuration = windowDurations[index]
-      if (realDuration > 0) track.duration = realDuration
-      if (!(Number(track.duration) > 0) && medianDuration > 0) track.duration = medianDuration
-      track.startOffset = startOffset
-      const duration = Number(track.duration) > 0 ? Number(track.duration) : 0
-      if (duration > 0) {
-        chapters.push({
-          id: index,
-          start: startOffset,
-          end: startOffset + duration,
-          title: track.title || track.metadata?.filename || `Chapter ${index + 1}`
-        })
-        startOffset += duration
-      }
-    }
-    session.duration = startOffset
-    session.chapters = chapters
-  }
-
-  async refreshStrmPlaybackWindow(session, trackIndex) {
-    const currentWindow = session.strmPlaybackWindow
-    if (!currentWindow || !Array.isArray(currentWindow.filePaths) || trackIndex < 0) return
-    const currentStart = currentWindow.startIndex || 0
-    if (trackIndex >= currentStart && trackIndex < currentStart + 10) return
-
-    const nextWindow = await createStrmPlaybackWindow(
-      currentWindow.filePaths,
-      trackIndex,
-      currentWindow.allowedLocalRoots || []
-    )
-    nextWindow.startIndex = trackIndex
-    nextWindow.filePaths = currentWindow.filePaths
-    nextWindow.allowedLocalRoots = currentWindow.allowedLocalRoots || []
-    await closeStrmPlaybackWindow(currentWindow)
-    session.strmPlaybackWindow = nextWindow
-
-    this.rebuildStrmSessionTimeline(session)
-  }
-
   async removeSession(sessionId) {
     const session = this.sessions.find((s) => s.id === sessionId)
     if (!session) return
-    if (session.strmPlaybackWindow) {
-      await closeStrmPlaybackWindow(session.strmPlaybackWindow)
-      session.strmPlaybackWindow = null
-    }
     if (session.stream) {
       await session.stream.close()
     }
