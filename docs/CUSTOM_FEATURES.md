@@ -1,6 +1,6 @@
 # AudioBookShelf 额外功能维护说明
 
-本文记录本地定制功能，方便后续同步上游 AudioBookShelf 更新。定制功能分为 `strm` 媒体支持、惰性扫描/播放策略和前端主题切换三部分。
+本文记录本地定制功能，方便后续同步上游 AudioBookShelf 更新。定制功能分为 `strm` 媒体支持、惰性扫描/播放策略、媒体库书籍聚合和前端主题切换四部分。
 
 ## 功能清单
 
@@ -29,6 +29,24 @@
 - 会话关闭、删除或过期时释放所有本地文件句柄并清空远程响应 Buffer。
 - 指针解析结果按 `.strm` 文件的 `mtimeMs` 缓存，文件更新后会自动重新读取。
 
+## 有声书目录匹配与章节排序
+
+有声书媒体库使用媒体库根目录下一层文件夹作为一本书的边界。例如媒体库是 `/Read/有声读物/` 时：
+
+- `/Read/有声读物/A`、`B`、`C` 分别识别为三本书，文件夹名用于匹配书名。
+- `/Read/有声读物/A/A1` 和 `/Read/有声读物/A/A2` 不会拆成两本书；它们的媒体文件都归入 `A`，扫描时保留 `A1/...`、`A2/...` 的相对路径。
+- 该规则适用于书籍媒体库；播客继续使用原有的播客分组逻辑。
+- 扫描只读取文件系统目录和文件元数据，不读取 `.strm` 指针内容，也不访问指针目标。
+
+章节排序规则如下：
+
+1. 先取书籍目录下的第一层卷目录进行自然排序，数字按数值比较。因此 `A1` 在 `A2` 前，`A10` 在 `A2` 后。
+2. 每个卷目录内部继续使用原项目的智能排序：优先使用完整且连续的碟号；碟号相同后比较曲目号；文件名曲目号和媒体标签曲目号中信息更完整的一方优先。
+3. 若曲目号相同或缺失，以文件相对路径自然排序作为稳定兜底。
+4. 所有卷按上述顺序拼接后重新生成连续的全书曲目编号，从 1 开始。示例中 `A1/七玄门风云-01...` 到 `A1/七玄门风云-42...` 会先排列，之后才是 `A2/初踏修仙路-01...` 到 `A2/初踏修仙路-36...`。
+
+因此，当前实现不会把两个卷目录中的 `01` 简单地混在一起比较；卷目录是一级排序键，卷内曲目号是二级排序键。
+
 ## 代码锚点
 
 ### 后端 STRM
@@ -37,6 +55,9 @@
 - [`server/objects/files/AudioFile.js`](../server/objects/files/AudioFile.js:112)：创建不依赖远程探测的占位音频对象。
 - [`server/scanner/AudioFileScanner.js`](../server/scanner/AudioFileScanner.js:157)：扫描时识别 `.strm` 并跳过 `ffprobe`。
 - [`server/utils/strmUtils.js`](../server/utils/strmUtils.js:1)：指针解析、URL/本地目标判定、安全校验、十章预取和媒体代理。
+- [`server/utils/scandir.js`](../server/utils/scandir.js:48)：书籍媒体库按根目录下一层文件夹聚合文件。
+- [`server/scanner/AudioFileScanner.js`](../server/scanner/AudioFileScanner.js:52)：按卷目录自然排序，再使用原有碟号/曲目号排序。
+- [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:373)：播放阶段生成真实/估算时间轴和临时章节。
 - [`server/controllers/LibraryItemController.js`](../server/controllers/LibraryItemController.js:986)：实际章节播放入口，传入当前库目录白名单。
 - [`server/models/Book.js`](../server/models/Book.js:278)：含 `.strm` 时允许后端代理直播放。
 - [`server/models/Podcast.js`](../server/models/Podcast.js:302)：播客 `.strm` 章节允许后端代理直播放。
@@ -79,6 +100,7 @@
 4. 运行后端测试和前端构建。
 5. 手工验证三件事：
    - 扫描含 `.strm` 的目录时不会触发远程请求或访问真实本地目标。
+   - 有声书库使用根目录下一层文件夹作为书籍边界，并验证 `A/A1`、`A/A2` 被聚合为同一本书且按卷目录顺序排列。
    - 播放会话启动时从当前章节起对最多十个目标产生真实访问，并验证远程内存缓存、本地句柄缓存、播放阶段时长探测及关闭释放。
    - 播放第 11 章及之后的章节时验证窗口滚动、章节切换、恢复进度、拖动进度条和总时长校正。
    - 容器内执行 `ls /NetDisk/...` 能看到 `.strm` 指向的目标文件；不需要配置额外环境变量。

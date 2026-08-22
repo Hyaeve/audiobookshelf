@@ -391,15 +391,9 @@ class PlaybackSessionManager {
       newPlaybackSession.strmPlaybackWindow.allowedLocalRoots = allowedLocalRoots
 
       // STRM files are scanned as zero-duration placeholders. Only the playback
-      // window is allowed to resolve real media metadata and update this session.
-      let startOffset = 0
-      for (const track of audioTracks) {
-        const entry = newPlaybackSession.strmPlaybackWindow.entries.get(track.metadata?.path)
-        if (entry?.duration > 0) track.duration = entry.duration
-        track.startOffset = startOffset
-        startOffset += Number(track.duration) > 0 ? Number(track.duration) : 0
-      }
-      newPlaybackSession.duration = Math.max(startOffset, Number(newPlaybackSession.duration) || 0)
+      // window may resolve real metadata. Unknown tracks get a session-only
+      // estimate so clients can seek and render a finite timeline immediately.
+      this.rebuildStrmSessionTimeline(newPlaybackSession)
     }
 
     this.sessions.push(newPlaybackSession)
@@ -486,6 +480,42 @@ class PlaybackSessionManager {
     }
   }
 
+  rebuildStrmSessionTimeline(session) {
+    const windowDurations = session.audioTracks.map((track) => {
+      const entry = session.strmPlaybackWindow?.entries.get(track.metadata?.path)
+      const duration = Number(entry?.duration)
+      return Number.isFinite(duration) && duration > 0 ? duration : 0
+    })
+    const knownDurations = session.audioTracks
+      .map((track, index) => Number(track.duration) > 0 ? Number(track.duration) : windowDurations[index])
+      .filter((duration) => Number.isFinite(duration) && duration > 0)
+    const sortedDurations = [...knownDurations].sort((a, b) => a - b)
+    const medianDuration = sortedDurations.length
+      ? sortedDurations[Math.floor(sortedDurations.length / 2)]
+      : 0
+
+    let startOffset = 0
+    const chapters = []
+    for (const [index, track] of session.audioTracks.entries()) {
+      const realDuration = windowDurations[index]
+      if (realDuration > 0) track.duration = realDuration
+      if (!(Number(track.duration) > 0) && medianDuration > 0) track.duration = medianDuration
+      track.startOffset = startOffset
+      const duration = Number(track.duration) > 0 ? Number(track.duration) : 0
+      if (duration > 0) {
+        chapters.push({
+          id: index,
+          start: startOffset,
+          end: startOffset + duration,
+          title: track.title || track.metadata?.filename || `Chapter ${index + 1}`
+        })
+        startOffset += duration
+      }
+    }
+    session.duration = startOffset
+    session.chapters = chapters
+  }
+
   async refreshStrmPlaybackWindow(session, trackIndex) {
     const currentWindow = session.strmPlaybackWindow
     if (!currentWindow || !Array.isArray(currentWindow.filePaths) || trackIndex < 0) return
@@ -503,14 +533,7 @@ class PlaybackSessionManager {
     await closeStrmPlaybackWindow(currentWindow)
     session.strmPlaybackWindow = nextWindow
 
-    let startOffset = 0
-    for (const track of session.audioTracks) {
-      const entry = nextWindow.entries.get(track.metadata?.path)
-      if (entry?.duration > 0) track.duration = entry.duration
-      track.startOffset = startOffset
-      startOffset += Number(track.duration) > 0 ? Number(track.duration) : 0
-    }
-    session.duration = Math.max(session.duration || 0, startOffset)
+    this.rebuildStrmSessionTimeline(session)
   }
 
   async removeSession(sessionId) {

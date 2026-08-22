@@ -98,7 +98,9 @@ export default class LocalAudioPlayer extends EventEmitter {
   }
   evtLoadedMetadata(data) {
     if (!this.isHlsTranscode) {
-      this.updateCurrentTrackDuration(this.player.duration)
+      const requestedTime = this.startTime
+      this.updateCurrentTrackDuration(this.player.duration, requestedTime)
+      this.trackStartTime = Math.max(0, requestedTime - (this.currentTrack.startOffset || 0))
       this.player.currentTime = this.trackStartTime
     }
 
@@ -110,10 +112,10 @@ export default class LocalAudioPlayer extends EventEmitter {
     }
   }
   evtDurationChange() {
-    if (!this.isHlsTranscode) this.updateCurrentTrackDuration(this.player.duration)
+    if (!this.isHlsTranscode) this.updateCurrentTrackDuration(this.player.duration, this.getCurrentTime())
   }
 
-  updateCurrentTrackDuration(duration) {
+  updateCurrentTrackDuration(duration, requestedTime = this.getCurrentTime()) {
     if (!this.isValidDuration(duration) || !this.currentTrack) return
     const oldDuration = Number(this.currentTrack.duration) || 0
     if (Math.abs(oldDuration - duration) < 0.01) return
@@ -123,13 +125,12 @@ export default class LocalAudioPlayer extends EventEmitter {
       track.startOffset = startOffset
       startOffset += Number(track.duration) > 0 ? Number(track.duration) : 0
     }
+    this.trackStartTime = Math.max(0, requestedTime - (this.currentTrack.startOffset || 0))
     this.emit('durationUpdate', this.getDuration())
   }
 
   evtTimeupdate() {
-    if (this.player.paused) {
-      this.emit('timeupdate', this.getCurrentTime())
-    }
+    this.emit('timeupdate', this.getCurrentTime())
   }
 
   destroy() {
@@ -304,6 +305,7 @@ export default class LocalAudioPlayer extends EventEmitter {
     if (!this.player) return
 
     this.playWhenReady = playWhenReady
+    this.startTime = time
 
     if (this.isHlsTranscode) {
       // Seeking HLS stream

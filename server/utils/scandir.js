@@ -65,54 +65,61 @@ function groupFileItemsIntoLibraryItemDirs(mediaType, fileItems, audiobooksOnly,
     }
   })
 
-  // Step 3: Group media files (or non-media files if includeNonMediaFiles is true) in library items
+  // Step 3: Group media files into book folders. For audiobook libraries the
+  // first directory below the library folder is the book boundary, so nested
+  // volumes such as A/A1 and A/A2 remain one library item named A.
   const libraryItemGroup = {}
   mediaFileItems.forEach((item) => {
     const dirparts = item.reldirpath.split('/').filter((p) => !!p)
-    const numparts = dirparts.length
-    let _path = ''
 
+    if (mediaType === 'book' && dirparts.length > 0) {
+      const libraryItemPath = dirparts[0]
+      const relativeFilePath = Path.posix.join(dirparts.slice(1).join('/'), item.name)
+      if (!libraryItemGroup[libraryItemPath]) libraryItemGroup[libraryItemPath] = []
+      libraryItemGroup[libraryItemPath].push(relativeFilePath)
+      return
+    }
+
+    let _path = ''
     if (!dirparts.length) {
       // Media file in root
       libraryItemGroup[item.name] = item.name
     } else {
-      // Iterate over directories in path
-      for (let i = 0; i < numparts; i++) {
-        const dirpart = dirparts.shift()
+      // Preserve the original grouping behavior for non-book media.
+      for (let i = 0; i < dirparts.length; i++) {
+        const dirpart = dirparts[i]
         _path = Path.posix.join(_path, dirpart)
+        const remaining = dirparts.slice(i + 1)
 
         if (libraryItemGroup[_path]) {
-          // Directory already has files, add file
-          const relpath = Path.posix.join(dirparts.join('/'), item.name)
+          const relpath = Path.posix.join(remaining.join('/'), item.name)
           libraryItemGroup[_path].push(relpath)
           return
-        } else if (!dirparts.length) {
-          // This is the last directory, create group
+        } else if (!remaining.length) {
           libraryItemGroup[_path] = [item.name]
           return
-        } else if (dirparts.length === 1 && /^(cd|dis[ck])\s*\d{1,3}$/i.test(dirparts[0])) {
-          // Next directory is the last and is a CD dir, create group
-          libraryItemGroup[_path] = [Path.posix.join(dirparts[0], item.name)]
+        } else if (remaining.length === 1 && /^(cd|dis[ck])\s*\d{1,3}$/i.test(remaining[0])) {
+          libraryItemGroup[_path] = [Path.posix.join(remaining[0], item.name)]
           return
         }
       }
     }
   })
 
-  // Step 4: Add other files into library item groups
+  // Step 4: Add other files to the same book boundary.
   otherFileItems.forEach((item) => {
-    const dirparts = item.reldirpath.split('/')
-    const numparts = dirparts.length
-    let _path = ''
+    const dirparts = item.reldirpath.split('/').filter((p) => !!p)
+    const libraryItemPath = mediaType === 'book' ? dirparts[0] : null
+    if (libraryItemPath && libraryItemGroup[libraryItemPath]) {
+      libraryItemGroup[libraryItemPath].push(Path.posix.join(dirparts.slice(1).join('/'), item.name))
+      return
+    }
 
-    // Iterate over directories in path
-    for (let i = 0; i < numparts; i++) {
-      const dirpart = dirparts.shift()
-      _path = Path.posix.join(_path, dirpart)
+    let _path = ''
+    for (let i = 0; i < dirparts.length; i++) {
+      _path = Path.posix.join(_path, dirparts[i])
       if (libraryItemGroup[_path]) {
-        // Directory is audiobook group
-        const relpath = Path.posix.join(dirparts.join('/'), item.name)
-        libraryItemGroup[_path].push(relpath)
+        libraryItemGroup[_path].push(Path.posix.join(dirparts.slice(i + 1).join('/'), item.name))
         return
       }
     }

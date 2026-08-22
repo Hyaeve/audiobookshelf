@@ -144,10 +144,12 @@ export default {
     chapters() {
       if (this.streamEpisode) return this.streamEpisode.chapters || []
       const mediaChapters = this.media.chapters || []
-      const audioTracks = this.playerHandler.player?.audioTracks || []
+      const player = this.playerHandler.player
+      const audioTracks = player?.audioTracks || []
       const hasStrmAudio = audioTracks.some((track) => /\.strm$/i.test(track.metadata?.path || ''))
-      if (hasStrmAudio && (mediaChapters.length === 0 || mediaChapters.every((chapter) => !chapter.end))) {
-        return this.playerHandler.player.getPlaybackChapters()
+      if (hasStrmAudio && player?.getPlaybackChapters) {
+        const playbackChapters = player.getPlaybackChapters()
+        if (playbackChapters.length) return playbackChapters
       }
       return mediaChapters
     },

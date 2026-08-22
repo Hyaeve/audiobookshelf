@@ -49,9 +49,34 @@ describe('scanUtils', async () => {
       'Book1.m4b': 'Book1.m4b',
       Book1: ['01.strm'],
       Book2: ['audiofile.m4b', 'disk 001/audiofile.m4b', 'disk 002/audiofile.m4b'],
-      'Author/Book3': ['audiofile.mp3', 'Disc 1/audiofile.mp3', 'Disc 2/audiofile.mp3'],
-      'Author/Series/Book4': ['CD1/audiofile.mp3', 'CD2/audiofile.mp3', 'cover.jpg'],
-      'Author/Series2/Book5/deeply/nested': ['cd 01/audiofile.mp3', 'cd 02/audiofile.mp3']
+      Author: [
+        'Book3/audiofile.mp3',
+        'Book3/Disc 1/audiofile.mp3',
+        'Book3/Disc 2/audiofile.mp3',
+        'Series/Book4/CD1/audiofile.mp3',
+        'Series/Book4/CD2/audiofile.mp3',
+        'Series2/Book5/deeply/nested/cd 01/audiofile.mp3',
+        'Series2/Book5/deeply/nested/cd 02/audiofile.mp3',
+        'Series/Book4/cover.jpg',
+        'Series2/Book5/randomfile.js'
+      ]
+    })
+  })
+
+  it('should group nested audiobook volumes under the first-level book folder', async () => {
+    const fileItems = [
+      'A/A1/七玄门风云-01.strm',
+      'A/A1/七玄门风云-02.strm',
+      'A/A2/初踏修仙路-01.strm'
+    ].map((filePath) => ({
+      name: Path.basename(filePath),
+      reldirpath: Path.dirname(filePath),
+      extension: Path.extname(filePath),
+      deep: filePath.split('/').length - 1
+    }))
+
+    expect(scanUtils.groupFileItemsIntoLibraryItemDirs('book', fileItems, false)).to.deep.equal({
+      A: ['A1/七玄门风云-01.strm', 'A1/七玄门风云-02.strm', 'A2/初踏修仙路-01.strm']
     })
   })
 

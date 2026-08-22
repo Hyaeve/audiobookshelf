@@ -52,54 +52,52 @@ class AudioFileScanner {
   runSmartTrackOrder(libraryItemRelPath, audioFiles) {
     if (!audioFiles.length) return []
 
-    let discsFromFilename = []
-    let tracksFromFilename = []
-    let discsFromMeta = []
-    let tracksFromMeta = []
+    const naturalCompare = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' }).compare
+    const getVolumePath = (audioFile) => {
+      const relPath = audioFile.metadata?.relPath || audioFile.metadata?.path || ''
+      const parts = relPath.replace(/\\/g, '/').split('/').filter(Boolean)
+      return parts.length > 1 ? parts[0] : ''
+    }
+    const orderGroup = (group) => {
+      const discsFromFilename = group.map((af) => af.discNumFromFilename).filter((value) => value !== null).sort((a, b) => a - b)
+      const tracksFromFilename = group.map((af) => af.trackNumFromFilename).filter((value) => value !== null).sort((a, b) => a - b)
+      const discsFromMeta = group.map((af) => af.discNumFromMeta).filter((value) => value !== null).sort((a, b) => a - b)
+      const tracksFromMeta = group.map((af) => af.trackNumFromMeta).filter((value) => value !== null).sort((a, b) => a - b)
 
-    audioFiles.forEach((af) => {
-      if (af.discNumFromFilename !== null) discsFromFilename.push(af.discNumFromFilename)
-      if (af.discNumFromMeta !== null) discsFromMeta.push(af.discNumFromMeta)
-      if (af.trackNumFromFilename !== null) tracksFromFilename.push(af.trackNumFromFilename)
-      if (af.trackNumFromMeta !== null) tracksFromMeta.push(af.trackNumFromMeta)
-    })
-    discsFromFilename.sort((a, b) => a - b)
-    discsFromMeta.sort((a, b) => a - b)
-    tracksFromFilename.sort((a, b) => a - b)
-    tracksFromMeta.sort((a, b) => a - b)
+      let discKey = null
+      if (discsFromMeta.length === group.length && this.isSequential(discsFromMeta)) discKey = 'discNumFromMeta'
+      else if (discsFromFilename.length === group.length && this.isSequential(discsFromFilename)) discKey = 'discNumFromFilename'
 
-    let discKey = null
-    if (discsFromMeta.length === audioFiles.length && this.isSequential(discsFromMeta)) {
-      discKey = 'discNumFromMeta'
-    } else if (discsFromFilename.length === audioFiles.length && this.isSequential(discsFromFilename)) {
-      discKey = 'discNumFromFilename'
+      const trackKey = this.removeDupes(tracksFromFilename).length > this.removeDupes(tracksFromMeta).length
+        ? 'trackNumFromFilename'
+        : 'trackNumFromMeta'
+      const compare = (a, b) => {
+        if (discKey) {
+          const discDiff = (a[discKey] ?? Number.MAX_SAFE_INTEGER) - (b[discKey] ?? Number.MAX_SAFE_INTEGER)
+          if (discDiff) return discDiff
+        }
+        const trackDiff = (a[trackKey] ?? Number.MAX_SAFE_INTEGER) - (b[trackKey] ?? Number.MAX_SAFE_INTEGER)
+        if (trackDiff) return trackDiff
+        const aPath = a.metadata?.relPath || a.metadata?.path || ''
+        const bPath = b.metadata?.relPath || b.metadata?.path || ''
+        return naturalCompare(aPath, bPath)
+      }
+      return group.sort(compare)
     }
 
-    let trackKey = null
-    tracksFromFilename = this.removeDupes(tracksFromFilename)
-    tracksFromMeta = this.removeDupes(tracksFromMeta)
-    if (tracksFromFilename.length > tracksFromMeta.length) {
-      trackKey = 'trackNumFromFilename'
-    } else {
-      trackKey = 'trackNumFromMeta'
+    const groups = new Map()
+    for (const audioFile of audioFiles) {
+      const groupKey = getVolumePath(audioFile)
+      if (!groups.has(groupKey)) groups.set(groupKey, [])
+      groups.get(groupKey).push(audioFile)
     }
+    const ordered = [...groups.entries()]
+      .sort(([a], [b]) => naturalCompare(a, b))
+      .flatMap(([, group]) => orderGroup(group))
 
-    if (discKey !== null) {
-      Logger.debug(`[AudioFileScanner] Smart track order for "${libraryItemRelPath}" using disc key ${discKey} and track key ${trackKey}`)
-      audioFiles.sort((a, b) => {
-        let Dx = a[discKey] - b[discKey]
-        if (Dx === 0) Dx = a[trackKey] - b[trackKey]
-        return Dx
-      })
-    } else {
-      Logger.debug(`[AudioFileScanner] Smart track order for "${libraryItemRelPath}" using track key ${trackKey}`)
-      audioFiles.sort((a, b) => a[trackKey] - b[trackKey])
-    }
-
-    for (let i = 0; i < audioFiles.length; i++) {
-      audioFiles[i].index = i + 1
-    }
-    return audioFiles
+    Logger.debug(`[AudioFileScanner] Smart track order for "${libraryItemRelPath}" using volume path then track/disc keys`)
+    ordered.forEach((audioFile, index) => { audioFile.index = index + 1 })
+    return ordered
   }
 
   /**
