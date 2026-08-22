@@ -4,6 +4,7 @@ const Logger = require('../Logger')
 const Database = require('../Database')
 const { toNumber, isUUID } = require('../utils/index')
 const { getAudioMimeTypeFromExtname, encodeUriPath } = require('../utils/fileUtils')
+const { isStrmPath, serveStrmPlaybackWindowEntry, proxyStrm } = require('../utils/strmUtils')
 const { PlayMethod } = require('../utils/constants')
 
 const ShareManager = require('../managers/ShareManager')
@@ -310,6 +311,15 @@ class SessionController {
     if (!audioTrack.metadata?.path) {
       Logger.error(`[SessionController] Invalid audio track "${audioTrack.index}" for session "${req.params.id}"`)
       return res.sendStatus(500)
+    }
+
+    if (isStrmPath(audioTrack.metadata.path)) {
+      const cachedEntry = playbackSession.strmPlaybackWindow?.entries.get(audioTrack.metadata.path)
+      if (cachedEntry) return serveStrmPlaybackWindowEntry(cachedEntry, req, res)
+
+      const library = await Database.libraryModel.findByIdWithFolders(playbackSession.libraryId)
+      const allowedLocalRoots = (library?.libraryFolders || []).map((folder) => folder.path)
+      return proxyStrm(req, res, audioTrack.metadata.path, allowedLocalRoots)
     }
 
     const user = await Database.userModel.getUserById(playbackSession.userId)

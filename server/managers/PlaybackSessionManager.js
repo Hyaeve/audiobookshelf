@@ -319,7 +319,10 @@ class PlaybackSessionManager {
       await this.closeSession(user, session, null)
     }
 
-    const shouldDirectPlay = options.forceDirectPlay || (!options.forceTranscode && libraryItem.media.checkCanDirectPlay(options.supportedMimeTypes, episodeId))
+    const hasStrmAudio = libraryItem.mediaType === 'podcast'
+      ? libraryItem.media.podcastEpisodes.find((episode) => episode.id === episodeId)?.audioFile?.metadata?.format === 'strm'
+      : libraryItem.media.includedAudioFiles.some((audioFile) => audioFile.metadata?.format === 'strm')
+    const shouldDirectPlay = hasStrmAudio || options.forceDirectPlay || (!options.forceTranscode && libraryItem.media.checkCanDirectPlay(options.supportedMimeTypes, episodeId))
     const mediaPlayer = options.mediaPlayer || 'unknown'
 
     const mediaItemId = episodeId || libraryItem.media.id
