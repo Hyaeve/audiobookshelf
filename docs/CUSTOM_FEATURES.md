@@ -1,6 +1,6 @@
 # AudioBookShelf 额外功能维护说明
 
-本文记录本地定制功能，方便后续同步上游 AudioBookShelf 更新。定制功能分为 `strm` 媒体支持、惰性扫描/播放策略、媒体库书籍聚合和前端主题切换四部分。
+本文记录本地定制功能，方便后续同步上游 AudioBookShelf 更新。定制功能分为 STRM 支持、扫描机制、书籍匹配与章节排序、主题切换四部分。
 
 ## 功能清单
 
@@ -15,14 +15,14 @@
 
 扫库时只读取 `.strm` 文件自身的文件系统元数据，不读取指针内容，不执行 `ffprobe`，也不请求远程网盘。
 
-播放会话创建时才读取指针并访问真实目标：
+播放阶段的真实目标访问规则：
 
 - 服务端根据用户恢复进度定位当前章节，从该章节开始按音轨顺序预取最多 10 个 `.strm`。
 - 播放响应返回后，会在后台为当前有声书的全部 `.strm` 音轨执行一次完整探测：本地目标使用真实路径，远程目标使用内存 Buffer 通过 `ffprobe` 标准输入探测，不阻塞首个播放响应。
 - 播放窗口中的目标优先探测并用于当前会话；后台完整探测成功后才把真实 `duration`、编码、码率、声道、标签和内嵌章节持久化到书籍音轨。
 - 远程 URL 发起真实 HTTP(S) 请求，完整响应体仅缓存在当前播放会话内存中，不写入磁盘；播放请求支持 Range，并从内存缓存切片返回。
 - 本地路径在会话创建时打开文件句柄并缓存文件 `stat` 元数据；播放请求从该句柄读取并支持 Range，不重复打开文件。
-- 扫描阶段不会回写真实目标；后台完整探测成功后会更新数据库中的音轨元数据、章节排序和全书总时长。失败的单个目标保留占位数据，不影响当前播放。
+- 扫描阶段不会访问或回写真实目标；播放响应返回后的后台完整探测成功后，才会更新数据库中的音轨元数据、章节排序和全书总时长。失败的单个目标保留占位数据，不影响当前播放。
 - 后台补全任务按书籍 ID 去重，同一本书同时被多个客户端播放时不会重复请求全部目标。
 - 播放请求进入当前窗口之外的章节时，会释放旧窗口并从该章节重新预取最多 10 个目标。
 - 本地目标默认必须位于当前媒体所属库配置的库目录内，并且必须是普通文件，防止 `.strm` 被利用为任意文件读取入口。
@@ -30,6 +30,17 @@
 - 预取窗口中的单个目标失败不会阻断会话，该章节播放请求会回退到普通代理流程。
 - 会话关闭、删除或过期时释放所有本地文件句柄并清空远程响应 Buffer。
 - 指针解析结果按 `.strm` 文件的 `mtimeMs` 缓存，文件更新后会自动重新读取。
+
+## 扫描机制
+
+扫描和播放是两个阶段，职责不能混用：
+
+1. 扫描器递归读取媒体库目录，收集文件名、扩展名、相对路径、大小、时间戳和 inode 等文件系统信息。
+2. `.strm` 被注册为音频扩展，但扫描器遇到 `.strm` 时只创建零时长占位音轨，不读取文件内容，也不调用 `ffprobe`。
+3. 普通音频文件仍按原有流程调用 `ffprobe`，写入真实时长、编码、码率、声道、标签和内嵌章节。
+4. 有声书扫描使用媒体库根目录下一层作为书籍边界，子目录中的音频文件归入对应书籍并保留相对路径。
+5. 用户首次播放含 `.strm` 的有声书后，播放接口立即返回；随后后台逐个探测整本书的真实目标，成功结果写入书籍数据库和 metadata 文件。
+6. 后台补全按书籍 ID 去重，单个目标失败不会中断其他目标。扫描任务本身仍不会因播放而读取 `.strm` 指针。
 
 ## 有声书目录匹配与章节排序
 
@@ -56,7 +67,7 @@
 - [`server/utils/globals.js`](../server/utils/globals.js:1)：将 `strm` 注册到音频扩展列表。
 - [`server/objects/files/AudioFile.js`](../server/objects/files/AudioFile.js:112)：创建不依赖远程探测的占位音频对象。
 - [`server/scanner/AudioFileScanner.js`](../server/scanner/AudioFileScanner.js:157)：扫描时识别 `.strm` 并跳过 `ffprobe`。
-- [`server/utils/strmUtils.js`](../server/utils/strmUtils.js:1)：指针解析、URL/本地目标判定、安全校验、十章预取和媒体代理。
+- [`server/utils/strmUtils.js`](../server/utils/strmUtils.js:1)：指针解析、URL/本地目标判定、安全校验、十章预取、后台探测和媒体代理。
 - [`server/utils/scandir.js`](../server/utils/scandir.js:48)：书籍媒体库按根目录下一层文件夹聚合文件。
 - [`server/scanner/AudioFileScanner.js`](../server/scanner/AudioFileScanner.js:52)：按卷目录自然排序，再使用原有碟号/曲目号排序。
 - [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:373)：播放阶段生成真实/估算时间轴和临时章节。
@@ -68,11 +79,11 @@
 
 - [`client/components/app/ThemeSwitcher.vue`](../client/components/app/ThemeSwitcher.vue:1)：主题按钮、下拉选项、键盘 Escape 关闭、`localStorage` 持久化。
 - [`client/components/app/Appbar.vue`](../client/components/app/Appbar.vue:15)：主题按钮的上游耦合点，位于顶部搜索框右侧工具区。
-- [`client/assets/themes.css`](../client/assets/themes.css:1)：三套主题的 CSS 变量和覆盖规则。
+- [`client/assets/themes.css`](../client/assets/themes.css:1)：经典主题和星空主题的 CSS 变量及覆盖规则。
 - [`client/assets/app.css`](../client/assets/app.css:1)：加载主题覆盖样式。
 - [`client/static/themes/theme-switch.png`](../client/static/themes/theme-switch.png)：主题切换调色盘图标。
 
-## 三套主题
+## 两套主题
 
 - `classic`：原版 Audiobookshelf 配色，不主动改变上游视觉变量。
 - `cosmos`：深蓝黑星空夜间模式，使用星点背景、金色/紫色强调和低亮度表面。
@@ -91,7 +102,8 @@
    - 如果上游调整了库模型查询，重新确认播放会话和播放接口能够获得当前库的 `libraryFolders`。
    - Docker 部署时确认 `.strm` 目标路径已挂载到容器内相同路径；跨库目标使用固定容器根目录 `/NetDisk`，不需要额外环境变量，但不能只挂载宿主机目录而不映射容器路径。
    - 保留会话启动时的十章真实预取、播放阶段时长探测、播放响应后的整书后台补全、内存响应缓存、本地句柄缓存和关闭释放逻辑。
-   - 保留章节请求超出当前窗口时的滚动预取，并同步维护当前会话的 `duration` 与 `startOffset`，不要回写扫描数据库。
+   - 保留章节请求超出当前窗口时的滚动预取，并同步维护当前会话的 `duration` 与 `startOffset`。
+   - 保留播放响应后的整书后台补全：只有后台探测成功后才回写书籍数据库和 metadata 文件，扫描阶段仍不得访问 `.strm` 指针目标。
    - 不要把 `.strm` 真实目标直接交给 FFmpeg，除非另行实现目标解析后的转码输入。
 3. 保留或重新应用主题功能：
    - 保留独立文件 `client/components/app/ThemeSwitcher.vue` 和 `client/assets/themes.css`。
@@ -131,4 +143,4 @@ cd client
 npm run generate
 ```
 
-若上游升级 Tailwind 或 Nuxt，首先检查 `client/assets/tailwind.css` 的颜色变量命名是否变化，再调整 `themes.css` 中的变量覆盖。
+若上游升级 Tailwind 或 Nuxt，首先检查 `client/assets/tailwind.css` 的颜色变量命名是否变化，再调整 `themes.css` 中的经典/星空主题变量覆盖。不要重新添加已移除的 AppleTV 主题或主题描述小字。
