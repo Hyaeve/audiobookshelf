@@ -59,7 +59,9 @@ class ApiRouter {
     this.router = express()
     this.router.disable('x-powered-by')
     this.init()
-    this.cronManager.setMissingItemsCleanupHandler(() => this.runMissingItemsCleanup())
+    if (this.cronManager?.setMissingItemsCleanupHandler) {
+      this.cronManager.setMissingItemsCleanupHandler(() => this.runMissingItemsCleanup())
+    }
   }
 
   init() {
