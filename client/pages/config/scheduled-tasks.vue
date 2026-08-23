@@ -16,16 +16,16 @@
           <p class="text-sm text-gray-300 mt-1">{{ task.description }}</p>
         </div>
         <div class="flex items-center ml-4 shrink-0">
-          <ui-tooltip text="立即执行" direction="bottom">
+          <ui-tooltip :text="isTaskRunning(task) ? '停止任务' : '立即执行'" direction="bottom">
             <button
               type="button"
-              class="scheduled-task-action flex items-center justify-center"
-              :disabled="isTaskRunning(task) || running[task.key]"
-              :title="'立即执行'"
-              :aria-label="'立即执行 ' + task.title"
-              @click="runNow(task)"
+              :class="['scheduled-task-action flex items-center justify-center', { 'scheduled-task-stop': isTaskRunning(task) }]"
+              :disabled="running[task.key + 'Stopping']"
+              :title="isTaskRunning(task) ? '停止任务' : '立即执行'"
+              :aria-label="(isTaskRunning(task) ? '停止任务 ' : '立即执行 ') + task.title"
+              @click="isTaskRunning(task) ? stopTask(task) : runNow(task)"
             >
-              <span class="material-symbols text-4xl">play_arrow</span>
+              <span class="material-symbols text-4xl">{{ isTaskRunning(task) ? 'stop' : 'play_arrow' }}</span>
             </button>
           </ui-tooltip>
           <ui-tooltip text="设置" direction="bottom">
@@ -153,10 +153,14 @@ export default {
   },
   methods: {
     metadataTask() {
-      return this.tasks.find((item) => item.action === 'strm-metadata-completion' && !item.isFinished)
+      return this.tasks.find((item) => item.action === 'strm-metadata-completion' && item.data?.scheduledTask && !item.isFinished)
+    },
+    scheduledTask(task) {
+      const action = task.key === 'metadata' ? 'strm-metadata-completion' : 'missing-items-cleanup'
+      return this.tasks.find((item) => item.action === action && item.data?.scheduledTask && !item.isFinished)
     },
     isTaskRunning(task) {
-      return task.key === 'metadata' ? !!this.metadataTask() : !!this.running[task.key]
+      return !!this.scheduledTask(task) || !!this.running[task.key]
     },
     taskProgress(task) {
       if (task.key !== 'metadata') return 0
@@ -176,6 +180,7 @@ export default {
       if (!lastRun) return ''
       const elapsedMinutes = Math.max(0, Math.floor((Date.now() - lastRun.startedAt) / 60000))
       const ago = elapsedMinutes < 60 ? `${elapsedMinutes} 分钟前` : `${Math.floor(elapsedMinutes / 60)} 小时前`
+      if (task.key === 'missing') return `上次运行：${ago}，清理了 ${Number(lastRun.removed) || 0} 项`
       const durationMinutes = Math.floor(lastRun.durationMs / 60000)
       const duration = durationMinutes < 60
         ? `${durationMinutes} 分钟`
@@ -191,36 +196,40 @@ export default {
       this.showSettings = true
     },
     scheduledTaskFinished(task) {
-      if (task.action !== 'strm-metadata-completion') return
+      const key = task.action === 'strm-metadata-completion' ? 'metadata' : task.action === 'missing-items-cleanup' ? 'missing' : null
+      if (!key) return
       const lastRun = {
         startedAt: task.startedAt || Date.now(),
-        durationMs: Math.max(0, (task.finishedAt || Date.now()) - (task.startedAt || Date.now()))
+        durationMs: Math.max(0, (task.finishedAt || Date.now()) - (task.startedAt || Date.now())),
+        removed: Number(task.data?.result?.removed) || 0
       }
-      this.$set(this.lastRuns, 'metadata', lastRun)
+      this.$set(this.lastRuns, key, lastRun)
+      this.$set(this.running, key, false)
       localStorage.setItem(LAST_RUN_STORAGE_KEY, JSON.stringify(this.lastRuns))
     },
     async runNow(task) {
       this.$set(this.running, task.key, true)
-      const startedAt = Date.now()
       try {
         const path = task.key === 'metadata' ? '/api/strm-metadata-completion/run' : '/api/missing-items-cleanup/run'
-        const result = await this.$axios.$post(path)
-        if (task.key === 'metadata') {
-          this.$toast.success(this.$strings.ToastLibraryMetadataCompletionStarted)
-          return
-        }
-        const lastRun = {
-          startedAt: result.startedAt || startedAt,
-          durationMs: Date.now() - startedAt
-        }
-        this.$set(this.lastRuns, task.key, lastRun)
-        localStorage.setItem(LAST_RUN_STORAGE_KEY, JSON.stringify(this.lastRuns))
+        await this.$axios.$post(path)
         this.$toast.success(task.key === 'metadata' ? this.$strings.ToastLibraryMetadataCompletionStarted : '丢失项目清理已开始')
       } catch (error) {
         console.error(`Failed to run ${task.key} scheduled task`, error)
-        this.$toast.error(task.key === 'metadata' ? this.$strings.ToastLibraryMetadataCompletionFailed : '丢失项目清理失败')
-      } finally {
         this.$set(this.running, task.key, false)
+        this.$toast.error(task.key === 'metadata' ? this.$strings.ToastLibraryMetadataCompletionFailed : '丢失项目清理失败')
+      }
+    },
+    async stopTask(task) {
+      this.$set(this.running, task.key + 'Stopping', true)
+      try {
+        const path = task.key === 'metadata' ? '/api/strm-metadata-completion/stop' : '/api/missing-items-cleanup/stop'
+        const result = await this.$axios.$post(path)
+        if (!result.stopped) this.$set(this.running, task.key, false)
+      } catch (error) {
+        console.error(`Failed to stop ${task.key} scheduled task`, error)
+        this.$toast.error('停止任务失败')
+      } finally {
+        this.$set(this.running, task.key + 'Stopping', false)
       }
     },
     async saveSettings() {
@@ -263,7 +272,13 @@ export default {
   color: var(--abs-theme-muted);
   background: transparent;
   border: 0;
-  transition: color 150ms ease, transform 150ms ease;
+  border-radius: 0.375rem;
+  transition: color 150ms ease, transform 150ms ease, background 150ms ease;
+}
+
+.scheduled-task-stop {
+  color: var(--abs-theme-accent);
+  background: color-mix(in srgb, var(--abs-theme-accent) 18%, transparent);
 }
 
 .scheduled-task-action:hover:not(:disabled) {

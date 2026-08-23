@@ -36,6 +36,7 @@ class PlaybackSessionManager {
     this.strmItemCompletionTasks = new Map()
     this.strmBatchCompletionTasks = new Map()
     this.strmScheduledCompletionTask = null
+    this.strmScheduledCompletionCancelRequested = false
   }
 
   /**
@@ -517,6 +518,15 @@ class PlaybackSessionManager {
   }
 
   async completeStrmBook(libraryItem, strmFiles, options = {}) {
+    const isCancelled = options.isCancelled || (() => false)
+    const wait = (durationMs) => new Promise((resolve) => {
+      const startedAt = Date.now()
+      const check = () => {
+        if (isCancelled() || Date.now() - startedAt >= durationMs) return resolve()
+        setTimeout(check, Math.min(1000, durationMs - (Date.now() - startedAt)))
+      }
+      check()
+    })
     const library = await Database.libraryModel.findByIdWithFolders(libraryItem.libraryId)
     const allowedLocalRoots = (library?.libraryFolders || []).map((folder) => folder.path)
     const totalStrmFiles = (libraryItem.media.audioFiles || []).filter((audioFile) => isStrmPath(audioFile.metadata?.path)).length
@@ -559,13 +569,15 @@ class PlaybackSessionManager {
     }
 
     for (const [index, audioFile] of strmFiles.entries()) {
+      if (isCancelled()) return false
       if (options.throttleState) {
-        if (options.throttleState.scannedTracks > 0) await new Promise((resolve) => setTimeout(resolve, options.throttleState.requestIntervalMs))
+        if (options.throttleState.scannedTracks > 0) await wait(options.throttleState.requestIntervalMs)
         options.throttleState.scannedTracks += 1
         options.throttleState.onTrackScanned?.()
       } else if (index > 0) {
-        await new Promise((resolve) => setTimeout(resolve, requestIntervalMs))
+        await wait(requestIntervalMs)
       }
+      if (isCancelled()) return false
       await completeAudioFile(audioFile)
       if (options.throttleState?.deadline && Date.now() >= options.throttleState.deadline) {
         Logger.info(`[PlaybackSessionManager] STRM metadata completion time limit reached after ${options.throttleState.scannedTracks} tracks`)
@@ -573,7 +585,7 @@ class PlaybackSessionManager {
       }
       if (options.throttleState?.batchSize && options.throttleState.scannedTracks % options.throttleState.batchSize === 0) {
         Logger.info(`[PlaybackSessionManager] STRM metadata completion pausing for 5 minutes after ${options.throttleState.scannedTracks} tracks`)
-        await new Promise((resolve) => setTimeout(resolve, 5 * 60 * 1000))
+        await wait(5 * 60 * 1000)
       }
     }
 
@@ -700,6 +712,7 @@ class PlaybackSessionManager {
   async completeScheduledStrmMetadata(maxHours = 1) {
     if (this.strmScheduledCompletionTask) return this.strmScheduledCompletionTask
 
+    this.strmScheduledCompletionCancelRequested = false
     let task = null
     this.strmScheduledCompletionTask = (async () => {
       const startedAt = Date.now()
@@ -708,7 +721,7 @@ class PlaybackSessionManager {
         text: 'Completing STRM metadata',
         key: 'MessageTaskCompletingStrmMetadata',
         subs: ['']
-      }, null, true, { totalBooks: 0, updatedBooks: 0, totalTracks: 0, scannedTracks: 0, progress: 0 })
+      }, null, true, { scheduledTask: true, totalBooks: 0, updatedBooks: 0, totalTracks: 0, scannedTracks: 0, progress: 0 })
       const items = await Database.libraryItemModel.findAllExpandedWhere({
         mediaType: 'book'
       })
@@ -735,7 +748,7 @@ class PlaybackSessionManager {
       let updated = 0
 
       for (const libraryItem of items) {
-        if (Date.now() >= deadline) break
+        if (this.strmScheduledCompletionCancelRequested || Date.now() >= deadline) break
         // A zero-duration book has not been fully scanned; scan every STRM track in it.
         if (!libraryItem?.media || Number(libraryItem.media.duration) > 0) continue
         const strmFiles = (libraryItem.media.audioFiles || [])
@@ -743,19 +756,25 @@ class PlaybackSessionManager {
         if (!strmFiles.length) continue
         task.data.totalTracks += strmFiles.length
         updateProgress(libraryItem.media.title || libraryItem.title || libraryItem.id)
-        if (await this.completeStrmBook(libraryItem, strmFiles, { qps: settings.strmMetadataCompletionQps, throttleState })) {
+        if (await this.completeStrmBook(libraryItem, strmFiles, {
+          qps: settings.strmMetadataCompletionQps,
+          throttleState,
+          isCancelled: () => this.strmScheduledCompletionCancelRequested
+        })) {
           updated++
           task.data.updatedBooks = updated
         }
       }
 
       const finishedAt = Date.now()
-      task.data.result = { books: items.length, updated }
+      const cancelled = this.strmScheduledCompletionCancelRequested
+      task.data.result = { books: items.length, updated, cancelled }
       task.setFinished(null, true)
       TaskManager.taskFinished(task)
       return {
         books: items.length,
         updated,
+        cancelled,
         startedAt,
         finishedAt,
         durationMs: finishedAt - startedAt
@@ -774,9 +793,16 @@ class PlaybackSessionManager {
       })
       .finally(() => {
         this.strmScheduledCompletionTask = null
+        this.strmScheduledCompletionCancelRequested = false
       })
 
     return this.strmScheduledCompletionTask
+  }
+
+  cancelScheduledStrmMetadata() {
+    if (!this.strmScheduledCompletionTask) return false
+    this.strmScheduledCompletionCancelRequested = true
+    return true
   }
 
   async completeStrmItems(libraryItemIds) {

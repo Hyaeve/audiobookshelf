@@ -5,6 +5,7 @@ const Database = require('../Database')
 const LibraryScanner = require('../scanner/LibraryScanner')
 
 const ShareManager = require('./ShareManager')
+const TaskManager = require('./TaskManager')
 
 class CronManager {
   constructor(podcastManager, playbackSessionManager) {
@@ -18,6 +19,7 @@ class CronManager {
     this.strmMetadataCron = null
     this.missingItemsCleanupCron = null
     this.missingItemsCleanupExecuting = false
+    this.missingItemsCleanupCancelRequested = false
     this.missingItemsCleanupHandler = null
 
     this.podcastCronExpressionsExecuting = []
@@ -156,6 +158,10 @@ class CronManager {
     return this.playbackSessionManager.completeScheduledStrmMetadata(Database.serverSettings.strmMetadataCompletionMaxHours)
   }
 
+  cancelStrmMetadataCompletion() {
+    return this.playbackSessionManager.cancelScheduledStrmMetadata()
+  }
+
   setMissingItemsCleanupHandler(handler) {
     this.missingItemsCleanupHandler = handler
   }
@@ -178,12 +184,28 @@ class CronManager {
   async runMissingItemsCleanup() {
     if (this.missingItemsCleanupExecuting) return { removed: 0, skipped: true }
     this.missingItemsCleanupExecuting = true
+    this.missingItemsCleanupCancelRequested = false
+    const task = TaskManager.createAndAddTask('missing-items-cleanup', 'Cleaning missing items', null, true, { scheduledTask: true, progress: 0 })
     try {
       if (!this.missingItemsCleanupHandler) throw new Error('Missing items cleanup handler is not initialized')
-      return await this.missingItemsCleanupHandler()
+      const result = await this.missingItemsCleanupHandler(() => this.missingItemsCleanupCancelRequested)
+      task.data.result = result
+      task.setFinished(null, true)
+      return result
+    } catch (error) {
+      task.setFailed(error.message || 'Missing items cleanup failed')
+      throw error
     } finally {
+      TaskManager.taskFinished(task)
       this.missingItemsCleanupExecuting = false
+      this.missingItemsCleanupCancelRequested = false
     }
+  }
+
+  cancelMissingItemsCleanup() {
+    if (!this.missingItemsCleanupExecuting) return false
+    this.missingItemsCleanupCancelRequested = true
+    return true
   }
 
   /**

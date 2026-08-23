@@ -636,10 +636,21 @@ class MiscController {
 
   async runMissingItemsCleanup(req, res) {
     if (!req.user.isAdminOrUp) return res.sendStatus(403)
-    res.sendStatus(202)
-    void this.cronManager.runMissingItemsCleanup().catch((error) => {
-      Logger.error('[MiscController] Manual missing items cleanup failed', error)
-    })
+    try {
+      const taskPromise = this.cronManager.runMissingItemsCleanup()
+      taskPromise.catch((error) => {
+        Logger.error('[MiscController] Manual missing items cleanup failed', error)
+      })
+      return res.status(202).json({ startedAt: Date.now() })
+    } catch (error) {
+      Logger.error('[MiscController] Manual missing items cleanup failed to start', error)
+      return res.status(500).send('Missing items cleanup failed')
+    }
+  }
+
+  async stopMissingItemsCleanup(req, res) {
+    if (!req.user.isAdminOrUp) return res.sendStatus(403)
+    return res.json({ stopped: this.cronManager.cancelMissingItemsCleanup() })
   }
 
   async runStrmMetadataCompletion(req, res) {
@@ -654,6 +665,11 @@ class MiscController {
       Logger.error('[MiscController] Manual STRM metadata completion failed to start', error)
       return res.status(500).send('STRM metadata completion failed')
     }
+  }
+
+  async stopStrmMetadataCompletion(req, res) {
+    if (!req.user.isAdminOrUp) return res.sendStatus(403)
+    return res.json({ stopped: this.cronManager.cancelStrmMetadataCompletion() })
   }
 
   validateCronExpression(req, res) {

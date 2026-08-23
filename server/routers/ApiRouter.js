@@ -60,7 +60,7 @@ class ApiRouter {
     this.router.disable('x-powered-by')
     this.init()
     if (this.cronManager?.setMissingItemsCleanupHandler) {
-      this.cronManager.setMissingItemsCleanupHandler(() => this.runMissingItemsCleanup())
+      this.cronManager.setMissingItemsCleanupHandler((isCancelled) => this.runMissingItemsCleanup(isCancelled))
     }
   }
 
@@ -352,7 +352,9 @@ class ApiRouter {
     this.router.post('/upload', MiscController.handleUpload.bind(this))
     this.router.get('/tasks', MiscController.getTasks.bind(this))
     this.router.post('/strm-metadata-completion/run', MiscController.runStrmMetadataCompletion.bind(this))
+    this.router.post('/strm-metadata-completion/stop', MiscController.stopStrmMetadataCompletion.bind(this))
     this.router.post('/missing-items-cleanup/run', MiscController.runMissingItemsCleanup.bind(this))
+    this.router.post('/missing-items-cleanup/stop', MiscController.stopMissingItemsCleanup.bind(this))
     this.router.patch('/settings', MiscController.updateServerSettings.bind(this))
     this.router.patch('/sorting-prefixes', MiscController.updateSortingPrefixes.bind(this))
     this.router.post('/authorize', MiscController.authorize.bind(this))
@@ -369,10 +371,11 @@ class ApiRouter {
     this.router.get('/logger-data', MiscController.getLoggerData.bind(this))
   }
 
-  async runMissingItemsCleanup() {
+  async runMissingItemsCleanup(isCancelled = () => false) {
     const libraries = await Database.libraryModel.findAll()
     let removed = 0
     for (const library of libraries) {
+      if (isCancelled()) return { removed, cancelled: true }
       const missingItems = await Database.libraryItemModel.findAll({
         where: { libraryId: library.id, isMissing: true },
         attributes: ['id', 'mediaId', 'mediaType'],
@@ -382,13 +385,14 @@ class ApiRouter {
         ]
       })
       for (const item of missingItems) {
+        if (isCancelled()) return { removed, cancelled: true }
         const mediaItemIds = item.mediaType === 'podcast' ? item.media.podcastEpisodes.map((episode) => episode.id) : [item.mediaId]
         await this.handleDeleteLibraryItem(item.id, mediaItemIds, library.id)
         removed++
       }
       await Database.resetLibraryIssuesFilterData(library.id)
     }
-    return { removed }
+    return { removed, cancelled: false }
   }
 
   //
