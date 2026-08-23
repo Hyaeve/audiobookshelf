@@ -631,10 +631,13 @@ class MiscController {
   async runStrmMetadataCompletion(req, res) {
     if (!req.user.isAdminOrUp) return res.sendStatus(403)
     try {
-      const result = await this.cronManager.runStrmMetadataCompletion()
-      return res.json(result)
+      const taskPromise = this.cronManager.runStrmMetadataCompletion()
+      taskPromise.catch((error) => {
+        Logger.error('[MiscController] Manual STRM metadata completion failed', error)
+      })
+      return res.status(202).json({ startedAt: Date.now() })
     } catch (error) {
-      Logger.error('[MiscController] Manual STRM metadata completion failed', error)
+      Logger.error('[MiscController] Manual STRM metadata completion failed to start', error)
       return res.status(500).send('STRM metadata completion failed')
     }
   }

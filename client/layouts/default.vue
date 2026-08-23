@@ -258,7 +258,11 @@ export default {
       this.$store.commit('tasks/addUpdateTask', task)
     },
     taskProgress(data) {
-      this.$store.commit('tasks/updateTaskProgress', { libraryItemId: data.libraryItemId, progress: `${Math.round(data.progress)}%` })
+      if (data.taskId) {
+        this.$store.commit('tasks/updateTaskProgress', data)
+      } else if (data.libraryItemId) {
+        this.$store.commit('tasks/updateTaskProgress', { libraryItemId: data.libraryItemId, progress: `${Math.round(data.progress)}%` })
+      }
     },
     metadataEmbedQueueUpdate(data) {
       if (data.queued) {

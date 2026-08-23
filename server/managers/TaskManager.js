@@ -36,6 +36,16 @@ class TaskManager {
     }
   }
 
+  updateTaskProgress(task, progress, data = {}) {
+    Object.assign(task.data, data, { progress })
+    SocketAuthority.emitter('task_progress', {
+      taskId: task.id,
+      action: task.action,
+      data: { ...task.data },
+      progress
+    })
+  }
+
   /**
    * Create new task and add
    *

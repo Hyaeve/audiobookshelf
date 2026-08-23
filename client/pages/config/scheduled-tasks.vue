@@ -8,7 +8,11 @@
       >
         <div class="grow min-w-0">
           <h2 class="text-xl font-semibold leading-tight truncate">{{ task.title }}</h2>
-          <p v-if="lastRunText(task)" class="text-xs text-gray-400 mt-1">{{ lastRunText(task) }}</p>
+          <div v-if="isTaskRunning(task)" class="scheduled-task-progress mt-2">
+            <div class="scheduled-task-progress-bar" :style="{ width: taskProgress(task) + '%' }"></div>
+          </div>
+          <p v-if="isTaskRunning(task)" class="text-xs text-gray-400 mt-1">执行进度 {{ Math.round(taskProgress(task)) }}%</p>
+          <p v-else-if="lastRunText(task)" class="text-xs text-gray-400 mt-1">{{ lastRunText(task) }}</p>
           <p class="text-sm text-gray-300 mt-1">{{ task.description }}</p>
         </div>
         <div class="flex items-center ml-4 shrink-0">
@@ -16,12 +20,12 @@
             <button
               type="button"
               class="scheduled-task-action flex items-center justify-center"
-              :disabled="running[task.key]"
+              :disabled="isTaskRunning(task) || running[task.key]"
               :title="'立即执行'"
               :aria-label="'立即执行 ' + task.title"
               @click="runNow(task)"
             >
-              <span class="material-symbols text-2xl" :class="{ 'animate-spin': running[task.key] }">play_arrow</span>
+              <span class="material-symbols text-4xl">play_arrow</span>
             </button>
           </ui-tooltip>
           <ui-tooltip text="设置" direction="bottom">
@@ -90,6 +94,9 @@ export default {
     }
   },
   computed: {
+    tasks() {
+      return this.$store.state.tasks.tasks || []
+    },
     serverSettings() {
       return this.$store.state.serverSettings || {}
     },
@@ -116,8 +123,22 @@ export default {
     } catch (error) {
       this.lastRuns = {}
     }
+    this.$root.socket?.on('task_finished', this.scheduledTaskFinished)
+  },
+  beforeDestroy() {
+    this.$root.socket?.off('task_finished', this.scheduledTaskFinished)
   },
   methods: {
+    metadataTask() {
+      return this.tasks.find((item) => item.action === 'strm-metadata-completion' && !item.isFinished)
+    },
+    isTaskRunning(task) {
+      return task.key === 'metadata' ? !!this.metadataTask() : !!this.running[task.key]
+    },
+    taskProgress(task) {
+      if (task.key !== 'metadata') return 0
+      return Number(this.metadataTask()?.data?.progress) || 0
+    },
     cronFor(task) {
       return task.key === 'metadata' ? this.serverSettings.strmMetadataCompletionCronExpression : this.serverSettings.missingItemsCleanupCronExpression
     },
@@ -144,17 +165,28 @@ export default {
       this.draftMaxHours = Number(this.serverSettings.strmMetadataCompletionMaxHours) || 1
       this.showSettings = true
     },
+    scheduledTaskFinished(task) {
+      if (task.action !== 'strm-metadata-completion') return
+      const lastRun = {
+        startedAt: task.startedAt || Date.now(),
+        durationMs: Math.max(0, (task.finishedAt || Date.now()) - (task.startedAt || Date.now()))
+      }
+      this.$set(this.lastRuns, 'metadata', lastRun)
+      localStorage.setItem(LAST_RUN_STORAGE_KEY, JSON.stringify(this.lastRuns))
+    },
     async runNow(task) {
       this.$set(this.running, task.key, true)
       const startedAt = Date.now()
       try {
         const path = task.key === 'metadata' ? '/api/strm-metadata-completion/run' : '/api/missing-items-cleanup/run'
         const result = await this.$axios.$post(path)
+        if (task.key === 'metadata') {
+          this.$toast.success(this.$strings.ToastLibraryMetadataCompletionStarted)
+          return
+        }
         const lastRun = {
           startedAt: result.startedAt || startedAt,
-          durationMs: task.key === 'metadata' && Number.isFinite(Number(result.durationMs))
-            ? Number(result.durationMs)
-            : Date.now() - startedAt
+          durationMs: Date.now() - startedAt
         }
         this.$set(this.lastRuns, task.key, lastRun)
         localStorage.setItem(LAST_RUN_STORAGE_KEY, JSON.stringify(this.lastRuns))
@@ -186,6 +218,20 @@ export default {
 </script>
 
 <style scoped>
+.scheduled-task-progress {
+  height: 0.45rem;
+  width: 100%;
+  background: rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.scheduled-task-progress-bar {
+  height: 100%;
+  background: #43b649;
+  transition: width 200ms ease;
+}
+
 .scheduled-task-action {
   width: 2.5rem;
   height: 2.5rem;

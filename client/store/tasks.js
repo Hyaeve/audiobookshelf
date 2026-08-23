@@ -43,6 +43,11 @@ export const mutations = {
     Vue.set(state.audioFilesFinished[payload.libraryItemId], payload.ino, payload.finished)
   },
   updateTaskProgress(state, payload) {
+    if (payload.taskId) {
+      const task = state.tasks.find((item) => item.id === payload.taskId)
+      if (task) Vue.set(task, 'data', { ...(task.data || {}), ...(payload.data || {}), progress: payload.progress })
+      return
+    }
     Vue.set(state.taskProgress, payload.libraryItemId, payload.progress)
   },
   setTasks(state, tasks) {

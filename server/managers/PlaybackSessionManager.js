@@ -28,8 +28,10 @@ class PlaybackSessionManager {
     /** @type {PlaybackSession[]} */
     this.sessions = []
 
-    // Book ids currently being fully probed after STRM playback starts.
-    this.strmCompletionTasks = new Map()
+    // STRM playback completion is globally serialized so concurrent playback
+    // requests cannot exceed the configured remote probe QPS.
+    this.strmCompletionQueue = Promise.resolve()
+    this.strmCompletionQueuedIds = new Set()
     this.strmLibraryCompletionTasks = new Map()
     this.strmItemCompletionTasks = new Map()
     this.strmBatchCompletionTasks = new Map()
@@ -490,16 +492,24 @@ class PlaybackSessionManager {
       && libraryItem.media.chapters.length === allAudioFiles.length
     if (!strmFiles.length && hasCompleteBookMetadata) return Promise.resolve(false)
 
-    const existingTask = this.strmCompletionTasks.get(libraryItem.id)
-    if (existingTask) return existingTask
+    if (this.strmCompletionQueuedIds.has(libraryItem.id)) return false
+    this.strmCompletionQueuedIds.add(libraryItem.id)
 
-    const task = this.completeStrmBook(libraryItem, strmFiles)
-      .catch((error) => {
-        Logger.warn(`[PlaybackSessionManager] STRM metadata completion failed for book "${libraryItem.id}": ${error.message}`)
-        return false
+    const task = this.strmCompletionQueue = this.strmCompletionQueue
+      .catch(() => {})
+      .then(async () => {
+        try {
+          return await this.completeStrmBook(libraryItem, strmFiles, {
+            qps: 0.5,
+            throttleState: { scannedTracks: 0, requestIntervalMs: 2000 }
+          })
+        } catch (error) {
+          Logger.warn(`[PlaybackSessionManager] STRM metadata completion failed for book "${libraryItem.id}": ${error.message}`)
+          return false
+        } finally {
+          this.strmCompletionQueuedIds.delete(libraryItem.id)
+        }
       })
-      .finally(() => this.strmCompletionTasks.delete(libraryItem.id))
-    this.strmCompletionTasks.set(libraryItem.id, task)
     return task
   }
 
@@ -549,6 +559,7 @@ class PlaybackSessionManager {
       if (options.throttleState) {
         if (options.throttleState.scannedTracks > 0) await new Promise((resolve) => setTimeout(resolve, options.throttleState.requestIntervalMs))
         options.throttleState.scannedTracks += 1
+        options.throttleState.onTrackScanned?.()
       } else if (index > 0) {
         await new Promise((resolve) => setTimeout(resolve, requestIntervalMs))
       }
@@ -678,16 +689,31 @@ class PlaybackSessionManager {
   async completeScheduledStrmMetadata(maxHours = 1) {
     if (this.strmScheduledCompletionTask) return this.strmScheduledCompletionTask
 
+    let task = null
     this.strmScheduledCompletionTask = (async () => {
       const startedAt = Date.now()
       const deadline = startedAt + Math.max(0.5, Number(maxHours) || 1) * 60 * 60 * 1000
+      task = TaskManager.createAndAddTask('strm-metadata-completion', {
+        text: 'Completing STRM metadata',
+        key: 'MessageTaskCompletingStrmMetadata'
+      }, null, true, { totalBooks: 0, updatedBooks: 0, totalTracks: 0, scannedTracks: 0, progress: 0 })
       const items = await Database.libraryItemModel.findAllExpandedWhere({
         mediaType: 'book'
       })
+      task.data.totalBooks = items.length
+      const updateProgress = () => {
+        const totalTracks = Math.max(1, task.data.totalTracks || 1)
+        const progress = Math.min(100, (task.data.scannedTracks / totalTracks) * 100)
+        TaskManager.updateTaskProgress(task, progress)
+      }
       const throttleState = {
         scannedTracks: 0,
         requestIntervalMs: 2000,
-        deadline
+        deadline,
+        onTrackScanned: () => {
+          task.data.scannedTracks += 1
+          updateProgress()
+        }
       }
       let updated = 0
 
@@ -698,10 +724,18 @@ class PlaybackSessionManager {
         const strmFiles = (libraryItem.media.audioFiles || [])
           .filter((audioFile) => isStrmPath(audioFile.metadata?.path))
         if (!strmFiles.length) continue
-        if (await this.completeStrmBook(libraryItem, strmFiles, { qps: 0.5, throttleState })) updated++
+        task.data.totalTracks += strmFiles.length
+        updateProgress()
+        if (await this.completeStrmBook(libraryItem, strmFiles, { qps: 0.5, throttleState })) {
+          updated++
+          task.data.updatedBooks = updated
+        }
       }
 
       const finishedAt = Date.now()
+      task.data.result = { books: items.length, updated }
+      task.setFinished(null, true)
+      TaskManager.taskFinished(task)
       return {
         books: items.length,
         updated,
@@ -712,6 +746,13 @@ class PlaybackSessionManager {
     })()
       .catch((error) => {
         Logger.error(`[PlaybackSessionManager] Scheduled STRM metadata completion failed`, error)
+        if (task && !task.isFinished) {
+          task.setFailed({
+            text: error.message || 'STRM metadata completion failed',
+            key: 'MessageTaskCompletingStrmMetadataFailed'
+          })
+          TaskManager.taskFinished(task)
+        }
         throw error
       })
       .finally(() => {
