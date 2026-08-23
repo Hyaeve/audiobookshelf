@@ -499,10 +499,13 @@ class PlaybackSessionManager {
       .catch(() => {})
       .then(async () => {
         try {
-          return await this.completeStrmBook(libraryItem, strmFiles, {
-            qps: 0.5,
-            throttleState: { scannedTracks: 0, requestIntervalMs: 2000 }
+          const result = await this.completeStrmBook(libraryItem, strmFiles, {
+            qps: 2.0,
+            throttleState: { scannedTracks: 0, requestIntervalMs: 1000 / 2.0 }
           })
+          Logger.info(`[PlaybackSessionManager] Waiting 3 minutes before the next queued STRM book completion`)
+          await new Promise((resolve) => setTimeout(resolve, 3 * 60 * 1000))
+          return result
         } catch (error) {
           Logger.warn(`[PlaybackSessionManager] STRM metadata completion failed for book "${libraryItem.id}": ${error.message}`)
           return false
