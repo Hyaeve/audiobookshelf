@@ -82,6 +82,11 @@ export default {
           action: 'match-books',
           value: 'match-books'
         })
+        items.push({
+          text: this.$strings.ButtonCompleteMetadata,
+          action: 'complete-metadata',
+          value: 'complete-metadata'
+        })
       }
       items.push({
         text: this.$strings.ButtonDelete,
@@ -105,6 +110,8 @@ export default {
         this.scan(true)
       } else if (action === 'match-books') {
         this.matchAll()
+      } else if (action === 'complete-metadata') {
+        this.completeMetadata()
       } else if (action === 'delete') {
         this.deleteClick()
       }
@@ -126,6 +133,15 @@ export default {
     },
     editClick() {
       this.$emit('edit', this.library)
+    },
+    completeMetadata() {
+      this.$axios
+        .$post(`/api/libraries/${this.library.id}/complete-metadata`)
+        .then(() => this.$toast.success(this.$strings.ToastLibraryMetadataCompletionStarted))
+        .catch((error) => {
+          console.error('Failed to complete library metadata', error)
+          this.$toast.error(this.$strings.ToastLibraryMetadataCompletionFailed)
+        })
     },
     scan(force = false) {
       this.$store

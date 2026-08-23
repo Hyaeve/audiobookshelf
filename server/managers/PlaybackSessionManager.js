@@ -13,6 +13,7 @@ const requestIp = require('../libs/requestIp')
 const { PlayMethod } = require('../utils/constants')
 const { isStrmPath, getStrmScanQps, probeStrmTargetMedia } = require('../utils/strmUtils')
 const AudioFileScanner = require('../scanner/AudioFileScanner')
+const TaskManager = require('./TaskManager')
 
 const PlaybackSession = require('../objects/PlaybackSession')
 const DeviceInfo = require('../objects/DeviceInfo')
@@ -29,6 +30,7 @@ class PlaybackSessionManager {
 
     // Book ids currently being fully probed after STRM playback starts.
     this.strmCompletionTasks = new Map()
+    this.strmLibraryCompletionTasks = new Map()
   }
 
   /**
@@ -91,7 +93,9 @@ class PlaybackSessionManager {
 
     // Do not delay the first playback response while an incomplete STRM book is scanned.
     if (!episodeId && libraryItem.mediaType === 'book') {
-      void this.completeStrmBookAfterPlayback(libraryItem)
+      void this.completeStrmBookAfterPlayback(libraryItem.id).catch((error) => {
+        Logger.warn(`[PlaybackSessionManager] Failed to start STRM metadata completion for book "${libraryItem.id}": ${error.message}`)
+      })
     }
   }
 
@@ -469,8 +473,9 @@ class PlaybackSessionManager {
       && Number(audioFile.channels) > 0
   }
 
-  completeStrmBookAfterPlayback(libraryItem) {
-    if (!libraryItem?.media || libraryItem.mediaType !== 'book') return Promise.resolve(false)
+  async completeStrmBookAfterPlayback(libraryItemId) {
+    const libraryItem = await Database.libraryItemModel.getExpandedById(libraryItemId)
+    if (!libraryItem?.media || libraryItem.mediaType !== 'book') return false
 
     const allAudioFiles = libraryItem.media.audioFiles || []
     const allStrmFiles = allAudioFiles.filter((audioFile) => isStrmPath(audioFile.metadata?.path))
@@ -571,6 +576,49 @@ class PlaybackSessionManager {
     SocketAuthority.libraryItemEmitter('item_updated', libraryItem)
     Logger.info(`[PlaybackSessionManager] Completed STRM metadata for book "${libraryItem.id}" (${updatedCount}/${strmFiles.length} files)`)
     return true
+  }
+
+  async completeStrmLibrary(libraryId) {
+    const existingTask = this.strmLibraryCompletionTasks.get(libraryId)
+    if (existingTask) return existingTask
+
+    const completionTask = this._completeStrmLibrary(libraryId)
+      .finally(() => this.strmLibraryCompletionTasks.delete(libraryId))
+    this.strmLibraryCompletionTasks.set(libraryId, completionTask)
+    return completionTask
+  }
+
+  async _completeStrmLibrary(libraryId) {
+    const library = await Database.libraryModel.findByIdWithFolders(libraryId)
+    if (!library) throw new Error(`Library not found: ${libraryId}`)
+    if (library.mediaType !== 'book') return { books: 0, updated: 0 }
+
+    const items = await Database.libraryItemModel.findAll({ where: { libraryId } })
+    const taskTitleString = {
+      text: `Completing STRM metadata in "${library.name}" library`,
+      key: 'MessageTaskCompletingStrmMetadata',
+      subs: [library.name]
+    }
+    const task = TaskManager.createAndAddTask('strm-metadata-completion', taskTitleString, null, true, { libraryId, libraryName: library.name })
+    let updated = 0
+    try {
+      for (const item of items) {
+        const expandedItem = await Database.libraryItemModel.getExpandedById(item.id)
+        if (!expandedItem?.media || expandedItem.mediaType !== 'book') continue
+        const strmFiles = (expandedItem.media.audioFiles || []).filter((audioFile) => isStrmPath(audioFile.metadata?.path))
+        if (!strmFiles.length) continue
+        if (await this.completeStrmBook(expandedItem, strmFiles)) updated++
+      }
+      task.setFinished(null, true)
+      task.data.result = { books: items.length, updated }
+      return task.data.result
+    } catch (error) {
+      Logger.error(`[PlaybackSessionManager] STRM library metadata completion failed for library "${libraryId}"`, error)
+      task.setFailed({ text: 'Failed', key: 'MessageTaskFailed' })
+      throw error
+    } finally {
+      TaskManager.taskFinished(task)
+    }
   }
 
   async removeSession(sessionId) {

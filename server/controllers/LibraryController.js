@@ -1274,6 +1274,20 @@ class LibraryController {
   }
 
   /**
+   * POST: /api/libraries/:id/complete-metadata
+   * Probe STRM targets in every audiobook in the library.
+   */
+  async completeMetadata(req, res) {
+    if (!req.user.isAdminOrUp) return res.sendStatus(403)
+    if (req.library.mediaType !== 'book') return res.status(400).send('Metadata completion is only supported for book libraries')
+
+    res.sendStatus(202)
+    void this.playbackSessionManager.completeStrmLibrary(req.library.id).catch((error) => {
+      Logger.error(`[LibraryController] Failed to complete metadata for library "${req.library.id}"`, error)
+    })
+  }
+
+  /**
    * GET: /api/libraries/:id/recent-episodes
    * Used for latest page
    *
