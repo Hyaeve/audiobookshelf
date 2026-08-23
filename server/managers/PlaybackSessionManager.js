@@ -584,8 +584,9 @@ class PlaybackSessionManager {
         break
       }
       if (options.throttleState?.batchSize && options.throttleState.scannedTracks % options.throttleState.batchSize === 0) {
-        Logger.info(`[PlaybackSessionManager] STRM metadata completion pausing for 5 minutes after ${options.throttleState.scannedTracks} tracks`)
-        await wait(5 * 60 * 1000)
+        const pauseMinutes = Number(options.throttleState.pauseMinutes) > 0 ? Number(options.throttleState.pauseMinutes) : 5
+        Logger.info(`[PlaybackSessionManager] STRM metadata completion pausing for ${pauseMinutes} minutes after ${options.throttleState.scannedTracks} tracks`)
+        await wait(pauseMinutes * 60 * 1000)
       }
     }
 
@@ -651,12 +652,28 @@ class PlaybackSessionManager {
       key: 'MessageTaskCompletingStrmMetadata',
       subs: [library.name]
     }
-    const task = TaskManager.createAndAddTask('strm-metadata-completion', taskTitleString, null, true, { libraryId, libraryName: library.name })
+    const task = TaskManager.createAndAddTask('strm-metadata-completion', taskTitleString, null, true, {
+      libraryId,
+      libraryName: library.name,
+      totalBooks: items.length,
+      updatedBooks: 0,
+      totalTracks: 0,
+      scannedTracks: 0,
+      progress: 0,
+      manualLibraryTask: true
+    })
     let updated = 0
     const throttleState = {
       scannedTracks: 0,
       requestIntervalMs: 1000 / 1.5,
-      batchSize: 3000
+      batchSize: 5000,
+      pauseMinutes: 3,
+      onTrackScanned: () => {
+        task.data.scannedTracks = throttleState.scannedTracks
+        const totalTracks = Math.max(1, task.data.totalTracks)
+        task.data.progress = Math.min(100, (task.data.scannedTracks / totalTracks) * 100)
+        TaskManager.updateTaskProgress(task, task.data.progress)
+      }
     }
     try {
       for (const item of items) {
@@ -664,10 +681,16 @@ class PlaybackSessionManager {
         if (!expandedItem?.media || expandedItem.mediaType !== 'book') continue
         const strmFiles = (expandedItem.media.audioFiles || []).filter((audioFile) => isStrmPath(audioFile.metadata?.path))
         if (!strmFiles.length) continue
-        if (await this.completeStrmBook(expandedItem, strmFiles, { qps: 1.5, manualLibraryTask: true, throttleState })) updated++
+        task.data.totalTracks += strmFiles.length
+        task.titleSubs = [expandedItem.media.title || expandedItem.title || expandedItem.id]
+        TaskManager.updateTaskProgress(task, task.data.progress)
+        if (await this.completeStrmBook(expandedItem, strmFiles, { qps: 1.5, manualLibraryTask: true, throttleState })) {
+          updated++
+          task.data.updatedBooks = updated
+        }
       }
       task.setFinished(null, true)
-      task.data.result = { books: items.length, updated }
+      task.data.result = { books: items.length, updated, totalTracks: task.data.totalTracks, scannedTracks: task.data.scannedTracks }
       return task.data.result
     } catch (error) {
       Logger.error(`[PlaybackSessionManager] STRM library metadata completion failed for library "${libraryId}"`, error)

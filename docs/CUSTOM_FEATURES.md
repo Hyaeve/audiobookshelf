@@ -72,13 +72,13 @@
 
 - 有声书详情页三点菜单在“下载”附近提供“补全元数据”。
 - 单本手动补全固定使用 2.0 QPS；每累计扫描 3000 个文件暂停 5 分钟。暂停计数通过该次任务的 `throttleState` 传入扫描核心，避免只配置请求间隔而遗漏批量暂停。
-- 选择多本书籍补全时固定使用 1.5 QPS，并在选中书籍之间共享同一个 `throttleState`；跨书累计每 3000 个文件暂停 5 分钟。媒体库级手动补全按多本规则处理。
+- 选择多本书籍补全时固定使用 1.5 QPS，并在选中书籍之间共享同一个 `throttleState`；跨书累计每 3000 个文件暂停 5 分钟。媒体库级手动补全独立使用 1.5 QPS，并在整个媒体库累计扫描 5000 个文件后暂停 3 分钟。
 - 手动补全接口立即返回 HTTP 202，实际扫描在后台异步执行；任务 Socket 事件反馈运行进度、当前书名和完成/失败状态。
 
 ### 3. 大量音轨按需渲染
 
-- 音轨展开不再一次创建全部表格行，首次只渲染 100 条。
-- 在音轨区域滚动接近底部时，每次追加 100 条，直到全部加载；不改变服务端音轨数据、排序或播放行为。
+- 音轨展开不再一次创建全部表格行，首次只渲染可视区及少量缓冲行。
+- 在音轨区域滚动时仅保留窗口范围内的行，并用上下占位维持完整滚动高度；不改变服务端音轨数据、排序或播放行为。
 
 ### 4. 计划任务：补全元数据与清理丢失项目
 
@@ -112,7 +112,7 @@
 - [`server/managers/CronManager.js`](../server/managers/CronManager.js:123)：计划任务生命周期、cron 调度、统一任务事件和取消状态。
 - [`client/components/tables/TracksTable.vue`](../client/components/tables/TracksTable.vue:18)：大量音轨使用固定行高、上下占位和 requestAnimationFrame 滚动节流的窗口化渲染，避免一次性保留全部音轨行。
 - [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:516)：STRM 目标探测、串行请求间隔及 `throttleState` 批量暂停核心。
-- [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:665)：单本手动补全固定 2.0 QPS、每 3000 文件暂停 5 分钟；多本和媒体库级入口固定 1.5 QPS 并共享计数。
+- [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:665)：单本手动补全固定 2.0 QPS、每 3000 文件暂停 5 分钟；多本入口固定 1.5 QPS 并共享计数，媒体库级入口固定 1.5 QPS、每 5000 文件暂停 3 分钟，并通过任务 Socket 反馈当前书名和扫描进度。
 - [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:689)：计划任务读取服务端 QPS/批量设置，反馈当前书名和进度，并按时限运行。
 - [`server/objects/settings/ServerSettings.js`](../server/objects/settings/ServerSettings.js:49)：计划任务 QPS 和批量阈值的默认值、兼容旧配置及序列化。
 - [`server/controllers/MiscController.js`](../server/controllers/MiscController.js:637)：计划任务运行/停止 API 和管理员权限校验；计划任务设置的 cron、QPS 范围和步长校验位于同文件的设置更新逻辑。
@@ -151,7 +151,7 @@
    - 如果上游调整了库模型查询，重新确认播放会话和播放接口能够获得当前库的 `libraryFolders`。
    - Docker 部署时确认 `.strm` 目标路径已挂载到容器内相同路径；跨库目标使用固定容器根目录 `/NetDisk`，不需要额外环境变量，但不能只挂载宿主机目录而不映射容器路径。
    - 保留当前章节的 STRM 代理播放和播放响应后的整书后台补全；不要重新引入固定数量预取或会话级完整文件缓存。
-   - 保留四类补全入口的限速边界：播放自动补全按请求顺序逐本串行，2.0 QPS，每本完成后暂停 3 分钟；单本手动补全 2.0 QPS；多本和媒体库级手动补全 1.5 QPS，且手动入口跨书共享每 3000 文件暂停 5 分钟；计划任务读取 `strmMetadataCompletionQps` 和 `strmMetadataCompletionBatchSize` 设置。
+   - 保留四类补全入口的限速边界：播放自动补全按请求顺序逐本串行，2.0 QPS，每本完成后暂停 3 分钟；单本手动补全 2.0 QPS；多本手动补全 1.5 QPS，跨书共享每 3000 文件暂停 5 分钟；媒体库级手动补全 1.5 QPS，累计每 5000 文件暂停 3 分钟；计划任务读取 `strmMetadataCompletionQps` 和 `strmMetadataCompletionBatchSize` 设置。
    - 保留播放响应后的整书后台补全：只有后台探测成功后才回写书籍数据库和 metadata 文件，扫描阶段仍不得访问 `.strm` 指针目标。
    - 计划任务页面需要重新接入运行态播放/停止按钮、`task.data.scheduledTask` 过滤和 `task_finished` 结果处理；后端需要重新接入 [`server/managers/CronManager.js`](../server/managers/CronManager.js:155)、[`server/controllers/MiscController.js`](../server/controllers/MiscController.js:637) 与 [`server/routers/ApiRouter.js`](../server/routers/ApiRouter.js:354) 的停止 API。清理摘要依赖 `task.data.result.removed`，不能恢复为耗时显示，也不能把 `0` 项隐藏。
    - 大量音轨页面需要保留 [`client/components/tables/TracksTable.vue`](../client/components/tables/TracksTable.vue:18) 的窗口化渲染：不要恢复为按 100 条不断累积 DOM；保留固定行高、上下占位和滚动帧合并逻辑。
@@ -170,7 +170,7 @@
    - 有声书库使用根目录下一层文件夹作为书籍边界，并验证 `A/A1`、`A/A2` 被聚合为同一本书且按卷目录顺序排列。
    - 播放时验证只访问当前章节目标，章节切换和恢复进度不会额外预取其他章节。
    - 播放响应返回后验证后台按请求顺序逐本以 2.0 QPS 执行完整扫描，每本完成后暂停 3 分钟；成功后数据库中的 STRM 音轨时长、音轨元数据、章节和总时长均被补全；重复播放不会重复请求已完整书籍。
-   - 分别验证详情页单本补全使用 2.0 QPS 且每 3000 文件暂停 5 分钟，选择多本和媒体库级补全使用 1.5 QPS 且跨书累计每 3000 文件暂停 5 分钟。
+   - 分别验证详情页单本补全使用 2.0 QPS 且每 3000 文件暂停 5 分钟，选择多本补全使用 1.5 QPS 且跨书累计每 3000 文件暂停 5 分钟；媒体库三点菜单补全使用 1.5 QPS 且累计每 5000 文件暂停 3 分钟，并能在任务通知中显示当前书名和进度。
    - 在设置侧栏用户下方验证计划任务入口；分别手动执行两条任务，确认清理任务只删除 `isMissing` 数据库项目，不删除文件，也不删除仅 `isInvalid` 的项目。
    - 验证总时长显示为 `0 sec` 的有声书会被补全任务选中，并对该书全部 STRM 音轨执行真实扫描；确认页面显示的是整个扫描任务的服务端总耗时，而不是接口响应耗时。
    - 切换浩瀚星空主题，确认藏蓝/墨紫/炭黑背景及不同颜色和大小的静态星点在桌面和移动端可见且不遮挡交互；切换暗色主题，确认冷灰暗色界面正常显示。
