@@ -278,7 +278,16 @@ export default {
 
 .scheduled-task-stop {
   color: var(--abs-theme-accent);
-  background: color-mix(in srgb, var(--abs-theme-accent) 18%, transparent);
+  background: transparent;
+  border: 0;
+}
+
+.scheduled-task-stop .material-symbols {
+  font-size: 1.75rem;
+  line-height: 1;
+  border: 2px solid currentColor;
+  border-radius: 0.375rem;
+  padding: 0.125rem;
 }
 
 .scheduled-task-action:hover:not(:disabled) {

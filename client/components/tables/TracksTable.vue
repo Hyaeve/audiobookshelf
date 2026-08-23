@@ -26,9 +26,11 @@
             <th class="text-left w-20 hidden sm:table-cell">{{ $strings.LabelDuration }}</th>
             <th class="text-center w-16"></th>
           </tr>
+          <tr v-if="topSpacerHeight" class="tracks-virtual-spacer"><td :colspan="columnCount" :style="{ height: topSpacerHeight + 'px' }"></td></tr>
           <template v-for="track in visibleTracks">
             <tables-audio-tracks-table-row :key="track.index" :track="track" :library-item-id="libraryItemId" :showFullPath="showFullPath" @showMore="showMore" />
           </template>
+          <tr v-if="bottomSpacerHeight" class="tracks-virtual-spacer"><td :colspan="columnCount" :style="{ height: bottomSpacerHeight + 'px' }"></td></tr>
         </table>
       </div>
     </transition>
@@ -55,14 +57,27 @@ export default {
     return {
       showTracks: false,
       showFullPath: false,
-      visibleTrackCount: 100,
+      virtualStart: 0,
+      virtualEnd: 0,
+      rowHeight: 48,
+      overscan: 12,
+      scrollFrame: null,
       selectedAudioFile: null,
       showAudioFileDataModal: false
     }
   },
   computed: {
     visibleTracks() {
-      return this.tracks.slice(0, this.visibleTrackCount)
+      return this.tracks.slice(this.virtualStart, this.virtualEnd)
+    },
+    topSpacerHeight() {
+      return this.virtualStart * this.rowHeight
+    },
+    bottomSpacerHeight() {
+      return Math.max(0, (this.tracks.length - this.virtualEnd) * this.rowHeight)
+    },
+    columnCount() {
+      return this.showFullPath ? 4 : 7
     },
     userCanDownload() {
       return this.$store.getters['user/getUserCanDownload']
@@ -84,17 +99,24 @@ export default {
     },
     clickBar() {
       this.showTracks = !this.showTracks
-      if (this.showTracks) {
-        this.visibleTrackCount = Math.min(100, this.tracks.length)
-        this.$nextTick(this.loadMoreTracks)
-      }
+      if (this.showTracks) this.$nextTick(this.updateVirtualWindow)
+    },
+    updateVirtualWindow() {
+      const viewport = this.$refs.tracksViewport
+      if (!viewport) return
+      const firstVisible = Math.floor(viewport.scrollTop / this.rowHeight)
+      const visibleRows = Math.ceil(viewport.clientHeight / this.rowHeight)
+      const nextStart = Math.max(0, firstVisible - this.overscan)
+      const nextEnd = Math.min(this.tracks.length, firstVisible + visibleRows + this.overscan)
+      if (nextStart !== this.virtualStart) this.virtualStart = nextStart
+      if (nextEnd !== this.virtualEnd) this.virtualEnd = nextEnd
     },
     loadMoreTracks() {
-      const viewport = this.$refs.tracksViewport
-      if (!viewport || this.visibleTrackCount >= this.tracks.length) return
-      if (viewport.scrollTop + viewport.clientHeight >= viewport.scrollHeight - viewport.clientHeight) {
-        this.visibleTrackCount = Math.min(this.visibleTrackCount + 100, this.tracks.length)
-      }
+      if (this.scrollFrame) return
+      this.scrollFrame = requestAnimationFrame(() => {
+        this.scrollFrame = null
+        this.updateVirtualWindow()
+      })
     },
     showMore(audioFile) {
       this.selectedAudioFile = audioFile
@@ -102,9 +124,36 @@ export default {
     }
   },
   mounted() {
+    this.virtualEnd = Math.min(this.tracks.length, this.overscan + 20)
     if (this.userIsAdmin) {
       this.showFullPath = !!Number(localStorage.getItem('showFullPath') || 0)
+    }
+  },
+  beforeDestroy() {
+    if (this.scrollFrame) cancelAnimationFrame(this.scrollFrame)
+  },
+  watch: {
+    tracks() {
+      this.virtualStart = 0
+      this.virtualEnd = Math.min(this.tracks.length, this.overscan + 20)
+      if (this.showTracks) this.$nextTick(this.updateVirtualWindow)
     }
   }
 }
 </script>
+
+<style scoped>
+.tracksTable :deep(tr:not(.tracks-virtual-spacer):not(:first-child)) {
+  height: 48px;
+}
+
+.tracks-virtual-spacer,
+.tracks-virtual-spacer:hover {
+  background: transparent;
+}
+
+.tracks-virtual-spacer td {
+  padding: 0;
+  border: 0;
+}
+</style>

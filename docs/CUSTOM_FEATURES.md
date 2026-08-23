@@ -83,7 +83,7 @@
 ### 4. 计划任务：补全元数据与清理丢失项目
 
 - 设置页面的用户下方新增“计划任务”入口，页面适配项目现有主题变量。
-- 页面提供“补全元数据”和“清理丢失项目”两条紧凑横条；每条依次显示大字功能标题、已运行后的上次运行摘要和小字描述，右侧显示立即执行、运行中的停止按钮与竖三点图标。空闲时使用播放图标，运行时切换为圆角方形停止按钮；停止按钮调用对应停止 API，服务端协作式取消后才结束任务。
+- 页面提供“补全元数据”和“清理丢失项目”两条紧凑横条；每条依次显示大字功能标题、已运行后的上次运行摘要和小字描述，右侧显示立即执行、运行中的镂空圆角方框停止图标与竖三点图标。停止图标不使用发光或填充背景区域，点击热区仍保持足够大小；停止按钮调用对应停止 API，服务端协作式取消后才结束任务。
 - 两项任务接口立即返回 HTTP 202，任务 Socket 事件负责反馈运行状态和完成结果。页面按 `task.data.scheduledTask` 区分计划任务与普通手动补全，避免误显示停止按钮；任务完成后在浏览器本地记录上次运行摘要。
 - 补全元数据只处理总时长为 `0 sec` 的有声书；每本符合条件的书会将全部 STRM 音轨交给真实目标探测和元数据扫描流程，已有总时长的书籍跳过。
 - 补全元数据支持 cron 表达式和单次最长执行时间，时间限制使用可直接输入的数字步进框，最小 0.5 小时、步长 0.5 小时；服务端校验 cron 和步长。计划任务 QPS 设置字段为 `strmMetadataCompletionQps`，默认 1.0，范围 0.1 至 10.0、步长 0.1。计划任务批量暂停设置字段为 `strmMetadataCompletionBatchSize`，默认 5000、最小 500、步长 500；达到配置阈值后暂停 5 分钟，并受单次小时数截止时间限制。
@@ -110,6 +110,7 @@
 - [`client/pages/config/scheduled-tasks.vue`](../client/pages/config/scheduled-tasks.vue:1)：计划任务页面、补全元数据和清理丢失项目任务条。
 - [`client/components/app/ConfigSideNav.vue`](../client/components/app/ConfigSideNav.vue:57)：设置页面用户下方的计划任务入口。
 - [`server/managers/CronManager.js`](../server/managers/CronManager.js:123)：计划任务生命周期、cron 调度、统一任务事件和取消状态。
+- [`client/components/tables/TracksTable.vue`](../client/components/tables/TracksTable.vue:18)：大量音轨使用固定行高、上下占位和 requestAnimationFrame 滚动节流的窗口化渲染，避免一次性保留全部音轨行。
 - [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:516)：STRM 目标探测、串行请求间隔及 `throttleState` 批量暂停核心。
 - [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:665)：单本手动补全固定 2.0 QPS、每 3000 文件暂停 5 分钟；多本和媒体库级入口固定 1.5 QPS 并共享计数。
 - [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:689)：计划任务读取服务端 QPS/批量设置，反馈当前书名和进度，并按时限运行。
@@ -153,6 +154,7 @@
    - 保留四类补全入口的限速边界：播放自动补全按请求顺序逐本串行，2.0 QPS，每本完成后暂停 3 分钟；单本手动补全 2.0 QPS；多本和媒体库级手动补全 1.5 QPS，且手动入口跨书共享每 3000 文件暂停 5 分钟；计划任务读取 `strmMetadataCompletionQps` 和 `strmMetadataCompletionBatchSize` 设置。
    - 保留播放响应后的整书后台补全：只有后台探测成功后才回写书籍数据库和 metadata 文件，扫描阶段仍不得访问 `.strm` 指针目标。
    - 计划任务页面需要重新接入运行态播放/停止按钮、`task.data.scheduledTask` 过滤和 `task_finished` 结果处理；后端需要重新接入 [`server/managers/CronManager.js`](../server/managers/CronManager.js:155)、[`server/controllers/MiscController.js`](../server/controllers/MiscController.js:637) 与 [`server/routers/ApiRouter.js`](../server/routers/ApiRouter.js:354) 的停止 API。清理摘要依赖 `task.data.result.removed`，不能恢复为耗时显示，也不能把 `0` 项隐藏。
+   - 大量音轨页面需要保留 [`client/components/tables/TracksTable.vue`](../client/components/tables/TracksTable.vue:18) 的窗口化渲染：不要恢复为按 100 条不断累积 DOM；保留固定行高、上下占位和滚动帧合并逻辑。
    - 不要把 `.strm` 真实目标直接交给 FFmpeg，除非另行实现目标解析后的转码输入。
 3. 保留或重新应用主题功能：
    - 保留独立文件 `client/components/app/ThemeSwitcher.vue` 和 `client/assets/themes.css`。
