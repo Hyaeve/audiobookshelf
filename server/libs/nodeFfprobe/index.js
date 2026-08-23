@@ -12,24 +12,31 @@ module.exports = (function () {
     return new Promise((resolve, reject) => {
       const proc = spawn(module.exports.FFPROBE_PATH || 'ffprobe', [...probeArgs, isBuffer ? 'pipe:0' : input])
       const probeData = []
+      const probeErrors = []
 
       proc.stdout.setEncoding('utf8')
       proc.stderr.setEncoding('utf8')
 
       proc.stdout.on('data', (data) => probeData.push(data))
+      proc.stderr.on('data', (data) => probeErrors.push(data))
       proc.on('error', reject)
       proc.on('close', (code) => {
         try {
           const result = JSON.parse(probeData.join(''))
-          if (code !== 0 && result.error) resolve(result)
-          else resolve(result)
+          resolve(result)
         } catch (error) {
-          reject(error)
+          const stderr = probeErrors.join('').trim()
+          reject(new Error(stderr || `ffprobe exited with code ${code} without valid JSON output`, { cause: error }))
         }
       })
 
       if (isBuffer) {
-        proc.stdin.on('error', reject)
+        // ffprobe may stop reading once it has enough data, causing a harmless EPIPE
+        // while the remaining buffer is being written to stdin. The close handler
+        // remains the source of truth because it parses ffprobe's complete output.
+        proc.stdin.on('error', (error) => {
+          if (error.code !== 'EPIPE') reject(error)
+        })
         proc.stdin.end(input)
       }
     })
