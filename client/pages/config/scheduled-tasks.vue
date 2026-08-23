@@ -272,22 +272,12 @@ export default {
   color: var(--abs-theme-muted);
   background: transparent;
   border: 0;
-  border-radius: 0.375rem;
-  transition: color 150ms ease, transform 150ms ease, background 150ms ease;
+  transition: color 150ms ease, transform 150ms ease;
 }
 
 .scheduled-task-stop {
   color: var(--abs-theme-accent);
   background: transparent;
-  border: 0;
-}
-
-.scheduled-task-stop .material-symbols {
-  font-size: 1.75rem;
-  line-height: 1;
-  border: 2px solid currentColor;
-  border-radius: 0.375rem;
-  padding: 0.125rem;
 }
 
 .scheduled-task-action:hover:not(:disabled) {
