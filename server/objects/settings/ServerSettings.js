@@ -45,9 +45,10 @@ class ServerSettings {
     // Podcasts
     this.podcastEpisodeSchedule = '0 * * * *' // Every hour
 
-    // Custom STRM metadata completion schedule
+    // Custom maintenance schedules
     this.strmMetadataCompletionCronExpression = null
     this.strmMetadataCompletionMaxHours = 1
+    this.missingItemsCleanupCronExpression = null
 
     // Sorting
     this.sortingIgnorePrefix = false
@@ -121,6 +122,7 @@ class ServerSettings {
     this.bookshelfView = settings.bookshelfView || BookshelfView.STANDARD
     this.strmMetadataCompletionCronExpression = settings.strmMetadataCompletionCronExpression || null
     this.strmMetadataCompletionMaxHours = Number(settings.strmMetadataCompletionMaxHours) > 0 ? Number(settings.strmMetadataCompletionMaxHours) : 1
+    this.missingItemsCleanupCronExpression = settings.missingItemsCleanupCronExpression || null
 
     this.sortingIgnorePrefix = !!settings.sortingIgnorePrefix
     this.sortingPrefixes = settings.sortingPrefixes || ['the']
@@ -236,6 +238,7 @@ class ServerSettings {
       podcastEpisodeSchedule: this.podcastEpisodeSchedule,
       strmMetadataCompletionCronExpression: this.strmMetadataCompletionCronExpression,
       strmMetadataCompletionMaxHours: this.strmMetadataCompletionMaxHours,
+      missingItemsCleanupCronExpression: this.missingItemsCleanupCronExpression,
       sortingIgnorePrefix: this.sortingIgnorePrefix,
       sortingPrefixes: [...this.sortingPrefixes],
       chromecastEnabled: this.chromecastEnabled,

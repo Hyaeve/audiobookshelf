@@ -16,6 +16,9 @@ class CronManager {
     this.libraryScanCrons = []
     this.podcastCrons = []
     this.strmMetadataCron = null
+    this.missingItemsCleanupCron = null
+    this.missingItemsCleanupExecuting = false
+    this.missingItemsCleanupHandler = null
 
     this.podcastCronExpressionsExecuting = []
   }
@@ -29,6 +32,7 @@ class CronManager {
     this.initOpenSessionCleanupCron()
     this.initLibraryScanCrons(libraries)
     this.updateStrmMetadataCron()
+    this.updateMissingItemsCleanupCron()
     await this.initPodcastCrons()
   }
 
@@ -150,6 +154,36 @@ class CronManager {
 
   async runStrmMetadataCompletion() {
     return this.playbackSessionManager.completeScheduledStrmMetadata(Database.serverSettings.strmMetadataCompletionMaxHours)
+  }
+
+  setMissingItemsCleanupHandler(handler) {
+    this.missingItemsCleanupHandler = handler
+  }
+
+  updateMissingItemsCleanupCron() {
+    const expression = Database.serverSettings.missingItemsCleanupCronExpression
+    if (this.missingItemsCleanupCron && (!expression || this.missingItemsCleanupCron.expression !== expression)) {
+      this.missingItemsCleanupCron.task.stop()
+      this.missingItemsCleanupCron = null
+    }
+    if (!expression || this.missingItemsCleanupCron) return
+    if (!cron.validate(expression)) {
+      Logger.error(`[CronManager] Invalid missing items cleanup cron expression "${expression}"`)
+      return
+    }
+    const task = cron.schedule(expression, () => this.runMissingItemsCleanup())
+    this.missingItemsCleanupCron = { expression, task }
+  }
+
+  async runMissingItemsCleanup() {
+    if (this.missingItemsCleanupExecuting) return { removed: 0, skipped: true }
+    this.missingItemsCleanupExecuting = true
+    try {
+      if (!this.missingItemsCleanupHandler) throw new Error('Missing items cleanup handler is not initialized')
+      return await this.missingItemsCleanupHandler()
+    } finally {
+      this.missingItemsCleanupExecuting = false
+    }
   }
 
   /**

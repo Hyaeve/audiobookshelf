@@ -59,6 +59,7 @@ class ApiRouter {
     this.router = express()
     this.router.disable('x-powered-by')
     this.init()
+    this.cronManager.setMissingItemsCleanupHandler(() => this.runMissingItemsCleanup())
   }
 
   init() {
@@ -349,6 +350,7 @@ class ApiRouter {
     this.router.post('/upload', MiscController.handleUpload.bind(this))
     this.router.get('/tasks', MiscController.getTasks.bind(this))
     this.router.post('/strm-metadata-completion/run', MiscController.runStrmMetadataCompletion.bind(this))
+    this.router.post('/missing-items-cleanup/run', MiscController.runMissingItemsCleanup.bind(this))
     this.router.patch('/settings', MiscController.updateServerSettings.bind(this))
     this.router.patch('/sorting-prefixes', MiscController.updateSortingPrefixes.bind(this))
     this.router.post('/authorize', MiscController.authorize.bind(this))
@@ -363,6 +365,28 @@ class ApiRouter {
     this.router.patch('/auth-settings', MiscController.updateAuthSettings.bind(this))
     this.router.post('/watcher/update', MiscController.updateWatchedPath.bind(this))
     this.router.get('/logger-data', MiscController.getLoggerData.bind(this))
+  }
+
+  async runMissingItemsCleanup() {
+    const libraries = await Database.libraryModel.findAll()
+    let removed = 0
+    for (const library of libraries) {
+      const missingItems = await Database.libraryItemModel.findAll({
+        where: { libraryId: library.id, isMissing: true },
+        attributes: ['id', 'mediaId', 'mediaType'],
+        include: [
+          { model: Database.podcastModel, attributes: ['id'], include: { model: Database.podcastEpisodeModel, attributes: ['id'] } },
+          { model: Database.bookModel, attributes: ['id'], include: [{ model: Database.bookAuthorModel, attributes: ['authorId'] }, { model: Database.bookSeriesModel, attributes: ['seriesId'] }] }
+        ]
+      })
+      for (const item of missingItems) {
+        const mediaItemIds = item.mediaType === 'podcast' ? item.media.podcastEpisodes.map((episode) => episode.id) : [item.mediaId]
+        await this.handleDeleteLibraryItem(item.id, mediaItemIds, library.id)
+        removed++
+      }
+      await Database.resetLibraryIssuesFilterData(library.id)
+    }
+    return { removed }
   }
 
   //

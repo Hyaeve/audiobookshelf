@@ -654,17 +654,12 @@ class LibraryController {
     }
 
     const libraryItemsWithIssues = await Database.libraryItemModel.findAll({
-      where: {
-        libraryId: req.library.id,
-        [Sequelize.Op.or]: [
-          {
-            isMissing: true
+      where: req.query?.missingOnly === '1'
+        ? { libraryId: req.library.id, isMissing: true }
+        : {
+            libraryId: req.library.id,
+            [Sequelize.Op.or]: [{ isMissing: true }, { isInvalid: true }]
           },
-          {
-            isInvalid: true
-          }
-        ]
-      },
       attributes: ['id', 'mediaId', 'mediaType'],
       include: [
         {
@@ -697,7 +692,7 @@ class LibraryController {
       return res.sendStatus(200)
     }
 
-    Logger.info(`[LibraryController] Removing ${libraryItemsWithIssues.length} items with issues`)
+    Logger.info(`[LibraryController] Removing ${libraryItemsWithIssues.length} ${req.query?.missingOnly === '1' ? 'missing' : 'issue'} items`)
     const authorIds = []
     const seriesIds = []
     for (const libraryItem of libraryItemsWithIssues) {
@@ -724,8 +719,9 @@ class LibraryController {
       await this.checkRemoveEmptySeries(seriesIds)
     }
 
-    // Set numIssues to 0 for library filter data
-    if (Database.libraryFilterData[req.library.id]) {
+    if (req.query?.missingOnly === '1') {
+      await Database.resetLibraryIssuesFilterData(req.library.id)
+    } else if (Database.libraryFilterData[req.library.id]) {
       Database.libraryFilterData[req.library.id].numIssues = 0
     }
 

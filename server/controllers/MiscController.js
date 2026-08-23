@@ -138,10 +138,12 @@ class MiscController {
     if (!isObject(settingsUpdate)) {
       return res.status(400).send('Invalid settings update object')
     }
-    if (settingsUpdate.strmMetadataCompletionCronExpression !== undefined) {
-      const expression = settingsUpdate.strmMetadataCompletionCronExpression
+    const cronSettingKeys = ['strmMetadataCompletionCronExpression', 'missingItemsCleanupCronExpression']
+    for (const key of cronSettingKeys) {
+      if (settingsUpdate[key] === undefined) continue
+      const expression = settingsUpdate[key]
       if (expression !== null && (typeof expression !== 'string' || !cron.validate(expression))) {
-        return res.status(400).send('Invalid metadata completion cron expression')
+        return res.status(400).send(`Invalid cron expression for ${key}`)
       }
     }
     if (settingsUpdate.strmMetadataCompletionMaxHours !== undefined) {
@@ -169,6 +171,9 @@ class MiscController {
       }
       if (settingsUpdate.strmMetadataCompletionCronExpression !== undefined || settingsUpdate.strmMetadataCompletionMaxHours !== undefined) {
         this.cronManager.updateStrmMetadataCron()
+      }
+      if (settingsUpdate.missingItemsCleanupCronExpression !== undefined) {
+        this.cronManager.updateMissingItemsCleanupCron()
       }
     }
     return res.json({
@@ -613,6 +618,14 @@ class MiscController {
     }
 
     res.sendStatus(200)
+  }
+
+  async runMissingItemsCleanup(req, res) {
+    if (!req.user.isAdminOrUp) return res.sendStatus(403)
+    res.sendStatus(202)
+    void this.cronManager.runMissingItemsCleanup().catch((error) => {
+      Logger.error('[MiscController] Manual missing items cleanup failed', error)
+    })
   }
 
   async runStrmMetadataCompletion(req, res) {

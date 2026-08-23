@@ -25,12 +25,16 @@
   --color-info: #8fa7e8;
   --color-warning: #d7b96e;
   --abs-theme-page-bg:
-    radial-gradient(circle at 88% 8%, rgba(236, 211, 139, 0.18) 0 2px, transparent 3px),
-    radial-gradient(circle at 68% 24%, rgba(191, 211, 255, 0.22) 0 1px, transparent 2px),
-    radial-gradient(circle at 34% 12%, rgba(219, 194, 255, 0.22) 0 1px, transparent 2px),
-    radial-gradient(circle at 78% 72%, rgba(184, 166, 255, 0.13) 0 1px, transparent 2px),
-    radial-gradient(ellipse at 88% 0%, rgba(83, 82, 125, 0.45), transparent 42%),
-    linear-gradient(145deg, #080b12 0%, #111522 48%, #171a29 100%);
+    radial-gradient(circle at 7% 18%, rgba(226, 236, 255, 0.82) 0 1px, transparent 2px),
+    radial-gradient(circle at 18% 72%, rgba(157, 205, 255, 0.62) 0 1.5px, transparent 3px),
+    radial-gradient(circle at 29% 34%, rgba(237, 218, 164, 0.72) 0 1px, transparent 2px),
+    radial-gradient(circle at 41% 83%, rgba(216, 187, 255, 0.65) 0 2px, transparent 3px),
+    radial-gradient(circle at 53% 17%, rgba(215, 232, 255, 0.7) 0 1px, transparent 2px),
+    radial-gradient(circle at 67% 49%, rgba(223, 235, 255, 0.78) 0 1.5px, transparent 3px),
+    radial-gradient(circle at 79% 12%, rgba(246, 221, 169, 0.66) 0 2px, transparent 3px),
+    radial-gradient(circle at 91% 68%, rgba(206, 180, 255, 0.72) 0 1px, transparent 2px),
+    radial-gradient(ellipse at 88% 0%, rgba(69, 62, 117, 0.5), transparent 42%),
+    linear-gradient(145deg, #070a12 0%, #111326 50%, #18152b 100%);
   --abs-theme-surface: #151922;
   --abs-theme-surface-raised: #0b0e15;
   --abs-theme-border: rgba(161, 179, 224, 0.24);
@@ -44,6 +48,45 @@
     linear-gradient(160deg, rgba(13, 17, 29, 0.96), rgba(29, 31, 49, 0.96));
   --bookshelf-texture-img: var(--abs-theme-bookshelf);
   --abs-theme-menu-bg: rgba(15, 18, 28, 0.98);
+}
+
+html[data-abs-theme='cosmos'] body {
+  background-color: #090b14;
+  background-image: var(--abs-theme-page-bg);
+  background-size: 520px 520px, 680px 680px, 760px 760px, 900px 900px, 1100px 1100px, 1300px 1300px, 1500px 1500px, 1800px 1800px, auto, auto;
+  animation: abs-cosmos-stars 18s ease-in-out infinite alternate;
+}
+
+html[data-abs-theme='cosmos'] body::before,
+html[data-abs-theme='cosmos'] body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+html[data-abs-theme='cosmos'] body::before {
+  background-image:
+    radial-gradient(circle at 12% 44%, rgba(216, 231, 255, 0.8) 0 1px, transparent 2px),
+    radial-gradient(circle at 36% 7%, rgba(238, 215, 166, 0.7) 0 1px, transparent 2px),
+    radial-gradient(circle at 61% 76%, rgba(199, 177, 255, 0.65) 0 1.5px, transparent 3px),
+    radial-gradient(circle at 86% 31%, rgba(172, 214, 255, 0.7) 0 1px, transparent 2px);
+  animation: abs-cosmos-twinkle 4.5s ease-in-out infinite alternate;
+}
+
+html[data-abs-theme='cosmos'] body::after {
+  background: linear-gradient(115deg, transparent 0 42%, rgba(111, 100, 169, 0.08) 52%, transparent 65%);
+}
+
+@keyframes abs-cosmos-stars {
+  from { background-position: 0 0, 40px 30px, 90px 20px, 10px 70px, 0 0, 0 0, 0 0, 0 0, 0 0, 0 0; }
+  to { background-position: 18px -14px, 28px 44px, 72px 6px, 26px 90px, 0 0, 0 0, 0 0, 0 0, 0 0, 0 0; }
+}
+
+@keyframes abs-cosmos-twinkle {
+  from { opacity: 0.35; transform: scale(1); }
+  to { opacity: 0.9; transform: scale(1.015); }
 }
 
 html[data-abs-theme] body,

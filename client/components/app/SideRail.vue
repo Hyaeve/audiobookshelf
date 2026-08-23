@@ -103,11 +103,6 @@
         </div>
       </nuxt-link>
 
-      <nuxt-link v-if="userIsAdminOrUp" to="/config/scheduled-tasks" class="w-full h-20 flex flex-col items-center justify-center text-white/80 border-b border-primary/70 hover:bg-primary cursor-pointer relative" :class="$route.name === 'config-scheduled-tasks' ? 'bg-primary/80' : 'bg-bg/60'">
-        <span class="material-symbols text-2xl">schedule</span>
-        <p class="pt-1 text-center leading-4" style="font-size: 0.9rem">计划任务</p>
-        <div v-show="$route.name === 'config-scheduled-tasks'" class="h-full w-0.5 bg-yellow-400 absolute top-0 left-0" />
-      </nuxt-link>
     </div>
 
     <div class="w-full h-12 px-1 py-2 border-t border-black/20 bg-bg absolute left-0" :style="{ bottom: streamLibraryItem ? '224px' : '65px' }">
