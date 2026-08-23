@@ -17,6 +17,26 @@
   --abs-theme-menu-bg: rgba(35, 35, 35, 0.98);
 }
 
+:root[data-abs-theme='dark'] {
+  --color-bg: #17191d;
+  --color-primary: #101216;
+  --color-accent: #9aa7b8;
+  --color-success: #69b795;
+  --color-info: #8fa9c9;
+  --color-warning: #d0a967;
+  --abs-theme-page-bg: linear-gradient(145deg, #16181c 0%, #202329 52%, #111317 100%);
+  --abs-theme-surface: #25282e;
+  --abs-theme-surface-raised: #191b20;
+  --abs-theme-border: rgba(220, 226, 235, 0.14);
+  --abs-theme-text: #eef1f4;
+  --abs-theme-muted: #aeb5bf;
+  --abs-theme-accent: #9aa7b8;
+  --abs-theme-scrollbar: #68717c;
+  --abs-theme-bookshelf: linear-gradient(160deg, #1b1e23, #30353c);
+  --bookshelf-texture-img: var(--abs-theme-bookshelf);
+  --abs-theme-menu-bg: rgba(25, 28, 33, 0.98);
+}
+
 :root[data-abs-theme='cosmos'] {
   --color-bg: #131722;
   --color-primary: #090c14;
@@ -25,16 +45,11 @@
   --color-info: #8fa7e8;
   --color-warning: #d7b96e;
   --abs-theme-page-bg:
-    radial-gradient(circle at 7% 18%, rgba(226, 236, 255, 0.82) 0 1px, transparent 2px),
-    radial-gradient(circle at 18% 72%, rgba(157, 205, 255, 0.62) 0 1.5px, transparent 3px),
-    radial-gradient(circle at 29% 34%, rgba(237, 218, 164, 0.72) 0 1px, transparent 2px),
-    radial-gradient(circle at 41% 83%, rgba(216, 187, 255, 0.65) 0 2px, transparent 3px),
-    radial-gradient(circle at 53% 17%, rgba(215, 232, 255, 0.7) 0 1px, transparent 2px),
-    radial-gradient(circle at 67% 49%, rgba(223, 235, 255, 0.78) 0 1.5px, transparent 3px),
-    radial-gradient(circle at 79% 12%, rgba(246, 221, 169, 0.66) 0 2px, transparent 3px),
-    radial-gradient(circle at 91% 68%, rgba(206, 180, 255, 0.72) 0 1px, transparent 2px),
-    radial-gradient(ellipse at 88% 0%, rgba(69, 62, 117, 0.5), transparent 42%),
-    linear-gradient(145deg, #070a12 0%, #111326 50%, #18152b 100%);
+    radial-gradient(circle at 12% 28%, rgba(226, 236, 255, 0.7) 0 1px, transparent 2px),
+    radial-gradient(circle at 31% 72%, rgba(157, 205, 255, 0.55) 0 1px, transparent 2px),
+    radial-gradient(circle at 56% 18%, rgba(237, 218, 164, 0.6) 0 1px, transparent 2px),
+    radial-gradient(circle at 79% 62%, rgba(216, 187, 255, 0.5) 0 1.5px, transparent 3px),
+    linear-gradient(145deg, #080b13 0%, #111326 54%, #18152b 100%);
   --abs-theme-surface: #151922;
   --abs-theme-surface-raised: #0b0e15;
   --abs-theme-border: rgba(161, 179, 224, 0.24);
@@ -42,10 +57,7 @@
   --abs-theme-muted: #aeb5c5;
   --abs-theme-accent: #d7b96e;
   --abs-theme-scrollbar: #7b6aa8;
-  --abs-theme-bookshelf:
-    radial-gradient(circle at 15% 30%, rgba(214, 191, 255, 0.5) 0 1px, transparent 2px),
-    radial-gradient(circle at 73% 60%, rgba(255, 227, 149, 0.45) 0 1px, transparent 2px),
-    linear-gradient(160deg, rgba(13, 17, 29, 0.96), rgba(29, 31, 49, 0.96));
+  --abs-theme-bookshelf: linear-gradient(160deg, rgba(13, 17, 29, 0.96), rgba(29, 31, 49, 0.96));
   --bookshelf-texture-img: var(--abs-theme-bookshelf);
   --abs-theme-menu-bg: rgba(15, 18, 28, 0.98);
 }
@@ -53,40 +65,7 @@
 html[data-abs-theme='cosmos'] body {
   background-color: #090b14;
   background-image: var(--abs-theme-page-bg);
-  background-size: 520px 520px, 680px 680px, 760px 760px, 900px 900px, 1100px 1100px, 1300px 1300px, 1500px 1500px, 1800px 1800px, auto, auto;
-  animation: abs-cosmos-stars 18s ease-in-out infinite alternate;
-}
-
-html[data-abs-theme='cosmos'] body::before,
-html[data-abs-theme='cosmos'] body::after {
-  content: '';
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: 0;
-}
-
-html[data-abs-theme='cosmos'] body::before {
-  background-image:
-    radial-gradient(circle at 12% 44%, rgba(216, 231, 255, 0.8) 0 1px, transparent 2px),
-    radial-gradient(circle at 36% 7%, rgba(238, 215, 166, 0.7) 0 1px, transparent 2px),
-    radial-gradient(circle at 61% 76%, rgba(199, 177, 255, 0.65) 0 1.5px, transparent 3px),
-    radial-gradient(circle at 86% 31%, rgba(172, 214, 255, 0.7) 0 1px, transparent 2px);
-  animation: abs-cosmos-twinkle 4.5s ease-in-out infinite alternate;
-}
-
-html[data-abs-theme='cosmos'] body::after {
-  background: linear-gradient(115deg, transparent 0 42%, rgba(111, 100, 169, 0.08) 52%, transparent 65%);
-}
-
-@keyframes abs-cosmos-stars {
-  from { background-position: 0 0, 40px 30px, 90px 20px, 10px 70px, 0 0, 0 0, 0 0, 0 0, 0 0, 0 0; }
-  to { background-position: 18px -14px, 28px 44px, 72px 6px, 26px 90px, 0 0, 0 0, 0 0, 0 0, 0 0, 0 0; }
-}
-
-@keyframes abs-cosmos-twinkle {
-  from { opacity: 0.35; transform: scale(1); }
-  to { opacity: 0.9; transform: scale(1.015); }
+  background-size: 680px 680px, 840px 840px, 1060px 1060px, 1320px 1320px, auto;
 }
 
 html[data-abs-theme] body,
@@ -141,6 +120,9 @@ html[data-abs-theme] ::-webkit-scrollbar-thumb {
   box-shadow: 0 0 12px color-mix(in srgb, var(--abs-theme-accent) 24%, transparent);
 }
 
+html[data-abs-theme='dark'] .bg-bg,
+html[data-abs-theme='dark'] .bg-primary,
+html[data-abs-theme='dark'] .bg-fg,
 html[data-abs-theme='cosmos'] .bg-bg,
 html[data-abs-theme='cosmos'] .bg-primary,
 html[data-abs-theme='cosmos'] .bg-fg {

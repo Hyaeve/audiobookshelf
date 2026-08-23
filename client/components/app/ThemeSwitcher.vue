@@ -21,7 +21,7 @@
 <script>
 const STORAGE_KEY = 'absCustomTheme'
 const DEFAULT_THEME = 'classic'
-const VALID_THEMES = ['classic', 'cosmos']
+const VALID_THEMES = ['classic', 'dark', 'cosmos']
 
 export default {
   data() {
@@ -30,7 +30,8 @@ export default {
       currentTheme: DEFAULT_THEME,
       themes: [
         { id: 'classic', name: '原版经典', swatch: 'linear-gradient(135deg, #232323 0%, #855620 100%)' },
-        { id: 'cosmos', name: '浩瀚星空', swatch: 'linear-gradient(135deg, #070a12 0%, #253258 55%, #b79bf2 100%)' }
+        { id: 'dark', name: '暗色主题', swatch: 'linear-gradient(135deg, #101216 0%, #30353c 100%)' },
+        { id: 'cosmos', name: '浩瀚星空', swatch: 'linear-gradient(135deg, #080b13 0%, #18152b 58%, #d7b96e 100%)' }
       ]
     }
   },

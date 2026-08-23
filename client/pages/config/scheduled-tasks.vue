@@ -1,30 +1,66 @@
 <template>
   <app-settings-content :title="'计划任务'">
-    <div class="w-full max-w-4xl space-y-3">
-      <div v-for="task in taskDefinitions" :key="task.key" class="bg-primary border border-gray-600 rounded-md px-4 py-3 flex items-center">
+    <div class="scheduled-tasks w-full max-w-4xl space-y-2">
+      <div
+        v-for="task in taskDefinitions"
+        :key="task.key"
+        class="scheduled-task-row bg-primary border border-gray-600 rounded-md px-4 py-3 flex items-center"
+      >
         <div class="grow min-w-0">
-          <h2 class="text-lg font-semibold truncate">{{ task.title }}</h2>
+          <h2 class="text-xl font-semibold leading-tight truncate">{{ task.title }}</h2>
+          <p v-if="lastRunText(task)" class="text-xs text-gray-400 mt-1">{{ lastRunText(task) }}</p>
           <p class="text-sm text-gray-300 mt-1">{{ task.description }}</p>
-          <p class="text-xs text-gray-400 mt-1">{{ scheduleText(task) }}<span v-if="nextRun(task)">，下次执行：{{ nextRun(task) }}</span></p>
         </div>
-        <button type="button" class="w-10 h-10 ml-3 rounded-full border border-gray-500 hover:bg-bg flex items-center justify-center" :disabled="running[task.key]" :title="'开始执行'" @click="runNow(task)">
-          <span class="material-symbols text-2xl">play_arrow</span>
-        </button>
-        <button type="button" class="w-10 h-10 ml-2 rounded-full border border-gray-500 hover:bg-bg flex items-center justify-center" title="设置" @click="openSettings(task)">
-          <span class="material-symbols text-2xl">more_vert</span>
-        </button>
+        <div class="flex items-center ml-4 shrink-0">
+          <ui-tooltip text="立即执行" direction="bottom">
+            <button
+              type="button"
+              class="scheduled-task-action flex items-center justify-center"
+              :disabled="running[task.key]"
+              :title="'立即执行'"
+              :aria-label="'立即执行 ' + task.title"
+              @click="runNow(task)"
+            >
+              <span class="material-symbols text-2xl" :class="{ 'animate-spin': running[task.key] }">play_arrow</span>
+            </button>
+          </ui-tooltip>
+          <ui-tooltip text="设置" direction="bottom">
+            <button
+              type="button"
+              class="scheduled-task-action flex items-center justify-center ml-2"
+              title="设置"
+              :aria-label="'设置 ' + task.title"
+              @click="openSettings(task)"
+            >
+              <span class="material-symbols text-2xl">more_vert</span>
+            </button>
+          </ui-tooltip>
+        </div>
       </div>
     </div>
 
-    <modals-modal v-model="showSettings" name="scheduled-task-settings" :width="680" :height="'unset'" :processing="saving">
+    <modals-modal v-model="showSettings" name="scheduled-task-settings" :width="560" :height="'unset'" :processing="saving">
       <div class="p-5 bg-bg rounded-md">
-        <h2 class="text-xl font-semibold mb-4">{{ selectedTask ? selectedTask.title + '设置' : '计划任务设置' }}</h2>
-        <widgets-cron-expression-builder v-model="draftCron" />
+        <h2 class="text-xl font-semibold mb-5">{{ selectedTask ? selectedTask.title + '设置' : '计划任务设置' }}</h2>
+        <label class="block text-sm font-semibold mb-2" for="scheduled-task-cron">Cron 表达式</label>
+        <input
+          id="scheduled-task-cron"
+          v-model="draftCron"
+          type="text"
+          class="w-full bg-primary border border-gray-600 rounded-md px-3 py-2"
+          placeholder="例如：0 3 * * *"
+        />
         <div v-if="selectedTask && selectedTask.hasMaxHours" class="mt-5">
-          <label class="block text-sm font-semibold mb-2">单次最长执行时间（小时）</label>
-          <select v-model.number="draftMaxHours" class="w-full bg-primary border border-gray-600 rounded-md px-3 py-2">
-            <option v-for="hours in maxHourOptions" :key="hours" :value="hours">{{ hours }} h</option>
-          </select>
+          <label class="block text-sm font-semibold mb-2" for="scheduled-task-max-hours">单次最长执行时间（小时）</label>
+          <input
+            id="scheduled-task-max-hours"
+            v-model.number="draftMaxHours"
+            type="number"
+            min="0.5"
+            step="0.5"
+            inputmode="decimal"
+            class="w-full bg-primary border border-gray-600 rounded-md px-3 py-2"
+          />
         </div>
         <div v-if="selectedTask && !selectedTask.hasMaxHours" class="mt-5 text-sm text-gray-300">
           只删除数据库中已标记为丢失的项目，不删除文件系统中的任何文件，也不会清理普通无效项目。
@@ -39,6 +75,8 @@
 </template>
 
 <script>
+const LAST_RUN_STORAGE_KEY = 'absScheduledTaskLastRuns'
+
 export default {
   data() {
     return {
@@ -47,7 +85,8 @@ export default {
       selectedTask: null,
       draftCron: null,
       draftMaxHours: 1,
-      running: {}
+      running: {},
+      lastRuns: {}
     }
   },
   computed: {
@@ -69,13 +108,14 @@ export default {
           hasMaxHours: false
         }
       ]
-    },
-    maxHourOptions() {
-      return Array.from({ length: 48 }, (_, index) => (index + 1) * 0.5)
     }
   },
   mounted() {
-    this.openSettings(this.taskDefinitions[0], false)
+    try {
+      this.lastRuns = JSON.parse(localStorage.getItem(LAST_RUN_STORAGE_KEY) || '{}')
+    } catch (error) {
+      this.lastRuns = {}
+    }
   },
   methods: {
     cronFor(task) {
@@ -87,23 +127,29 @@ export default {
       const parsed = this.$parseCronExpression(cronExpression, this)
       return parsed ? parsed.description : `Cron：${cronExpression}`
     },
-    nextRun(task) {
-      const cronExpression = this.cronFor(task)
-      if (!cronExpression) return ''
-      const date = this.$getNextScheduledDate(cronExpression)
-      return date ? this.$formatJsDatetime(date, this.$store.getters['getServerSetting']('dateFormat'), this.$store.getters['getServerSetting']('timeFormat')) : ''
+    lastRunText(task) {
+      const lastRun = this.lastRuns[task.key]
+      if (!lastRun) return ''
+      const elapsedMinutes = Math.max(0, Math.floor((Date.now() - lastRun.startedAt) / 60000))
+      const ago = elapsedMinutes < 60 ? `${elapsedMinutes} 分钟前` : `${Math.floor(elapsedMinutes / 60)} 小时前`
+      const duration = lastRun.durationMs < 1000 ? `${lastRun.durationMs} 毫秒` : `${(lastRun.durationMs / 1000).toFixed(1)} 秒`
+      return `上次运行：${ago}，耗时 ${duration}`
     },
-    openSettings(task, show = true) {
+    openSettings(task) {
       this.selectedTask = task
       this.draftCron = this.cronFor(task) || null
       this.draftMaxHours = Number(this.serverSettings.strmMetadataCompletionMaxHours) || 1
-      this.showSettings = show
+      this.showSettings = true
     },
     async runNow(task) {
       this.$set(this.running, task.key, true)
+      const startedAt = Date.now()
       try {
         const path = task.key === 'metadata' ? '/api/strm-metadata-completion/run' : '/api/missing-items-cleanup/run'
         await this.$axios.$post(path)
+        const lastRun = { startedAt, durationMs: Date.now() - startedAt }
+        this.$set(this.lastRuns, task.key, lastRun)
+        localStorage.setItem(LAST_RUN_STORAGE_KEY, JSON.stringify(this.lastRuns))
         this.$toast.success(task.key === 'metadata' ? this.$strings.ToastLibraryMetadataCompletionStarted : '丢失项目清理已开始')
       } catch (error) {
         console.error(`Failed to run ${task.key} scheduled task`, error)
@@ -130,3 +176,23 @@ export default {
   }
 }
 </script>
+
+<style scoped>
+.scheduled-task-action {
+  width: 2.5rem;
+  height: 2.5rem;
+  color: var(--abs-theme-muted);
+  background: transparent;
+  border: 0;
+  transition: color 150ms ease, transform 150ms ease;
+}
+
+.scheduled-task-action:hover:not(:disabled) {
+  color: var(--abs-theme-accent);
+  transform: translateY(-1px);
+}
+
+.scheduled-task-action:disabled {
+  opacity: 0.55;
+}
+</style>
