@@ -182,6 +182,13 @@ export default {
         action: 'rescan'
       })
 
+      if (this.isBookLibrary) {
+        options.push({
+          text: this.$strings.ButtonCompleteMetadata,
+          action: 'complete-metadata'
+        })
+      }
+
       // The limit of 50 is introduced because of the URL length. Each id has 36 chars, so 36 * 40 = 1440
       // + 40 , separators = 1480 chars + base path 280 chars = 1760 chars. This keeps the URL under 2000 chars even with longer domains
       if (this.selectedMediaItems.length <= 40) {
@@ -227,6 +234,8 @@ export default {
         this.batchAutoMatchClick()
       } else if (action === 'rescan') {
         this.batchRescan()
+      } else if (action === 'complete-metadata') {
+        this.batchCompleteMetadata()
       } else if (action === 'download') {
         this.batchDownload()
       }
@@ -250,6 +259,30 @@ export default {
                 this.$toast.error(errorMsg)
               })
           }
+        },
+        type: 'yesNo'
+      }
+      this.$store.commit('globals/setConfirmPrompt', payload)
+    },
+    async batchCompleteMetadata() {
+      const payload = {
+        message: this.$getString('MessageConfirmReScanLibraryItems', [this.selectedMediaItems.length]),
+        callback: (confirmed) => {
+          if (!confirmed) return
+          this.$store.commit('setProcessingBatch', true)
+          this.$axios
+            .$post('/api/items/batch/complete-metadata', {
+              libraryItemIds: this.selectedMediaItems.map((item) => item.id)
+            })
+            .then(() => {
+              this.$toast.success(this.$strings.ToastLibraryMetadataCompletionStarted)
+              this.cancelSelectionMode()
+            })
+            .catch((error) => {
+              console.error('Batch metadata completion failed', error)
+              this.$toast.error(this.$strings.ToastLibraryMetadataCompletionFailed)
+            })
+            .finally(() => this.$store.commit('setProcessingBatch', false))
         },
         type: 'yesNo'
       }

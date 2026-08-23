@@ -571,6 +571,12 @@ export default {
           func: 'rescan',
           text: this.$strings.ButtonReScan
         })
+        if (!this.isPodcast) {
+          items.push({
+            func: 'completeMetadata',
+            text: this.$strings.ButtonCompleteMetadata
+          })
+        }
       }
       if (this.series && this.bookMount) {
         items.push({
@@ -759,6 +765,23 @@ export default {
     },
     editPodcast() {
       this.$emit('editPodcast', this.libraryItem)
+    },
+    completeMetadata() {
+      if (this.processing) return
+      const axios = this.$axios || this.$nuxt.$axios
+      this.processing = true
+      axios
+        .$post(`/api/items/${this.libraryItemId}/complete-metadata`)
+        .then(() => {
+          this.$toast.success(this.$strings.ToastLibraryMetadataCompletionStarted)
+        })
+        .catch((error) => {
+          console.error('Failed to complete item metadata', error)
+          this.$toast.error(this.$strings.ToastLibraryMetadataCompletionFailed)
+        })
+        .finally(() => {
+          this.processing = false
+        })
     },
     rescan() {
       if (this.processing) return

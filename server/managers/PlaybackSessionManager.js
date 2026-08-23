@@ -31,6 +31,8 @@ class PlaybackSessionManager {
     // Book ids currently being fully probed after STRM playback starts.
     this.strmCompletionTasks = new Map()
     this.strmLibraryCompletionTasks = new Map()
+    this.strmItemCompletionTasks = new Map()
+    this.strmBatchCompletionTasks = new Map()
   }
 
   /**
@@ -504,7 +506,7 @@ class PlaybackSessionManager {
     const library = await Database.libraryModel.findByIdWithFolders(libraryItem.libraryId)
     const allowedLocalRoots = (library?.libraryFolders || []).map((folder) => folder.path)
     const totalStrmFiles = (libraryItem.media.audioFiles || []).filter((audioFile) => isStrmPath(audioFile.metadata?.path)).length
-    const qps = options.manualLibraryTask ? 0.5 : getStrmScanQps(totalStrmFiles)
+    const qps = Number(options.qps) > 0 ? Number(options.qps) : (options.manualLibraryTask ? 0.5 : getStrmScanQps(totalStrmFiles))
     const requestIntervalMs = 1000 / qps
     let updatedCount = 0
 
@@ -642,6 +644,63 @@ class PlaybackSessionManager {
     } finally {
       TaskManager.taskFinished(task)
     }
+  }
+
+  async completeStrmItem(libraryItemId) {
+    const existingTask = this.strmItemCompletionTasks.get(libraryItemId)
+    if (existingTask) return existingTask
+
+    const task = (async () => {
+      const libraryItem = await Database.libraryItemModel.getExpandedById(libraryItemId)
+      if (!libraryItem?.media || libraryItem.mediaType !== 'book') return false
+
+      const strmFiles = (libraryItem.media.audioFiles || [])
+        .filter((audioFile) => isStrmPath(audioFile.metadata?.path))
+      if (!strmFiles.length) return false
+
+      return this.completeStrmBook(libraryItem, strmFiles, { qps: 0.6 })
+    })()
+      .catch((error) => {
+        Logger.warn(`[PlaybackSessionManager] STRM metadata completion failed for item "${libraryItemId}": ${error.message}`)
+        return false
+      })
+      .finally(() => this.strmItemCompletionTasks.delete(libraryItemId))
+
+    this.strmItemCompletionTasks.set(libraryItemId, task)
+    return task
+  }
+
+  async completeStrmItems(libraryItemIds) {
+    const taskKey = [...libraryItemIds].sort().join(',')
+    const existingTask = this.strmBatchCompletionTasks.get(taskKey)
+    if (existingTask) return existingTask
+
+    const task = (async () => {
+      const items = await Database.libraryItemModel.findAllExpandedWhere({ id: libraryItemIds })
+      const throttleState = {
+        scannedTracks: 0,
+        requestIntervalMs: 2000
+      }
+      let updated = 0
+
+      for (const libraryItem of items) {
+        if (!libraryItem?.media || libraryItem.mediaType !== 'book') continue
+        const strmFiles = (libraryItem.media.audioFiles || [])
+          .filter((audioFile) => isStrmPath(audioFile.metadata?.path))
+        if (!strmFiles.length) continue
+        if (await this.completeStrmBook(libraryItem, strmFiles, { qps: 0.5, throttleState })) updated++
+      }
+
+      return { books: items.length, updated }
+    })()
+      .catch((error) => {
+        Logger.warn(`[PlaybackSessionManager] Batch STRM metadata completion failed: ${error.message}`)
+        throw error
+      })
+      .finally(() => this.strmBatchCompletionTasks.delete(taskKey))
+
+    this.strmBatchCompletionTasks.set(taskKey, task)
+    return task
   }
 
   async removeSession(sessionId) {

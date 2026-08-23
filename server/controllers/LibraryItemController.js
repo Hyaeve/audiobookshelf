@@ -809,6 +809,56 @@ class LibraryItemController {
   }
 
   /**
+   * POST: /api/items/batch/complete-metadata
+   *
+   * @param {RequestWithUser} req
+   * @param {Response} res
+   */
+  async batchCompleteMetadata(req, res) {
+    if (!req.user.isAdminOrUp) {
+      Logger.warn(`Non-admin user "${req.user.username}" attempted batch STRM metadata completion`)
+      return res.sendStatus(403)
+    }
+
+    const libraryItemIds = req.body.libraryItemIds || []
+    if (!libraryItemIds.length) return res.status(400).send('Invalid payload')
+
+    const libraryItems = await Database.libraryItemModel.findAll({
+      where: { id: libraryItemIds },
+      attributes: ['id', 'mediaType']
+    })
+    if (!libraryItems.length || libraryItems.some((item) => item.mediaType !== 'book')) {
+      return res.status(400).send('Metadata completion is only supported for book items')
+    }
+
+    res.sendStatus(202)
+    void this.playbackSessionManager.completeStrmItems(libraryItemIds).catch((error) => {
+      Logger.error(`[LibraryItemController] Failed to complete metadata for selected items`, error)
+    })
+  }
+
+  /**
+   * POST: /api/items/:id/complete-metadata
+   *
+   * @param {LibraryItemControllerRequest} req
+   * @param {Response} res
+   */
+  async completeMetadata(req, res) {
+    if (!req.user.isAdminOrUp) {
+      Logger.warn(`Non-admin user "${req.user.username}" attempted STRM metadata completion`)
+      return res.sendStatus(403)
+    }
+    if (req.libraryItem.mediaType !== 'book') {
+      return res.status(400).send('Metadata completion is only supported for book items')
+    }
+
+    res.sendStatus(202)
+    void this.playbackSessionManager.completeStrmItem(req.libraryItem.id).catch((error) => {
+      Logger.error(`[LibraryItemController] Failed to complete metadata for item "${req.libraryItem.id}"`, error)
+    })
+  }
+
+  /**
    * POST: /api/items/batch/scan
    *
    * @param {RequestWithUser} req
