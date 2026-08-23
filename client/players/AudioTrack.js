@@ -1,9 +1,10 @@
 export default class AudioTrack {
   constructor(track, sessionId, routerBasePath) {
     this.index = track.index || 0
-    this.startOffset = track.startOffset || 0 // Total time of all previous tracks
-    this.duration = track.duration || 0
+    this.startOffset = Number(track.startOffset) || 0 // Total time of all previous tracks
+    this.duration = Number(track.duration) || 0
     this.title = track.title || ''
+    this.chapters = Array.isArray(track.chapters) ? track.chapters.map((chapter) => ({ ...chapter })) : []
     this.contentUrl = track.contentUrl || null
     this.mimeType = track.mimeType
     this.metadata = track.metadata || {}

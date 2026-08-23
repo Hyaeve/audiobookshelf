@@ -500,11 +500,11 @@ class PlaybackSessionManager {
     return task
   }
 
-  async completeStrmBook(libraryItem, strmFiles) {
+  async completeStrmBook(libraryItem, strmFiles, options = {}) {
     const library = await Database.libraryModel.findByIdWithFolders(libraryItem.libraryId)
     const allowedLocalRoots = (library?.libraryFolders || []).map((folder) => folder.path)
     const totalStrmFiles = (libraryItem.media.audioFiles || []).filter((audioFile) => isStrmPath(audioFile.metadata?.path)).length
-    const qps = getStrmScanQps(totalStrmFiles)
+    const qps = options.manualLibraryTask ? 0.5 : getStrmScanQps(totalStrmFiles)
     const requestIntervalMs = 1000 / qps
     let updatedCount = 0
 
@@ -543,8 +543,17 @@ class PlaybackSessionManager {
     }
 
     for (const [index, audioFile] of strmFiles.entries()) {
-      if (index > 0) await new Promise((resolve) => setTimeout(resolve, requestIntervalMs))
+      if (options.throttleState) {
+        if (options.throttleState.scannedTracks > 0) await new Promise((resolve) => setTimeout(resolve, options.throttleState.requestIntervalMs))
+        options.throttleState.scannedTracks += 1
+      } else if (index > 0) {
+        await new Promise((resolve) => setTimeout(resolve, requestIntervalMs))
+      }
       await completeAudioFile(audioFile)
+      if (options.throttleState && options.throttleState.scannedTracks % 5000 === 0) {
+        Logger.info(`[PlaybackSessionManager] STRM metadata completion pausing for 5 minutes after ${options.throttleState.scannedTracks} tracks`)
+        await new Promise((resolve) => setTimeout(resolve, 5 * 60 * 1000))
+      }
     }
 
     if (strmFiles.length && !updatedCount) return false
@@ -555,17 +564,27 @@ class PlaybackSessionManager {
     libraryItem.media.audioFiles = AudioFileScanner.runSmartTrackOrder(libraryItem.relPath, libraryItem.media.audioFiles)
     let duration = 0
     const chapters = []
+    let chapterId = 0
+    const hasEmbeddedChapters = libraryItem.media.audioFiles.some((audioFile) => audioFile.chapters?.length)
     for (const [index, audioFile] of libraryItem.media.audioFiles.entries()) {
       const fileDuration = Number(audioFile.duration) > 0 ? Number(audioFile.duration) : 0
-      if (fileDuration > 0) {
+      if (!fileDuration) continue
+
+      if (hasEmbeddedChapters && audioFile.chapters?.length) {
+        for (const chapter of audioFile.chapters) {
+          const start = duration + Math.max(0, Number(chapter.start) || 0)
+          const end = duration + Math.min(fileDuration, Number(chapter.end) || fileDuration)
+          if (end > start) chapters.push({ ...chapter, id: chapterId++, start, end })
+        }
+      } else {
         chapters.push({
-          id: index,
+          id: chapterId++,
           start: duration,
           end: duration + fileDuration,
           title: audioFile.metadata?.filename || `Chapter ${index + 1}`
         })
-        duration += fileDuration
       }
+      duration += fileDuration
     }
     libraryItem.media.duration = duration
     libraryItem.media.chapters = chapters
@@ -601,13 +620,17 @@ class PlaybackSessionManager {
     }
     const task = TaskManager.createAndAddTask('strm-metadata-completion', taskTitleString, null, true, { libraryId, libraryName: library.name })
     let updated = 0
+    const throttleState = {
+      scannedTracks: 0,
+      requestIntervalMs: 2000
+    }
     try {
       for (const item of items) {
         const expandedItem = await Database.libraryItemModel.getExpandedById(item.id)
         if (!expandedItem?.media || expandedItem.mediaType !== 'book') continue
         const strmFiles = (expandedItem.media.audioFiles || []).filter((audioFile) => isStrmPath(audioFile.metadata?.path))
         if (!strmFiles.length) continue
-        if (await this.completeStrmBook(expandedItem, strmFiles)) updated++
+        if (await this.completeStrmBook(expandedItem, strmFiles, { manualLibraryTask: true, throttleState })) updated++
       }
       task.setFinished(null, true)
       task.data.result = { books: items.length, updated }

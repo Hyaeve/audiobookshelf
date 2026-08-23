@@ -297,7 +297,7 @@ class Book extends Model {
       track.title = af.metadata.filename
       track.startOffset = startOffset
       track.contentUrl = `/api/items/${libraryItemId}/file/${track.ino}`
-      startOffset += track.duration
+      startOffset += Number(track.duration) > 0 ? Number(track.duration) : 0
       return track
     })
   }

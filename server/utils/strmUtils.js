@@ -140,10 +140,12 @@ async function probeStrmTargetMedia(filePath, allowedLocalRoots = []) {
     return prober.probe(target.value)
   }
 
-  const response = await requestRemoteMedia(target.value)
-  const probeData = await prober.probeBuffer(response.body)
+  // Let ffprobe open the remote URL directly. Downloading the whole remote file
+  // into a buffer is unreliable for large cloud-drive audio files and can cause
+  // ffprobe stdin EPIPE before metadata has been parsed.
+  const probeData = await prober.probe(target.value)
   if (probeData?.error) {
-    throw new Error(`Unable to probe remote STRM media (HTTP ${response.status}): ${probeData.error}`)
+    throw new Error(`Unable to probe remote STRM media at "${target.value}": ${probeData.error}`)
   }
   return probeData
 }

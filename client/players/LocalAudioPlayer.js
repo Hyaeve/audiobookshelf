@@ -285,14 +285,40 @@ export default class LocalAudioPlayer extends EventEmitter {
   }
 
   getPlaybackChapters() {
-    return this.audioTracks
-      .filter((track) => Number(track.duration) > 0)
-      .map((track, index) => ({
-        id: index,
-        start: track.startOffset || 0,
-        end: (track.startOffset || 0) + track.duration,
-        title: track.title || `Chapter ${index + 1}`
-      }))
+    const chapters = []
+    let chapterId = 0
+    const hasEmbeddedChapters = this.audioTracks.some((track) => track.chapters?.length)
+
+    for (const [trackIndex, track] of this.audioTracks.entries()) {
+      const trackStart = Number(track.startOffset) || 0
+      const trackDuration = Number(track.duration) || 0
+      if (trackDuration <= 0) continue
+
+      if (hasEmbeddedChapters && track.chapters?.length) {
+        for (const chapter of track.chapters) {
+          const start = trackStart + Math.max(0, Number(chapter.start) || 0)
+          const end = trackStart + Math.min(trackDuration, Number(chapter.end) || trackDuration)
+          if (end > start) {
+            chapters.push({
+              ...chapter,
+              id: chapterId++,
+              start,
+              end,
+              title: chapter.title || track.title || `Chapter ${chapterId}`
+            })
+          }
+        }
+      } else {
+        chapters.push({
+          id: chapterId++,
+          start: trackStart,
+          end: trackStart + trackDuration,
+          title: track.title || `Chapter ${chapterId}`
+        })
+      }
+    }
+
+    return chapters
   }
 
   setPlaybackRate(playbackRate) {
