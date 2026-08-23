@@ -679,7 +679,8 @@ class PlaybackSessionManager {
     if (this.strmScheduledCompletionTask) return this.strmScheduledCompletionTask
 
     this.strmScheduledCompletionTask = (async () => {
-      const deadline = Date.now() + Math.max(0.5, Number(maxHours) || 1) * 60 * 60 * 1000
+      const startedAt = Date.now()
+      const deadline = startedAt + Math.max(0.5, Number(maxHours) || 1) * 60 * 60 * 1000
       const items = await Database.libraryItemModel.findAllExpandedWhere({
         mediaType: 'book'
       })
@@ -692,6 +693,7 @@ class PlaybackSessionManager {
 
       for (const libraryItem of items) {
         if (Date.now() >= deadline) break
+        // A zero-duration book has not been fully scanned; scan every STRM track in it.
         if (!libraryItem?.media || Number(libraryItem.media.duration) > 0) continue
         const strmFiles = (libraryItem.media.audioFiles || [])
           .filter((audioFile) => isStrmPath(audioFile.metadata?.path))
@@ -699,7 +701,14 @@ class PlaybackSessionManager {
         if (await this.completeStrmBook(libraryItem, strmFiles, { qps: 0.5, throttleState })) updated++
       }
 
-      return { books: items.length, updated }
+      const finishedAt = Date.now()
+      return {
+        books: items.length,
+        updated,
+        startedAt,
+        finishedAt,
+        durationMs: finishedAt - startedAt
+      }
     })()
       .catch((error) => {
         Logger.error(`[PlaybackSessionManager] Scheduled STRM metadata completion failed`, error)

@@ -132,7 +132,10 @@ export default {
       if (!lastRun) return ''
       const elapsedMinutes = Math.max(0, Math.floor((Date.now() - lastRun.startedAt) / 60000))
       const ago = elapsedMinutes < 60 ? `${elapsedMinutes} 分钟前` : `${Math.floor(elapsedMinutes / 60)} 小时前`
-      const duration = lastRun.durationMs < 1000 ? `${lastRun.durationMs} 毫秒` : `${(lastRun.durationMs / 1000).toFixed(1)} 秒`
+      const durationMinutes = Math.floor(lastRun.durationMs / 60000)
+      const duration = durationMinutes < 60
+        ? `${durationMinutes} 分钟`
+        : `${Math.floor(durationMinutes / 60)} 小时 ${durationMinutes % 60} 分钟`
       return `上次运行：${ago}，耗时 ${duration}`
     },
     openSettings(task) {
@@ -146,8 +149,13 @@ export default {
       const startedAt = Date.now()
       try {
         const path = task.key === 'metadata' ? '/api/strm-metadata-completion/run' : '/api/missing-items-cleanup/run'
-        await this.$axios.$post(path)
-        const lastRun = { startedAt, durationMs: Date.now() - startedAt }
+        const result = await this.$axios.$post(path)
+        const lastRun = {
+          startedAt: result.startedAt || startedAt,
+          durationMs: task.key === 'metadata' && Number.isFinite(Number(result.durationMs))
+            ? Number(result.durationMs)
+            : Date.now() - startedAt
+        }
         this.$set(this.lastRuns, task.key, lastRun)
         localStorage.setItem(LAST_RUN_STORAGE_KEY, JSON.stringify(this.lastRuns))
         this.$toast.success(task.key === 'metadata' ? this.$strings.ToastLibraryMetadataCompletionStarted : '丢失项目清理已开始')
