@@ -33,6 +33,7 @@ class PlaybackSessionManager {
     this.strmLibraryCompletionTasks = new Map()
     this.strmItemCompletionTasks = new Map()
     this.strmBatchCompletionTasks = new Map()
+    this.strmScheduledCompletionTask = null
   }
 
   /**
@@ -552,6 +553,10 @@ class PlaybackSessionManager {
         await new Promise((resolve) => setTimeout(resolve, requestIntervalMs))
       }
       await completeAudioFile(audioFile)
+      if (options.throttleState?.deadline && Date.now() >= options.throttleState.deadline) {
+        Logger.info(`[PlaybackSessionManager] STRM metadata completion time limit reached after ${options.throttleState.scannedTracks} tracks`)
+        break
+      }
       if (options.throttleState && options.throttleState.scannedTracks % 5000 === 0) {
         Logger.info(`[PlaybackSessionManager] STRM metadata completion pausing for 5 minutes after ${options.throttleState.scannedTracks} tracks`)
         await new Promise((resolve) => setTimeout(resolve, 5 * 60 * 1000))
@@ -658,7 +663,7 @@ class PlaybackSessionManager {
         .filter((audioFile) => isStrmPath(audioFile.metadata?.path))
       if (!strmFiles.length) return false
 
-      return this.completeStrmBook(libraryItem, strmFiles, { qps: 0.6 })
+      return this.completeStrmBook(libraryItem, strmFiles, { qps: 0.5 })
     })()
       .catch((error) => {
         Logger.warn(`[PlaybackSessionManager] STRM metadata completion failed for item "${libraryItemId}": ${error.message}`)
@@ -668,6 +673,43 @@ class PlaybackSessionManager {
 
     this.strmItemCompletionTasks.set(libraryItemId, task)
     return task
+  }
+
+  async completeScheduledStrmMetadata(maxHours = 1) {
+    if (this.strmScheduledCompletionTask) return this.strmScheduledCompletionTask
+
+    this.strmScheduledCompletionTask = (async () => {
+      const deadline = Date.now() + Math.max(0.5, Number(maxHours) || 1) * 60 * 60 * 1000
+      const items = await Database.libraryItemModel.findAllExpandedWhere({
+        mediaType: 'book'
+      })
+      const throttleState = {
+        scannedTracks: 0,
+        requestIntervalMs: 2000,
+        deadline
+      }
+      let updated = 0
+
+      for (const libraryItem of items) {
+        if (Date.now() >= deadline) break
+        if (!libraryItem?.media || Number(libraryItem.media.duration) > 0) continue
+        const strmFiles = (libraryItem.media.audioFiles || [])
+          .filter((audioFile) => isStrmPath(audioFile.metadata?.path))
+        if (!strmFiles.length) continue
+        if (await this.completeStrmBook(libraryItem, strmFiles, { qps: 0.5, throttleState })) updated++
+      }
+
+      return { books: items.length, updated }
+    })()
+      .catch((error) => {
+        Logger.error(`[PlaybackSessionManager] Scheduled STRM metadata completion failed`, error)
+        throw error
+      })
+      .finally(() => {
+        this.strmScheduledCompletionTask = null
+      })
+
+    return this.strmScheduledCompletionTask
   }
 
   async completeStrmItems(libraryItemIds) {

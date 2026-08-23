@@ -15,7 +15,7 @@
       </div>
     </div>
     <transition name="slide">
-      <div class="w-full" v-show="showTracks">
+      <div ref="tracksViewport" class="w-full max-h-[70vh] overflow-y-auto" v-show="showTracks" @scroll.passive="loadMoreTracks">
         <table class="text-sm tracksTable">
           <tr>
             <th class="w-10">#</th>
@@ -26,7 +26,7 @@
             <th class="text-left w-20 hidden sm:table-cell">{{ $strings.LabelDuration }}</th>
             <th class="text-center w-16"></th>
           </tr>
-          <template v-for="track in tracks">
+          <template v-for="track in visibleTracks">
             <tables-audio-tracks-table-row :key="track.index" :track="track" :library-item-id="libraryItemId" :showFullPath="showFullPath" @showMore="showMore" />
           </template>
         </table>
@@ -55,11 +55,15 @@ export default {
     return {
       showTracks: false,
       showFullPath: false,
+      visibleTrackCount: 100,
       selectedAudioFile: null,
       showAudioFileDataModal: false
     }
   },
   computed: {
+    visibleTracks() {
+      return this.tracks.slice(0, this.visibleTrackCount)
+    },
     userCanDownload() {
       return this.$store.getters['user/getUserCanDownload']
     },
@@ -80,6 +84,17 @@ export default {
     },
     clickBar() {
       this.showTracks = !this.showTracks
+      if (this.showTracks) {
+        this.visibleTrackCount = Math.min(100, this.tracks.length)
+        this.$nextTick(this.loadMoreTracks)
+      }
+    },
+    loadMoreTracks() {
+      const viewport = this.$refs.tracksViewport
+      if (!viewport || this.visibleTrackCount >= this.tracks.length) return
+      if (viewport.scrollTop + viewport.clientHeight >= viewport.scrollHeight - viewport.clientHeight) {
+        this.visibleTrackCount = Math.min(this.visibleTrackCount + 100, this.tracks.length)
+      }
     },
     showMore(audioFile) {
       this.selectedAudioFile = audioFile

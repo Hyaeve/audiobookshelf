@@ -348,6 +348,7 @@ class ApiRouter {
     //
     this.router.post('/upload', MiscController.handleUpload.bind(this))
     this.router.get('/tasks', MiscController.getTasks.bind(this))
+    this.router.post('/strm-metadata-completion/run', MiscController.runStrmMetadataCompletion.bind(this))
     this.router.patch('/settings', MiscController.updateServerSettings.bind(this))
     this.router.patch('/sorting-prefixes', MiscController.updateSortingPrefixes.bind(this))
     this.router.post('/authorize', MiscController.authorize.bind(this))

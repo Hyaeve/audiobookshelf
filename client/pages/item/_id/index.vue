@@ -403,6 +403,13 @@ export default {
         })
       }
 
+      if (this.userIsAdminOrUp && this.isBook) {
+        items.push({
+          text: this.$strings.ButtonCompleteMetadata,
+          action: 'complete-metadata'
+        })
+      }
+
       if (this.ebookFile && this.$store.state.libraries.ereaderDevices?.length) {
         items.push({
           text: this.$strings.LabelSendEbookToDevice,
@@ -434,6 +441,15 @@ export default {
     }
   },
   methods: {
+    completeMetadata() {
+      this.$axios
+        .$post(`/api/items/${this.libraryItemId}/complete-metadata`)
+        .then(() => this.$toast.success(this.$strings.ToastLibraryMetadataCompletionStarted))
+        .catch((error) => {
+          console.error('Failed to complete item metadata', error)
+          this.$toast.error(this.$strings.ToastLibraryMetadataCompletionFailed)
+        })
+    },
     selectBookmark(bookmark) {
       if (!bookmark) return
       if (this.isStreaming) {
@@ -769,6 +785,8 @@ export default {
         this.clickRSSFeed()
       } else if (action === 'download') {
         this.downloadLibraryItem()
+      } else if (action === 'complete-metadata') {
+        this.completeMetadata()
       } else if (action === 'delete') {
         this.deleteLibraryItem()
       } else if (action === 'sendToDevice') {

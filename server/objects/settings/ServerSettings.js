@@ -45,6 +45,10 @@ class ServerSettings {
     // Podcasts
     this.podcastEpisodeSchedule = '0 * * * *' // Every hour
 
+    // Custom STRM metadata completion schedule
+    this.strmMetadataCompletionCronExpression = null
+    this.strmMetadataCompletionMaxHours = 1
+
     // Sorting
     this.sortingIgnorePrefix = false
     this.sortingPrefixes = ['the', 'a']
@@ -115,6 +119,8 @@ class ServerSettings {
 
     this.homeBookshelfView = settings.homeBookshelfView || BookshelfView.STANDARD
     this.bookshelfView = settings.bookshelfView || BookshelfView.STANDARD
+    this.strmMetadataCompletionCronExpression = settings.strmMetadataCompletionCronExpression || null
+    this.strmMetadataCompletionMaxHours = Number(settings.strmMetadataCompletionMaxHours) > 0 ? Number(settings.strmMetadataCompletionMaxHours) : 1
 
     this.sortingIgnorePrefix = !!settings.sortingIgnorePrefix
     this.sortingPrefixes = settings.sortingPrefixes || ['the']
@@ -228,6 +234,8 @@ class ServerSettings {
       homeBookshelfView: this.homeBookshelfView,
       bookshelfView: this.bookshelfView,
       podcastEpisodeSchedule: this.podcastEpisodeSchedule,
+      strmMetadataCompletionCronExpression: this.strmMetadataCompletionCronExpression,
+      strmMetadataCompletionMaxHours: this.strmMetadataCompletionMaxHours,
       sortingIgnorePrefix: this.sortingIgnorePrefix,
       sortingPrefixes: [...this.sortingPrefixes],
       chromecastEnabled: this.chromecastEnabled,

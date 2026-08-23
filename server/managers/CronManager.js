@@ -15,6 +15,7 @@ class CronManager {
 
     this.libraryScanCrons = []
     this.podcastCrons = []
+    this.strmMetadataCron = null
 
     this.podcastCronExpressionsExecuting = []
   }
@@ -27,6 +28,7 @@ class CronManager {
   async init(libraries) {
     this.initOpenSessionCleanupCron()
     this.initLibraryScanCrons(libraries)
+    this.updateStrmMetadataCron()
     await this.initPodcastCrons()
   }
 
@@ -113,6 +115,41 @@ class CronManager {
       this.removeCronForLibrary(library)
       this.startCronForLibrary(library)
     }
+  }
+
+  /**
+   * Start or stop the scheduled STRM metadata completion task.
+   */
+  updateStrmMetadataCron() {
+    const settings = Database.serverSettings
+    const expression = settings.strmMetadataCompletionCronExpression
+    if (this.strmMetadataCron && (!expression || this.strmMetadataCron.expression !== expression)) {
+      this.strmMetadataCron.task.stop()
+      this.strmMetadataCron = null
+    }
+    if (!expression || this.strmMetadataCron) return
+    if (!cron.validate(expression)) {
+      Logger.error(`[CronManager] Invalid STRM metadata completion cron expression "${expression}"`)
+      return
+    }
+
+    const task = cron.schedule(expression, async () => {
+      if (this.strmMetadataCron.executing) {
+        Logger.warn('[CronManager] STRM metadata completion is already executing')
+        return
+      }
+      this.strmMetadataCron.executing = true
+      try {
+        await this.playbackSessionManager.completeScheduledStrmMetadata(settings.strmMetadataCompletionMaxHours)
+      } finally {
+        this.strmMetadataCron.executing = false
+      }
+    })
+    this.strmMetadataCron = { expression, task, executing: false }
+  }
+
+  async runStrmMetadataCompletion() {
+    return this.playbackSessionManager.completeScheduledStrmMetadata(Database.serverSettings.strmMetadataCompletionMaxHours)
   }
 
   /**

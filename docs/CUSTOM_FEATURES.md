@@ -60,6 +60,33 @@
 
 因此，当前实现不会把两个卷目录中的 `01` 简单地混在一起比较；卷目录是一级排序键，卷内曲目号是二级排序键。
 
+## 本地新增与修改功能
+
+### 1. 有声书书名匹配边界
+
+- 有声书媒体库只使用媒体库根目录下的直接子目录名作为书名匹配输入。
+- 例如 `/Read/有声读物/A/A1/...` 只匹配 `A`，不会把 `A1`、更深层目录名或卷目录名拼入综合书名；`A`、`B`、`C` 分别是三本书。
+- `A/A1`、`A/A2` 仍属于同一本书，音频文件相对路径保留卷目录层级。
+
+### 2. 详情页补全元数据
+
+- 有声书详情页三点菜单在“下载”附近提供“补全元数据”。
+- 该入口复用现有单书补全接口，书籍音轨元数据探测按 0.5 QPS 执行，并通过任务通知反馈状态。
+
+### 3. 大量音轨按需渲染
+
+- 音轨展开不再一次创建全部表格行，首次只渲染 100 条。
+- 在音轨区域滚动接近底部时，每次追加 100 条，直到全部加载；不改变服务端音轨数据、排序或播放行为。
+
+### 4. 计划任务：补全元数据
+
+- 设置侧栏用户按钮下新增“计划任务”页面，页面适配项目现有主题变量。
+- 页面提供“补全元数据”横条，右侧播放图标立即执行，竖三点打开设置窗口。
+- 设置窗口支持 cron 表达式和单次最长执行时间，时间范围从 0.5 小时开始、按 0.5 小时递增；服务端会校验 cron 和步长。
+- 计划任务只处理扫描后缺少有声书总时长的书籍，已有持续时长的书籍直接跳过；当前实现还要求书籍存在可补全的 `.strm` 音轨。
+- 执行限速固定为 0.5 QPS，每处理 5000 个文件暂停 5 分钟，并受设置的单次小时数截止时间限制；同一任务运行期间不会重复启动。
+- 计划任务配置保存在服务端设置中，cron 变更后立即重建定时任务。
+
 ## 代码锚点
 
 ### 后端 STRM
@@ -68,7 +95,13 @@
 - [`server/objects/files/AudioFile.js`](../server/objects/files/AudioFile.js:112)：创建不依赖远程探测的占位音频对象。
 - [`server/scanner/AudioFileScanner.js`](../server/scanner/AudioFileScanner.js:157)：扫描时识别 `.strm` 并跳过 `ffprobe`。
 - [`server/utils/strmUtils.js`](../server/utils/strmUtils.js:1)：指针解析、URL/本地目标判定、安全校验、完整扫描探测和当前章节媒体代理。
-- [`server/utils/scandir.js`](../server/utils/scandir.js:48)：书籍媒体库按根目录下一层文件夹聚合文件。
+- [`server/utils/scandir.js`](../server/utils/scandir.js:48)：书籍媒体库按根目录下一层文件夹聚合文件，并仅使用首层目录进行书名解析。
+- [`client/components/tables/TracksTable.vue`](../client/components/tables/TracksTable.vue:18)：大量音轨展开时按 100 条增量渲染。
+- [`client/pages/item/_id/index.vue`](../client/pages/item/_id/index.vue:406)：详情页三点菜单的补全元数据入口。
+- [`client/pages/config/scheduled-tasks.vue`](../client/pages/config/scheduled-tasks.vue:1)：计划任务页面及 cron/执行时长设置。
+- [`server/managers/CronManager.js`](../server/managers/CronManager.js:123)：计划任务生命周期和 cron 调度。
+- [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:678)：缺少总时长书籍的限时、QPS 与批量休息控制。
+- [`server/controllers/MiscController.js`](../server/controllers/MiscController.js:132)：计划任务设置的管理员权限、cron 与 0.5 小时步长校验。
 - [`server/scanner/AudioFileScanner.js`](../server/scanner/AudioFileScanner.js:52)：按卷目录自然排序，再使用原有碟号/曲目号排序。
 - [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:373)：播放阶段生成真实/估算时间轴和临时章节。
 - [`server/controllers/LibraryItemController.js`](../server/controllers/LibraryItemController.js:986)：实际章节播放入口，传入当前库目录白名单。
@@ -113,6 +146,9 @@
 4. 运行后端测试和前端构建。
 5. 手工验证三件事：
    - 扫描含 `.strm` 的目录时不会触发远程请求或访问真实本地目标。
+   - 验证 `A/A1`、`A/A2` 的书名匹配查询只使用 `A`，不会使用 `A1` 或 `A2`。
+   - 展开包含上千音轨的书籍，确认首屏只渲染首批音轨，滚动到底部后继续追加且页面保持响应。
+   - 在计划任务页面验证手动执行、cron 校验、0.5 小时步长和管理员权限；确认已有总时长的书被跳过，补全任务按 0.5 QPS、每 5000 个文件休息 5 分钟并在时限到达后停止。
    - 有声书库使用根目录下一层文件夹作为书籍边界，并验证 `A/A1`、`A/A2` 被聚合为同一本书且按卷目录顺序排列。
    - 播放时验证只访问当前章节目标，章节切换和恢复进度不会额外预取其他章节。
    - 播放响应返回后验证后台按整本书文件数量执行串行完整扫描，成功后数据库中的 STRM 音轨时长、音轨元数据、章节和总时长均被补全；重复播放不会重复请求已完整书籍。

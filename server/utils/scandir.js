@@ -74,7 +74,7 @@ function groupFileItemsIntoLibraryItemDirs(mediaType, fileItems, audiobooksOnly,
 
     if (mediaType === 'book' && dirparts.length > 0) {
       const libraryItemPath = dirparts[0]
-      const relativeFilePath = Path.posix.join(dirparts.slice(1).join('/'), item.name)
+      const relativeFilePath = Path.posix.join(...dirparts.slice(1), item.name)
       if (!libraryItemGroup[libraryItemPath]) libraryItemGroup[libraryItemPath] = []
       libraryItemGroup[libraryItemPath].push(relativeFilePath)
       return
@@ -111,7 +111,7 @@ function groupFileItemsIntoLibraryItemDirs(mediaType, fileItems, audiobooksOnly,
     const dirparts = item.reldirpath.split('/').filter((p) => !!p)
     const libraryItemPath = mediaType === 'book' ? dirparts[0] : null
     if (libraryItemPath && libraryItemGroup[libraryItemPath]) {
-      libraryItemGroup[libraryItemPath].push(Path.posix.join(dirparts.slice(1).join('/'), item.name))
+      libraryItemGroup[libraryItemPath].push(Path.posix.join(...dirparts.slice(1), item.name))
       return
     }
 
@@ -154,18 +154,26 @@ module.exports.buildLibraryFile = buildLibraryFile
  * @returns {LibraryItemFilenameMetadata}
  */
 function getBookDataFromDir(relPath, parseSubtitle = false) {
-  const splitDir = relPath.split('/')
+  const splitDir = relPath.split('/').filter((part) => !!part)
 
-  var folder = splitDir.pop() // Audio files will always be in the directory named for the title
-  series = splitDir.length > 1 ? splitDir.pop() : null // If there are at least 2 more directories, next furthest will be the series
-  author = splitDir.length > 0 ? splitDir.pop() : null // There could be many more directories, but only the top 3 are used for naming /author/series/title/
+  // A book library item is already grouped at the first directory below the
+  // library root. Use that directory as the title source so nested folders such
+  // as A/A1 never change matching to A1.
+  let folder = splitDir.shift() || ''
+  const parentDirs = splitDir
+  const series = parentDirs.length > 1 ? parentDirs.shift() : null
+  const author = parentDirs.length > 0 ? parentDirs.shift() : null
 
-  // The  may contain various other pieces of metadata, these functions extract it.
-  var [folder, asin] = getASIN(folder)
-  var [folder, narrators] = getNarrator(folder)
-  var [folder, sequence] = series ? getSequence(folder) : [folder, null]
-  var [folder, publishedYear] = getPublishedYear(folder)
-  var [title, subtitle] = parseSubtitle ? getSubtitle(folder) : [folder, null]
+  // Extract optional metadata markers from the first-level folder name.
+  let asin
+  ;[folder, asin] = getASIN(folder)
+  let narrators
+  ;[folder, narrators] = getNarrator(folder)
+  let sequence
+  ;[folder, sequence] = series ? getSequence(folder) : [folder, null]
+  let publishedYear
+  ;[folder, publishedYear] = getPublishedYear(folder)
+  const [title, subtitle] = parseSubtitle ? getSubtitle(folder) : [folder, null]
 
   return {
     title,

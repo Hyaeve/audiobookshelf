@@ -138,6 +138,19 @@ class MiscController {
     if (!isObject(settingsUpdate)) {
       return res.status(400).send('Invalid settings update object')
     }
+    if (settingsUpdate.strmMetadataCompletionCronExpression !== undefined) {
+      const expression = settingsUpdate.strmMetadataCompletionCronExpression
+      if (expression !== null && (typeof expression !== 'string' || !cron.validate(expression))) {
+        return res.status(400).send('Invalid metadata completion cron expression')
+      }
+    }
+    if (settingsUpdate.strmMetadataCompletionMaxHours !== undefined) {
+      const maxHours = Number(settingsUpdate.strmMetadataCompletionMaxHours)
+      if (!Number.isFinite(maxHours) || maxHours < 0.5 || Math.round(maxHours * 2) !== maxHours * 2) {
+        return res.status(400).send('Metadata completion time limit must use 0.5 hour increments')
+      }
+      settingsUpdate.strmMetadataCompletionMaxHours = maxHours
+    }
     if (settingsUpdate.allowIframe == false && process.env.ALLOW_IFRAME === '1') {
       Logger.warn('Cannot disable iframe when ALLOW_IFRAME is enabled in environment')
       return res.status(400).send('Cannot disable iframe when ALLOW_IFRAME is enabled in environment')
@@ -153,6 +166,9 @@ class MiscController {
       // If backup schedule is updated - update backup manager
       if (settingsUpdate.backupSchedule !== undefined) {
         this.backupManager.updateCronSchedule()
+      }
+      if (settingsUpdate.strmMetadataCompletionCronExpression !== undefined || settingsUpdate.strmMetadataCompletionMaxHours !== undefined) {
+        this.cronManager.updateStrmMetadataCron()
       }
     }
     return res.json({
@@ -597,6 +613,14 @@ class MiscController {
     }
 
     res.sendStatus(200)
+  }
+
+  async runStrmMetadataCompletion(req, res) {
+    if (!req.user.isAdminOrUp) return res.sendStatus(403)
+    res.sendStatus(202)
+    void this.cronManager.runStrmMetadataCompletion().catch((error) => {
+      Logger.error('[MiscController] Manual STRM metadata completion failed', error)
+    })
   }
 
   validateCronExpression(req, res) {
