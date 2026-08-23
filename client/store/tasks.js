@@ -45,7 +45,12 @@ export const mutations = {
   updateTaskProgress(state, payload) {
     if (payload.taskId) {
       const task = state.tasks.find((item) => item.id === payload.taskId)
-      if (task) Vue.set(task, 'data', { ...(task.data || {}), ...(payload.data || {}), progress: payload.progress })
+      if (task) {
+        Vue.set(task, 'data', { ...(task.data || {}), ...(payload.data || {}), progress: payload.progress })
+        if (payload.title !== undefined) Vue.set(task, 'title', payload.title)
+        if (payload.titleKey !== undefined) Vue.set(task, 'titleKey', payload.titleKey)
+        if (payload.titleSubs !== undefined) Vue.set(task, 'titleSubs', payload.titleSubs)
+      }
       return
     }
     Vue.set(state.taskProgress, payload.libraryItemId, payload.progress)

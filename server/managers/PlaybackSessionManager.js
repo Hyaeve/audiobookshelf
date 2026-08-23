@@ -11,7 +11,7 @@ const uaParserJs = require('../libs/uaParser')
 const requestIp = require('../libs/requestIp')
 
 const { PlayMethod } = require('../utils/constants')
-const { isStrmPath, getStrmScanQps, probeStrmTargetMedia } = require('../utils/strmUtils')
+const { isStrmPath, probeStrmTargetMedia } = require('../utils/strmUtils')
 const AudioFileScanner = require('../scanner/AudioFileScanner')
 const TaskManager = require('./TaskManager')
 
@@ -517,7 +517,7 @@ class PlaybackSessionManager {
     const library = await Database.libraryModel.findByIdWithFolders(libraryItem.libraryId)
     const allowedLocalRoots = (library?.libraryFolders || []).map((folder) => folder.path)
     const totalStrmFiles = (libraryItem.media.audioFiles || []).filter((audioFile) => isStrmPath(audioFile.metadata?.path)).length
-    const qps = Number(options.qps) > 0 ? Number(options.qps) : (options.manualLibraryTask ? 0.5 : getStrmScanQps(totalStrmFiles))
+    const qps = Number(options.qps) > 0 ? Number(options.qps) : 0.5
     const requestIntervalMs = 1000 / qps
     let updatedCount = 0
 
@@ -568,7 +568,7 @@ class PlaybackSessionManager {
         Logger.info(`[PlaybackSessionManager] STRM metadata completion time limit reached after ${options.throttleState.scannedTracks} tracks`)
         break
       }
-      if (options.throttleState && options.throttleState.scannedTracks % 5000 === 0) {
+      if (options.throttleState?.batchSize && options.throttleState.scannedTracks % options.throttleState.batchSize === 0) {
         Logger.info(`[PlaybackSessionManager] STRM metadata completion pausing for 5 minutes after ${options.throttleState.scannedTracks} tracks`)
         await new Promise((resolve) => setTimeout(resolve, 5 * 60 * 1000))
       }
@@ -640,7 +640,8 @@ class PlaybackSessionManager {
     let updated = 0
     const throttleState = {
       scannedTracks: 0,
-      requestIntervalMs: 2000
+      requestIntervalMs: 1000 / 1.5,
+      batchSize: 3000
     }
     try {
       for (const item of items) {
@@ -648,7 +649,7 @@ class PlaybackSessionManager {
         if (!expandedItem?.media || expandedItem.mediaType !== 'book') continue
         const strmFiles = (expandedItem.media.audioFiles || []).filter((audioFile) => isStrmPath(audioFile.metadata?.path))
         if (!strmFiles.length) continue
-        if (await this.completeStrmBook(expandedItem, strmFiles, { manualLibraryTask: true, throttleState })) updated++
+        if (await this.completeStrmBook(expandedItem, strmFiles, { qps: 1.5, manualLibraryTask: true, throttleState })) updated++
       }
       task.setFinished(null, true)
       task.data.result = { books: items.length, updated }
@@ -674,7 +675,14 @@ class PlaybackSessionManager {
         .filter((audioFile) => isStrmPath(audioFile.metadata?.path))
       if (!strmFiles.length) return false
 
-      return this.completeStrmBook(libraryItem, strmFiles, { qps: 0.5 })
+      return this.completeStrmBook(libraryItem, strmFiles, {
+        qps: 2.0,
+        throttleState: {
+          scannedTracks: 0,
+          requestIntervalMs: 1000 / 2.0,
+          batchSize: 3000
+        }
+      })
     })()
       .catch((error) => {
         Logger.warn(`[PlaybackSessionManager] STRM metadata completion failed for item "${libraryItemId}": ${error.message}`)
@@ -695,20 +703,26 @@ class PlaybackSessionManager {
       const deadline = startedAt + Math.max(0.5, Number(maxHours) || 1) * 60 * 60 * 1000
       task = TaskManager.createAndAddTask('strm-metadata-completion', {
         text: 'Completing STRM metadata',
-        key: 'MessageTaskCompletingStrmMetadata'
+        key: 'MessageTaskCompletingStrmMetadata',
+        subs: ['']
       }, null, true, { totalBooks: 0, updatedBooks: 0, totalTracks: 0, scannedTracks: 0, progress: 0 })
       const items = await Database.libraryItemModel.findAllExpandedWhere({
         mediaType: 'book'
       })
       task.data.totalBooks = items.length
-      const updateProgress = () => {
+      let currentTitle = ''
+      const updateProgress = (title = currentTitle) => {
         const totalTracks = Math.max(1, task.data.totalTracks || 1)
         const progress = Math.min(100, (task.data.scannedTracks / totalTracks) * 100)
+        if (title) currentTitle = title
+        task.titleSubs = [currentTitle]
         TaskManager.updateTaskProgress(task, progress)
       }
+      const settings = Database.serverSettings
       const throttleState = {
         scannedTracks: 0,
-        requestIntervalMs: 2000,
+        requestIntervalMs: 1000 / settings.strmMetadataCompletionQps,
+        batchSize: settings.strmMetadataCompletionBatchSize,
         deadline,
         onTrackScanned: () => {
           task.data.scannedTracks += 1
@@ -725,8 +739,8 @@ class PlaybackSessionManager {
           .filter((audioFile) => isStrmPath(audioFile.metadata?.path))
         if (!strmFiles.length) continue
         task.data.totalTracks += strmFiles.length
-        updateProgress()
-        if (await this.completeStrmBook(libraryItem, strmFiles, { qps: 0.5, throttleState })) {
+        updateProgress(libraryItem.media.title || libraryItem.title || libraryItem.id)
+        if (await this.completeStrmBook(libraryItem, strmFiles, { qps: settings.strmMetadataCompletionQps, throttleState })) {
           updated++
           task.data.updatedBooks = updated
         }
@@ -771,7 +785,8 @@ class PlaybackSessionManager {
       const items = await Database.libraryItemModel.findAllExpandedWhere({ id: libraryItemIds })
       const throttleState = {
         scannedTracks: 0,
-        requestIntervalMs: 2000
+        requestIntervalMs: 1000 / 1.5,
+        batchSize: 3000
       }
       let updated = 0
 
@@ -780,7 +795,7 @@ class PlaybackSessionManager {
         const strmFiles = (libraryItem.media.audioFiles || [])
           .filter((audioFile) => isStrmPath(audioFile.metadata?.path))
         if (!strmFiles.length) continue
-        if (await this.completeStrmBook(libraryItem, strmFiles, { qps: 0.5, throttleState })) updated++
+        if (await this.completeStrmBook(libraryItem, strmFiles, { qps: 1.5, throttleState })) updated++
       }
 
       return { books: items.length, updated }

@@ -46,12 +46,6 @@ function shouldBypassStrmSsrfFilter(targetUrl) {
   return Boolean(global.DisableSsrfRequestFilter?.(targetUrl)) || isPrivateStrmHost(targetUrl)
 }
 
-function getStrmScanQps(fileCount) {
-  if (fileCount < 800) return 1
-  if (fileCount <= 2000) return 0.8
-  return 0.5
-}
-
 function isStrmPath(filePath) {
   return Path.extname(filePath || '').toLowerCase() === '.strm'
 }
@@ -195,4 +189,4 @@ async function proxyStrm(req, res, filePath, allowedLocalRoots = []) {
   }
 }
 
-module.exports = { isStrmPath, isPrivateStrmHost, getStrmScanQps, resolveStrmUrl, resolveStrmTarget, probeStrmTargetMedia, proxyStrm }
+module.exports = { isStrmPath, isPrivateStrmHost, resolveStrmUrl, resolveStrmTarget, probeStrmTargetMedia, proxyStrm }

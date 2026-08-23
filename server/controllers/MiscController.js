@@ -153,6 +153,20 @@ class MiscController {
       }
       settingsUpdate.strmMetadataCompletionMaxHours = maxHours
     }
+    if (settingsUpdate.strmMetadataCompletionQps !== undefined) {
+      const qps = Number(settingsUpdate.strmMetadataCompletionQps)
+      if (!Number.isFinite(qps) || qps < 0.1 || qps > 10 || Math.round(qps * 10) !== qps * 10) {
+        return res.status(400).send('Metadata completion QPS must use 0.1 increments between 0.1 and 10')
+      }
+      settingsUpdate.strmMetadataCompletionQps = qps
+    }
+    if (settingsUpdate.strmMetadataCompletionBatchSize !== undefined) {
+      const batchSize = Number(settingsUpdate.strmMetadataCompletionBatchSize)
+      if (!Number.isInteger(batchSize) || batchSize < 500 || batchSize % 500 !== 0) {
+        return res.status(400).send('Metadata completion batch size must use 500 increments and be at least 500')
+      }
+      settingsUpdate.strmMetadataCompletionBatchSize = batchSize
+    }
     if (settingsUpdate.allowIframe == false && process.env.ALLOW_IFRAME === '1') {
       Logger.warn('Cannot disable iframe when ALLOW_IFRAME is enabled in environment')
       return res.status(400).send('Cannot disable iframe when ALLOW_IFRAME is enabled in environment')
@@ -169,7 +183,7 @@ class MiscController {
       if (settingsUpdate.backupSchedule !== undefined) {
         this.backupManager.updateCronSchedule()
       }
-      if (settingsUpdate.strmMetadataCompletionCronExpression !== undefined || settingsUpdate.strmMetadataCompletionMaxHours !== undefined) {
+      if (settingsUpdate.strmMetadataCompletionCronExpression !== undefined || settingsUpdate.strmMetadataCompletionMaxHours !== undefined || settingsUpdate.strmMetadataCompletionQps !== undefined || settingsUpdate.strmMetadataCompletionBatchSize !== undefined) {
         this.cronManager.updateStrmMetadataCron()
       }
       if (settingsUpdate.missingItemsCleanupCronExpression !== undefined) {

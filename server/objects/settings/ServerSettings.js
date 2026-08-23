@@ -48,6 +48,8 @@ class ServerSettings {
     // Custom maintenance schedules
     this.strmMetadataCompletionCronExpression = null
     this.strmMetadataCompletionMaxHours = 1
+    this.strmMetadataCompletionQps = 1.0
+    this.strmMetadataCompletionBatchSize = 5000
     this.missingItemsCleanupCronExpression = null
 
     // Sorting
@@ -122,6 +124,8 @@ class ServerSettings {
     this.bookshelfView = settings.bookshelfView || BookshelfView.STANDARD
     this.strmMetadataCompletionCronExpression = settings.strmMetadataCompletionCronExpression || null
     this.strmMetadataCompletionMaxHours = Number(settings.strmMetadataCompletionMaxHours) > 0 ? Number(settings.strmMetadataCompletionMaxHours) : 1
+    this.strmMetadataCompletionQps = Number(settings.strmMetadataCompletionQps) >= 0.1 ? Number(settings.strmMetadataCompletionQps) : 1.0
+    this.strmMetadataCompletionBatchSize = Number(settings.strmMetadataCompletionBatchSize) >= 500 ? Number(settings.strmMetadataCompletionBatchSize) : 5000
     this.missingItemsCleanupCronExpression = settings.missingItemsCleanupCronExpression || null
 
     this.sortingIgnorePrefix = !!settings.sortingIgnorePrefix
@@ -238,6 +242,8 @@ class ServerSettings {
       podcastEpisodeSchedule: this.podcastEpisodeSchedule,
       strmMetadataCompletionCronExpression: this.strmMetadataCompletionCronExpression,
       strmMetadataCompletionMaxHours: this.strmMetadataCompletionMaxHours,
+      strmMetadataCompletionQps: this.strmMetadataCompletionQps,
+      strmMetadataCompletionBatchSize: this.strmMetadataCompletionBatchSize,
       missingItemsCleanupCronExpression: this.missingItemsCleanupCronExpression,
       sortingIgnorePrefix: this.sortingIgnorePrefix,
       sortingPrefixes: [...this.sortingPrefixes],

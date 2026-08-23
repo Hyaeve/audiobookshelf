@@ -4,7 +4,7 @@ const os = require('os')
 const chai = require('chai')
 const expect = chai.expect
 const scanUtils = require('../../../server/utils/scandir')
-const { resolveStrmTarget, isPrivateStrmHost, getStrmScanQps } = require('../../../server/utils/strmUtils')
+const { resolveStrmTarget, isPrivateStrmHost } = require('../../../server/utils/strmUtils')
 
 describe('scanUtils', async () => {
   it('should properly group files into potential book library items', async () => {
@@ -80,12 +80,6 @@ describe('scanUtils', async () => {
     })
   })
 
-  it('should select the STRM full scan QPS from the total file count', () => {
-    expect(getStrmScanQps(799)).to.equal(1)
-    expect(getStrmScanQps(800)).to.equal(0.8)
-    expect(getStrmScanQps(2000)).to.equal(0.8)
-    expect(getStrmScanQps(2001)).to.equal(0.5)
-  })
 
   it('should allow direct private IP STRM targets without disabling public SSRF protection', () => {
     expect(isPrivateStrmHost('http://10.0.0.31:19527/d/audio.m4a?/chapter.m4a')).to.equal(true)

@@ -42,6 +42,9 @@ class TaskManager {
       taskId: task.id,
       action: task.action,
       data: { ...task.data },
+      title: task.title,
+      titleKey: task.titleKey,
+      titleSubs: task.titleSubs,
       progress
     })
   }

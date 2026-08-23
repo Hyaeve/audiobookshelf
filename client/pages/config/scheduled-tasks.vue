@@ -65,6 +65,27 @@
             inputmode="decimal"
             class="w-full bg-primary border border-gray-600 rounded-md px-3 py-2"
           />
+          <label class="block text-sm font-semibold mb-2 mt-4" for="scheduled-task-qps">扫描 QPS</label>
+          <input
+            id="scheduled-task-qps"
+            v-model.number="draftQps"
+            type="number"
+            min="0.1"
+            max="10"
+            step="0.1"
+            inputmode="decimal"
+            class="w-full bg-primary border border-gray-600 rounded-md px-3 py-2"
+          />
+          <label class="block text-sm font-semibold mb-2 mt-4" for="scheduled-task-batch-size">每隔多少个文件暂停 5 分钟</label>
+          <input
+            id="scheduled-task-batch-size"
+            v-model.number="draftBatchSize"
+            type="number"
+            min="500"
+            step="500"
+            inputmode="numeric"
+            class="w-full bg-primary border border-gray-600 rounded-md px-3 py-2"
+          />
         </div>
         <div v-if="selectedTask && !selectedTask.hasMaxHours" class="mt-5 text-sm text-gray-300">
           只删除数据库中已标记为丢失的项目，不删除文件系统中的任何文件，也不会清理普通无效项目。
@@ -89,6 +110,8 @@ export default {
       selectedTask: null,
       draftCron: null,
       draftMaxHours: 1,
+      draftQps: 1.0,
+      draftBatchSize: 5000,
       running: {},
       lastRuns: {}
     }
@@ -105,7 +128,7 @@ export default {
         {
           key: 'metadata',
           title: '补全元数据',
-          description: '仅补全缺少有声书总时长的书籍，使用 0.5 QPS，每 5000 个文件暂停 5 分钟。',
+          description: '仅补全缺少有声书总时长的书籍。',
           hasMaxHours: true
         },
         {
@@ -163,6 +186,8 @@ export default {
       this.selectedTask = task
       this.draftCron = this.cronFor(task) || null
       this.draftMaxHours = Number(this.serverSettings.strmMetadataCompletionMaxHours) || 1
+      this.draftQps = Number(this.serverSettings.strmMetadataCompletionQps) || 1.0
+      this.draftBatchSize = Number(this.serverSettings.strmMetadataCompletionBatchSize) || 5000
       this.showSettings = true
     },
     scheduledTaskFinished(task) {
@@ -202,7 +227,7 @@ export default {
       this.saving = true
       try {
         const payload = this.selectedTask.key === 'metadata'
-          ? { strmMetadataCompletionCronExpression: this.draftCron, strmMetadataCompletionMaxHours: this.draftMaxHours }
+          ? { strmMetadataCompletionCronExpression: this.draftCron, strmMetadataCompletionMaxHours: this.draftMaxHours, strmMetadataCompletionQps: this.draftQps, strmMetadataCompletionBatchSize: this.draftBatchSize }
           : { missingItemsCleanupCronExpression: this.draftCron }
         const response = await this.$axios.$patch('/api/settings', payload)
         this.$store.commit('setServerSettings', response.serverSettings)
