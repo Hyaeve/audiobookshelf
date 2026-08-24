@@ -146,7 +146,7 @@ export default {
         {
           key: 'scan',
           title: '媒体库扫描',
-          description: '按选定顺序扫描指定媒体库，可设置统一 Cron 和单次执行时间限制。',
+          description: '扫描选定媒体库',
           hasMaxHours: true
         },
         {
@@ -263,11 +263,12 @@ export default {
     async saveSettings() {
       this.saving = true
       try {
+        const cronExpression = typeof this.draftCron === 'string' && this.draftCron.trim() ? this.draftCron.trim() : null
         const payload = this.selectedTask.key === 'scan'
-          ? { scheduledLibraryScanCronExpression: this.draftCron, scheduledLibraryScanLibraryIds: this.draftLibraryIds, scheduledLibraryScanMaxHours: this.draftMaxHours }
+          ? { scheduledLibraryScanCronExpression: cronExpression, scheduledLibraryScanLibraryIds: this.draftLibraryIds, scheduledLibraryScanMaxHours: this.draftMaxHours }
           : this.selectedTask.key === 'metadata'
-            ? { strmMetadataCompletionCronExpression: this.draftCron, strmMetadataCompletionMaxHours: this.draftMaxHours, strmMetadataCompletionQps: this.draftQps, strmMetadataCompletionBatchSize: this.draftBatchSize }
-            : { missingItemsCleanupCronExpression: this.draftCron }
+            ? { strmMetadataCompletionCronExpression: cronExpression, strmMetadataCompletionMaxHours: this.draftMaxHours, strmMetadataCompletionQps: this.draftQps, strmMetadataCompletionBatchSize: this.draftBatchSize }
+            : { missingItemsCleanupCronExpression: cronExpression }
         const response = await this.$axios.$patch('/api/settings', payload)
         this.$store.commit('setServerSettings', response.serverSettings)
         this.showSettings = false

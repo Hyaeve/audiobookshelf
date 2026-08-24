@@ -141,7 +141,8 @@ class MiscController {
     const cronSettingKeys = ['strmMetadataCompletionCronExpression', 'missingItemsCleanupCronExpression', 'scheduledLibraryScanCronExpression']
     for (const key of cronSettingKeys) {
       if (settingsUpdate[key] === undefined) continue
-      const expression = settingsUpdate[key]
+      const expression = typeof settingsUpdate[key] === 'string' ? settingsUpdate[key].trim() : settingsUpdate[key]
+      settingsUpdate[key] = expression || null
       if (expression !== null && (typeof expression !== 'string' || !cron.validate(expression))) {
         return res.status(400).send(`Invalid cron expression for ${key}`)
       }

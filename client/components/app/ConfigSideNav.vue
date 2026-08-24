@@ -5,7 +5,7 @@
         <span class="material-symbols text-2xl">arrow_back</span>
       </div>
 
-      <nuxt-link v-for="route in configRoutes" :key="route.id" :to="route.path" class="config-side-nav-link w-full px-3 h-12 border-b border-primary/30 flex items-center cursor-pointer relative" :class="routeName === route.id ? 'bg-primary/70' : 'hover:bg-primary/30'">
+      <nuxt-link v-for="route in configRoutes" :key="route.id" :to="route.path" class="config-side-nav-link w-full px-3 h-12 border-b border-primary/30 flex items-center cursor-pointer relative" :class="routeName === route.id ? 'bg-primary/70' : 'hover:bg-primary/30'" @mouseenter="removeNavTooltip">
         <p class="leading-4">{{ route.title }}</p>
         <div v-show="routeName === route.id" class="h-full w-0.5 bg-yellow-400 absolute top-0 left-0" />
       </nuxt-link>
@@ -31,7 +31,8 @@ export default {
   },
   data() {
     return {
-      showChangelogModal: false
+      showChangelogModal: false,
+      titleAttributeObserver: null
     }
   },
   computed: {
@@ -175,10 +176,21 @@ export default {
   },
   mounted() {
     this.$nextTick(() => {
-      this.$el.querySelectorAll('.config-side-nav-link').forEach((link) => link.removeAttribute('title'))
+      const removeTitleAttributes = () => {
+        this.$el.querySelectorAll('[title]').forEach((element) => element.removeAttribute('title'))
+      }
+      removeTitleAttributes()
+      this.titleAttributeObserver = new MutationObserver(removeTitleAttributes)
+      this.titleAttributeObserver.observe(this.$el, { attributes: true, attributeFilter: ['title'], subtree: true })
     })
   },
+  beforeDestroy() {
+    if (this.titleAttributeObserver) this.titleAttributeObserver.disconnect()
+  },
   methods: {
+    removeNavTooltip(event) {
+      event.currentTarget.removeAttribute('title')
+    },
     clickChangelog() {
       this.showChangelogModal = true
     },
