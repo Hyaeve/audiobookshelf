@@ -479,6 +479,14 @@ class PlaybackSessionManager {
       && Number(audioFile.channels) > 0
   }
 
+  isCompleteStrmBookMetadata(libraryItem) {
+    const allAudioFiles = libraryItem?.media?.audioFiles || []
+    const strmFiles = allAudioFiles.filter((audioFile) => isStrmPath(audioFile.metadata?.path))
+    return strmFiles.length > 0
+      && Number(libraryItem.media.duration) > 0
+      && strmFiles.every((audioFile) => this.isCompleteStrmAudioFile(audioFile))
+  }
+
   async completeStrmBookAfterPlayback(libraryItemId) {
     const libraryItem = await Database.libraryItemModel.getExpandedById(libraryItemId)
     if (!libraryItem?.media || libraryItem.mediaType !== 'book') return false
@@ -488,10 +496,7 @@ class PlaybackSessionManager {
     if (!allStrmFiles.length) return Promise.resolve(false)
 
     const strmFiles = allStrmFiles.filter((audioFile) => !this.isCompleteStrmAudioFile(audioFile))
-    const hasCompleteBookMetadata = Number(libraryItem.media.duration) > 0
-      && Array.isArray(libraryItem.media.chapters)
-      && libraryItem.media.chapters.length === allAudioFiles.length
-    if (!strmFiles.length && hasCompleteBookMetadata) return Promise.resolve(false)
+    if (this.isCompleteStrmBookMetadata(libraryItem)) return Promise.resolve(false)
 
     if (this.strmCompletionQueuedIds.has(libraryItem.id)) return false
     this.strmCompletionQueuedIds.add(libraryItem.id)
@@ -679,7 +684,9 @@ class PlaybackSessionManager {
       for (const item of items) {
         const expandedItem = await Database.libraryItemModel.getExpandedById(item.id)
         if (!expandedItem?.media || expandedItem.mediaType !== 'book') continue
-        const strmFiles = (expandedItem.media.audioFiles || []).filter((audioFile) => isStrmPath(audioFile.metadata?.path))
+        if (this.isCompleteStrmBookMetadata(expandedItem)) continue
+        const strmFiles = (expandedItem.media.audioFiles || [])
+          .filter((audioFile) => isStrmPath(audioFile.metadata?.path) && !this.isCompleteStrmAudioFile(audioFile))
         if (!strmFiles.length) continue
         task.data.totalTracks += strmFiles.length
         task.titleSubs = [expandedItem.media.title || expandedItem.title || expandedItem.id]
@@ -709,8 +716,9 @@ class PlaybackSessionManager {
       const libraryItem = await Database.libraryItemModel.getExpandedById(libraryItemId)
       if (!libraryItem?.media || libraryItem.mediaType !== 'book') return false
 
+      if (this.isCompleteStrmBookMetadata(libraryItem)) return false
       const strmFiles = (libraryItem.media.audioFiles || [])
-        .filter((audioFile) => isStrmPath(audioFile.metadata?.path))
+        .filter((audioFile) => isStrmPath(audioFile.metadata?.path) && !this.isCompleteStrmAudioFile(audioFile))
       if (!strmFiles.length) return false
 
       return this.completeStrmBook(libraryItem, strmFiles, {
@@ -772,10 +780,10 @@ class PlaybackSessionManager {
 
       for (const libraryItem of items) {
         if (this.strmScheduledCompletionCancelRequested || Date.now() >= deadline) break
-        // A zero-duration book has not been fully scanned; scan every STRM track in it.
-        if (!libraryItem?.media || Number(libraryItem.media.duration) > 0) continue
+        // A completed STRM book is skipped; only incomplete books need probing.
+        if (!libraryItem?.media || this.isCompleteStrmBookMetadata(libraryItem)) continue
         const strmFiles = (libraryItem.media.audioFiles || [])
-          .filter((audioFile) => isStrmPath(audioFile.metadata?.path))
+          .filter((audioFile) => isStrmPath(audioFile.metadata?.path) && !this.isCompleteStrmAudioFile(audioFile))
         if (!strmFiles.length) continue
         task.data.totalTracks += strmFiles.length
         updateProgress(libraryItem.media.title || libraryItem.title || libraryItem.id)
@@ -844,8 +852,9 @@ class PlaybackSessionManager {
 
       for (const libraryItem of items) {
         if (!libraryItem?.media || libraryItem.mediaType !== 'book') continue
+        if (this.isCompleteStrmBookMetadata(libraryItem)) continue
         const strmFiles = (libraryItem.media.audioFiles || [])
-          .filter((audioFile) => isStrmPath(audioFile.metadata?.path))
+          .filter((audioFile) => isStrmPath(audioFile.metadata?.path) && !this.isCompleteStrmAudioFile(audioFile))
         if (!strmFiles.length) continue
         if (await this.completeStrmBook(libraryItem, strmFiles, { qps: 1.5, throttleState })) updated++
       }

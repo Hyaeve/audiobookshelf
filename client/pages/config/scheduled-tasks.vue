@@ -16,29 +16,23 @@
           <p class="text-sm text-gray-300 mt-1">{{ task.description }}</p>
         </div>
         <div class="flex items-center ml-4 shrink-0">
-          <ui-tooltip :text="isTaskRunning(task) ? '停止任务' : '立即执行'" direction="bottom">
-            <button
-              type="button"
-              :class="['scheduled-task-action flex items-center justify-center', { 'scheduled-task-stop': isTaskRunning(task) }]"
-              :disabled="running[task.key + 'Stopping']"
-              :title="isTaskRunning(task) ? '停止任务' : '立即执行'"
-              :aria-label="(isTaskRunning(task) ? '停止任务 ' : '立即执行 ') + task.title"
-              @click="isTaskRunning(task) ? stopTask(task) : runNow(task)"
-            >
-              <span class="material-symbols text-4xl">{{ isTaskRunning(task) ? 'stop' : 'play_arrow' }}</span>
-            </button>
-          </ui-tooltip>
-          <ui-tooltip text="设置" direction="bottom">
-            <button
-              type="button"
-              class="scheduled-task-action flex items-center justify-center ml-2"
-              title="设置"
-              :aria-label="'设置 ' + task.title"
-              @click="openSettings(task)"
-            >
-              <span class="material-symbols text-2xl">more_vert</span>
-            </button>
-          </ui-tooltip>
+          <button
+            type="button"
+            :class="['scheduled-task-action flex items-center justify-center', { 'scheduled-task-stop': isTaskRunning(task) }]"
+            :disabled="running[task.key + 'Stopping']"
+            :aria-label="(isTaskRunning(task) ? '停止任务 ' : '立即执行 ') + task.title"
+            @click="isTaskRunning(task) ? stopTask(task) : runNow(task)"
+          >
+            <span class="material-symbols text-4xl">{{ isTaskRunning(task) ? 'stop' : 'play_arrow' }}</span>
+          </button>
+          <button
+            type="button"
+            class="scheduled-task-action flex items-center justify-center ml-2"
+            :aria-label="'设置 ' + task.title"
+            @click="openSettings(task)"
+          >
+            <span class="material-symbols text-2xl">more_vert</span>
+          </button>
         </div>
       </div>
     </div>
