@@ -1,5 +1,5 @@
 <template>
-  <app-settings-content :title="'计划任务'">
+  <app-settings-content :header-text="'计划任务'">
     <div class="scheduled-tasks w-full max-w-4xl space-y-2">
       <div
         v-for="task in taskDefinitions"
