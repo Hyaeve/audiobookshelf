@@ -48,7 +48,27 @@
           class="w-full bg-primary border border-gray-600 rounded-md px-3 py-2"
           placeholder="例如：0 3 * * *"
         />
-        <div v-if="selectedTask && selectedTask.hasMaxHours" class="mt-5">
+        <div v-if="selectedTask && selectedTask.key === 'scan'" class="mt-5">
+          <label class="block text-sm font-semibold mb-2">扫描媒体库</label>
+          <div class="max-h-40 overflow-y-auto bg-primary border border-gray-600 rounded-md p-2 space-y-1">
+            <label v-for="library in libraries" :key="library.id" class="flex items-center text-sm py-1">
+              <input v-model="draftLibraryIds" type="checkbox" :value="library.id" class="mr-2" />
+              <span>{{ library.name }}</span>
+            </label>
+            <p v-if="!libraries.length" class="text-sm text-gray-400">暂无可扫描的媒体库</p>
+          </div>
+          <label class="block text-sm font-semibold mb-2 mt-4" for="scheduled-task-scan-max-hours">单次最长执行时间（小时）</label>
+          <input
+            id="scheduled-task-scan-max-hours"
+            v-model.number="draftMaxHours"
+            type="number"
+            min="0.5"
+            step="0.5"
+            inputmode="decimal"
+            class="w-full bg-primary border border-gray-600 rounded-md px-3 py-2"
+          />
+        </div>
+        <div v-else-if="selectedTask && selectedTask.hasMaxHours" class="mt-5">
           <label class="block text-sm font-semibold mb-2" for="scheduled-task-max-hours">单次最长执行时间（小时）</label>
           <input
             id="scheduled-task-max-hours"
@@ -106,6 +126,7 @@ export default {
       draftMaxHours: 1,
       draftQps: 1.0,
       draftBatchSize: 5000,
+      draftLibraryIds: [],
       running: {},
       lastRuns: {}
     }
@@ -114,11 +135,20 @@ export default {
     tasks() {
       return this.$store.state.tasks.tasks || []
     },
+    libraries() {
+      return this.$store.state.libraries.libraries || []
+    },
     serverSettings() {
       return this.$store.state.serverSettings || {}
     },
     taskDefinitions() {
       return [
+        {
+          key: 'scan',
+          title: '媒体库扫描',
+          description: '按选定顺序扫描指定媒体库，可设置统一 Cron 和单次执行时间限制。',
+          hasMaxHours: true
+        },
         {
           key: 'metadata',
           title: '补全元数据',
@@ -150,17 +180,19 @@ export default {
       return this.tasks.find((item) => item.action === 'strm-metadata-completion' && item.data?.scheduledTask && !item.isFinished)
     },
     scheduledTask(task) {
-      const action = task.key === 'metadata' ? 'strm-metadata-completion' : 'missing-items-cleanup'
+      const action = task.key === 'scan' ? 'scheduled-library-scan' : task.key === 'metadata' ? 'strm-metadata-completion' : 'missing-items-cleanup'
       return this.tasks.find((item) => item.action === action && item.data?.scheduledTask && !item.isFinished)
     },
     isTaskRunning(task) {
       return !!this.scheduledTask(task) || !!this.running[task.key]
     },
     taskProgress(task) {
-      if (task.key !== 'metadata') return 0
-      return Number(this.metadataTask()?.data?.progress) || 0
+      if (task.key !== 'scan' && task.key !== 'metadata') return 0
+      const activeTask = this.scheduledTask(task)
+      return Number(activeTask?.data?.progress) || 0
     },
     cronFor(task) {
+      if (task.key === 'scan') return this.serverSettings.scheduledLibraryScanCronExpression
       return task.key === 'metadata' ? this.serverSettings.strmMetadataCompletionCronExpression : this.serverSettings.missingItemsCleanupCronExpression
     },
     scheduleText(task) {
@@ -172,25 +204,27 @@ export default {
     lastRunText(task) {
       const lastRun = this.lastRuns[task.key]
       if (!lastRun) return ''
-      const elapsedMinutes = Math.max(0, Math.floor((Date.now() - lastRun.startedAt) / 60000))
-      const ago = elapsedMinutes < 60 ? `${elapsedMinutes} 分钟前` : `${Math.floor(elapsedMinutes / 60)} 小时前`
-      if (task.key === 'missing') return `上次运行：${ago}，清理了 ${Number(lastRun.removed) || 0} 项`
-      const durationMinutes = Math.floor(lastRun.durationMs / 60000)
-      const duration = durationMinutes < 60
-        ? `${durationMinutes} 分钟`
-        : `${Math.floor(durationMinutes / 60)} 小时 ${durationMinutes % 60} 分钟`
-      return `上次运行：${ago}，耗时 ${duration}`
+      const dateText = new Date(lastRun.startedAt).toLocaleString()
+      const durationSeconds = Math.floor(lastRun.durationMs / 1000)
+      const duration = durationSeconds < 60
+        ? `${durationSeconds} 秒`
+        : `${Math.floor(durationSeconds / 60)} 分 ${durationSeconds % 60} 秒`
+      if (task.key === 'missing') return `上次执行：${dateText}，耗时 ${duration}，清理了 ${Number(lastRun.removed) || 0} 项`
+      return `上次执行：${dateText}，耗时 ${duration}`
     },
     openSettings(task) {
       this.selectedTask = task
       this.draftCron = this.cronFor(task) || null
-      this.draftMaxHours = Number(this.serverSettings.strmMetadataCompletionMaxHours) || 1
+      this.draftMaxHours = task.key === 'scan'
+        ? Number(this.serverSettings.scheduledLibraryScanMaxHours) || 1
+        : Number(this.serverSettings.strmMetadataCompletionMaxHours) || 1
+      this.draftLibraryIds = task.key === 'scan' ? [...(this.serverSettings.scheduledLibraryScanLibraryIds || [])] : []
       this.draftQps = Number(this.serverSettings.strmMetadataCompletionQps) || 1.0
       this.draftBatchSize = Number(this.serverSettings.strmMetadataCompletionBatchSize) || 5000
       this.showSettings = true
     },
     scheduledTaskFinished(task) {
-      const key = task.action === 'strm-metadata-completion' ? 'metadata' : task.action === 'missing-items-cleanup' ? 'missing' : null
+      const key = task.action === 'scheduled-library-scan' ? 'scan' : task.action === 'strm-metadata-completion' ? 'metadata' : task.action === 'missing-items-cleanup' ? 'missing' : null
       if (!key) return
       const lastRun = {
         startedAt: task.startedAt || Date.now(),
@@ -204,19 +238,19 @@ export default {
     async runNow(task) {
       this.$set(this.running, task.key, true)
       try {
-        const path = task.key === 'metadata' ? '/api/strm-metadata-completion/run' : '/api/missing-items-cleanup/run'
+        const path = task.key === 'scan' ? '/api/scheduled-library-scan/run' : task.key === 'metadata' ? '/api/strm-metadata-completion/run' : '/api/missing-items-cleanup/run'
         await this.$axios.$post(path)
-        this.$toast.success(task.key === 'metadata' ? this.$strings.ToastLibraryMetadataCompletionStarted : '丢失项目清理已开始')
+        this.$toast.success(task.key === 'scan' ? '媒体库扫描已开始' : task.key === 'metadata' ? this.$strings.ToastLibraryMetadataCompletionStarted : '丢失项目清理已开始')
       } catch (error) {
         console.error(`Failed to run ${task.key} scheduled task`, error)
         this.$set(this.running, task.key, false)
-        this.$toast.error(task.key === 'metadata' ? this.$strings.ToastLibraryMetadataCompletionFailed : '丢失项目清理失败')
+        this.$toast.error(task.key === 'scan' ? '媒体库扫描启动失败' : task.key === 'metadata' ? this.$strings.ToastLibraryMetadataCompletionFailed : '丢失项目清理失败')
       }
     },
     async stopTask(task) {
       this.$set(this.running, task.key + 'Stopping', true)
       try {
-        const path = task.key === 'metadata' ? '/api/strm-metadata-completion/stop' : '/api/missing-items-cleanup/stop'
+        const path = task.key === 'scan' ? '/api/scheduled-library-scan/stop' : task.key === 'metadata' ? '/api/strm-metadata-completion/stop' : '/api/missing-items-cleanup/stop'
         const result = await this.$axios.$post(path)
         if (!result.stopped) this.$set(this.running, task.key, false)
       } catch (error) {
@@ -229,9 +263,11 @@ export default {
     async saveSettings() {
       this.saving = true
       try {
-        const payload = this.selectedTask.key === 'metadata'
-          ? { strmMetadataCompletionCronExpression: this.draftCron, strmMetadataCompletionMaxHours: this.draftMaxHours, strmMetadataCompletionQps: this.draftQps, strmMetadataCompletionBatchSize: this.draftBatchSize }
-          : { missingItemsCleanupCronExpression: this.draftCron }
+        const payload = this.selectedTask.key === 'scan'
+          ? { scheduledLibraryScanCronExpression: this.draftCron, scheduledLibraryScanLibraryIds: this.draftLibraryIds, scheduledLibraryScanMaxHours: this.draftMaxHours }
+          : this.selectedTask.key === 'metadata'
+            ? { strmMetadataCompletionCronExpression: this.draftCron, strmMetadataCompletionMaxHours: this.draftMaxHours, strmMetadataCompletionQps: this.draftQps, strmMetadataCompletionBatchSize: this.draftBatchSize }
+            : { missingItemsCleanupCronExpression: this.draftCron }
         const response = await this.$axios.$patch('/api/settings', payload)
         this.$store.commit('setServerSettings', response.serverSettings)
         this.showSettings = false

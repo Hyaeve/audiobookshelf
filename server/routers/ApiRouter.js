@@ -355,6 +355,8 @@ class ApiRouter {
     this.router.post('/strm-metadata-completion/stop', MiscController.stopStrmMetadataCompletion.bind(this))
     this.router.post('/missing-items-cleanup/run', MiscController.runMissingItemsCleanup.bind(this))
     this.router.post('/missing-items-cleanup/stop', MiscController.stopMissingItemsCleanup.bind(this))
+    this.router.post('/scheduled-library-scan/run', MiscController.runScheduledLibraryScan.bind(this))
+    this.router.post('/scheduled-library-scan/stop', MiscController.stopScheduledLibraryScan.bind(this))
     this.router.patch('/settings', MiscController.updateServerSettings.bind(this))
     this.router.patch('/sorting-prefixes', MiscController.updateSortingPrefixes.bind(this))
     this.router.post('/authorize', MiscController.authorize.bind(this))

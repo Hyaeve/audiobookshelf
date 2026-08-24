@@ -138,7 +138,7 @@ class MiscController {
     if (!isObject(settingsUpdate)) {
       return res.status(400).send('Invalid settings update object')
     }
-    const cronSettingKeys = ['strmMetadataCompletionCronExpression', 'missingItemsCleanupCronExpression']
+    const cronSettingKeys = ['strmMetadataCompletionCronExpression', 'missingItemsCleanupCronExpression', 'scheduledLibraryScanCronExpression']
     for (const key of cronSettingKeys) {
       if (settingsUpdate[key] === undefined) continue
       const expression = settingsUpdate[key]
@@ -167,6 +167,21 @@ class MiscController {
       }
       settingsUpdate.strmMetadataCompletionBatchSize = batchSize
     }
+    if (settingsUpdate.scheduledLibraryScanMaxHours !== undefined) {
+      const maxHours = Number(settingsUpdate.scheduledLibraryScanMaxHours)
+      if (!Number.isFinite(maxHours) || maxHours < 0.5 || Math.round(maxHours * 2) !== maxHours * 2) {
+        return res.status(400).send('Library scan time limit must use 0.5 hour increments')
+      }
+      settingsUpdate.scheduledLibraryScanMaxHours = maxHours
+    }
+    if (settingsUpdate.scheduledLibraryScanLibraryIds !== undefined) {
+      if (!Array.isArray(settingsUpdate.scheduledLibraryScanLibraryIds)) return res.status(400).send('Library scan library IDs must be an array')
+      const libraries = await Database.libraryModel.findAll({ attributes: ['id'] })
+      const validIds = new Set(libraries.map((library) => library.id))
+      if (settingsUpdate.scheduledLibraryScanLibraryIds.some((id) => typeof id !== 'string' || !validIds.has(id))) {
+        return res.status(400).send('Invalid library ID in scheduled library scan settings')
+      }
+    }
     if (settingsUpdate.allowIframe == false && process.env.ALLOW_IFRAME === '1') {
       Logger.warn('Cannot disable iframe when ALLOW_IFRAME is enabled in environment')
       return res.status(400).send('Cannot disable iframe when ALLOW_IFRAME is enabled in environment')
@@ -188,6 +203,9 @@ class MiscController {
       }
       if (settingsUpdate.missingItemsCleanupCronExpression !== undefined) {
         this.cronManager.updateMissingItemsCleanupCron()
+      }
+      if (settingsUpdate.scheduledLibraryScanCronExpression !== undefined || settingsUpdate.scheduledLibraryScanLibraryIds !== undefined || settingsUpdate.scheduledLibraryScanMaxHours !== undefined) {
+        this.cronManager.updateScheduledLibraryScanCron()
       }
     }
     return res.json({
@@ -670,6 +688,23 @@ class MiscController {
   async stopStrmMetadataCompletion(req, res) {
     if (!req.user.isAdminOrUp) return res.sendStatus(403)
     return res.json({ stopped: this.cronManager.cancelStrmMetadataCompletion() })
+  }
+
+  async runScheduledLibraryScan(req, res) {
+    if (!req.user.isAdminOrUp) return res.sendStatus(403)
+    try {
+      const taskPromise = this.cronManager.runScheduledLibraryScan()
+      taskPromise.catch((error) => Logger.error('[MiscController] Scheduled library scan failed', error))
+      return res.status(202).json({ startedAt: Date.now() })
+    } catch (error) {
+      Logger.error('[MiscController] Scheduled library scan failed to start', error)
+      return res.status(500).send('Scheduled library scan failed')
+    }
+  }
+
+  async stopScheduledLibraryScan(req, res) {
+    if (!req.user.isAdminOrUp) return res.sendStatus(403)
+    return res.json({ stopped: this.cronManager.cancelScheduledLibraryScan() })
   }
 
   validateCronExpression(req, res) {

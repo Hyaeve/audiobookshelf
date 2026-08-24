@@ -18,9 +18,14 @@ class CronManager {
     this.podcastCrons = []
     this.strmMetadataCron = null
     this.missingItemsCleanupCron = null
+    this.scheduledLibraryScanCron = null
+    this.scheduledLibraryScanExecuting = false
+    this.scheduledLibraryScanCancelRequested = false
+    this.scheduledLibraryScanTimer = null
     this.missingItemsCleanupExecuting = false
     this.missingItemsCleanupCancelRequested = false
     this.missingItemsCleanupHandler = null
+    this.scheduledLibraryScanCurrentLibraryId = null
 
     this.podcastCronExpressionsExecuting = []
   }
@@ -35,6 +40,7 @@ class CronManager {
     this.initLibraryScanCrons(libraries)
     this.updateStrmMetadataCron()
     this.updateMissingItemsCleanupCron()
+    this.updateScheduledLibraryScanCron()
     await this.initPodcastCrons()
   }
 
@@ -179,6 +185,76 @@ class CronManager {
     }
     const task = cron.schedule(expression, () => this.runMissingItemsCleanup())
     this.missingItemsCleanupCron = { expression, task }
+  }
+
+  updateScheduledLibraryScanCron() {
+    const settings = Database.serverSettings
+    const expression = settings.scheduledLibraryScanCronExpression
+    if (this.scheduledLibraryScanCron && (!expression || this.scheduledLibraryScanCron.expression !== expression)) {
+      this.scheduledLibraryScanCron.task.stop()
+      this.scheduledLibraryScanCron = null
+    }
+    if (!expression || this.scheduledLibraryScanCron) return
+    if (!cron.validate(expression)) {
+      Logger.error(`[CronManager] Invalid scheduled library scan cron expression "${expression}"`)
+      return
+    }
+    const task = cron.schedule(expression, () => this.runScheduledLibraryScan())
+    this.scheduledLibraryScanCron = { expression, task }
+  }
+
+  async runScheduledLibraryScan() {
+    if (this.scheduledLibraryScanExecuting) return { skipped: true }
+    this.scheduledLibraryScanExecuting = true
+    this.scheduledLibraryScanCancelRequested = false
+    const settings = Database.serverSettings
+    const libraryIds = Array.isArray(settings.scheduledLibraryScanLibraryIds) ? settings.scheduledLibraryScanLibraryIds : []
+    const maxHours = Number(settings.scheduledLibraryScanMaxHours) > 0 ? Number(settings.scheduledLibraryScanMaxHours) : 1
+    const task = TaskManager.createAndAddTask('scheduled-library-scan', '媒体库扫描', null, true, { scheduledTask: true, progress: 0, libraryIds })
+    const deadline = Date.now() + maxHours * 60 * 60 * 1000
+    let currentLibraryId = null
+    let scanned = 0
+    try {
+      const libraries = await Database.libraryModel.getAllWithFolders()
+      const selectedLibraries = libraryIds.map((id) => libraries.find((library) => library.id === id)).filter(Boolean)
+      for (let index = 0; index < selectedLibraries.length; index += 1) {
+        if (this.scheduledLibraryScanCancelRequested || Date.now() >= deadline) break
+        const library = selectedLibraries[index]
+        currentLibraryId = library.id
+        this.scheduledLibraryScanCurrentLibraryId = library.id
+        const remainingMs = deadline - Date.now()
+        this.scheduledLibraryScanTimer = setTimeout(() => LibraryScanner.setCancelLibraryScan(library.id), remainingMs)
+        await LibraryScanner.scan(library)
+        clearTimeout(this.scheduledLibraryScanTimer)
+        this.scheduledLibraryScanTimer = null
+        currentLibraryId = null
+        this.scheduledLibraryScanCurrentLibraryId = null
+        scanned += 1
+        TaskManager.updateTaskProgress(task, ((index + 1) / Math.max(selectedLibraries.length, 1)) * 100, { currentLibrary: library.name })
+      }
+      task.data.result = { scanned, canceled: this.scheduledLibraryScanCancelRequested || Date.now() >= deadline }
+      task.setFinished(null, true)
+      return task.data.result
+    } catch (error) {
+      task.setFailed(error.message || 'Scheduled library scan failed')
+      throw error
+    } finally {
+      if (this.scheduledLibraryScanTimer) clearTimeout(this.scheduledLibraryScanTimer)
+      if (currentLibraryId && this.scheduledLibraryScanCancelRequested) LibraryScanner.setCancelLibraryScan(currentLibraryId)
+      this.scheduledLibraryScanTimer = null
+      currentLibraryId = null
+      this.scheduledLibraryScanCurrentLibraryId = null
+      TaskManager.taskFinished(task)
+      this.scheduledLibraryScanExecuting = false
+      this.scheduledLibraryScanCancelRequested = false
+    }
+  }
+
+  cancelScheduledLibraryScan() {
+    if (!this.scheduledLibraryScanExecuting) return false
+    this.scheduledLibraryScanCancelRequested = true
+    if (this.scheduledLibraryScanCurrentLibraryId) LibraryScanner.setCancelLibraryScan(this.scheduledLibraryScanCurrentLibraryId)
+    return true
   }
 
   async runMissingItemsCleanup() {

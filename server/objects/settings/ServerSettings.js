@@ -51,6 +51,9 @@ class ServerSettings {
     this.strmMetadataCompletionQps = 1.0
     this.strmMetadataCompletionBatchSize = 5000
     this.missingItemsCleanupCronExpression = null
+    this.scheduledLibraryScanCronExpression = null
+    this.scheduledLibraryScanLibraryIds = []
+    this.scheduledLibraryScanMaxHours = 1
 
     // Sorting
     this.sortingIgnorePrefix = false
@@ -127,6 +130,9 @@ class ServerSettings {
     this.strmMetadataCompletionQps = Number(settings.strmMetadataCompletionQps) >= 0.1 ? Number(settings.strmMetadataCompletionQps) : 1.0
     this.strmMetadataCompletionBatchSize = Number(settings.strmMetadataCompletionBatchSize) >= 500 ? Number(settings.strmMetadataCompletionBatchSize) : 5000
     this.missingItemsCleanupCronExpression = settings.missingItemsCleanupCronExpression || null
+    this.scheduledLibraryScanCronExpression = settings.scheduledLibraryScanCronExpression || null
+    this.scheduledLibraryScanLibraryIds = Array.isArray(settings.scheduledLibraryScanLibraryIds) ? settings.scheduledLibraryScanLibraryIds : []
+    this.scheduledLibraryScanMaxHours = Number(settings.scheduledLibraryScanMaxHours) > 0 ? Number(settings.scheduledLibraryScanMaxHours) : 1
 
     this.sortingIgnorePrefix = !!settings.sortingIgnorePrefix
     this.sortingPrefixes = settings.sortingPrefixes || ['the']
@@ -245,6 +251,9 @@ class ServerSettings {
       strmMetadataCompletionQps: this.strmMetadataCompletionQps,
       strmMetadataCompletionBatchSize: this.strmMetadataCompletionBatchSize,
       missingItemsCleanupCronExpression: this.missingItemsCleanupCronExpression,
+      scheduledLibraryScanCronExpression: this.scheduledLibraryScanCronExpression,
+      scheduledLibraryScanLibraryIds: [...this.scheduledLibraryScanLibraryIds],
+      scheduledLibraryScanMaxHours: this.scheduledLibraryScanMaxHours,
       sortingIgnorePrefix: this.sortingIgnorePrefix,
       sortingPrefixes: [...this.sortingPrefixes],
       chromecastEnabled: this.chromecastEnabled,
