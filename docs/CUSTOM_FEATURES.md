@@ -1,6 +1,6 @@
 # AudioBookShelf 额外功能维护说明
 
-本文记录本地定制功能，方便后续同步上游 AudioBookShelf 更新。定制功能分为 STRM 支持、扫描机制、书籍匹配与章节排序、主题切换四部分。
+本文记录本地定制功能，方便后续同步上游 AudioBookShelf 更新。定制功能分为 STRM 支持、全局补全队列、扫描机制、书籍匹配与章节排序、计划任务、主题切换六部分。
 
 ## 功能清单
 
@@ -81,51 +81,74 @@
 - 音轨展开不再一次创建全部表格行，首次只渲染可视区及少量缓冲行。
 - 在音轨区域滚动时仅保留窗口范围内的行，并用上下占位维持完整滚动高度；不改变服务端音轨数据、排序或播放行为。
 
-### 4. 计划任务：补全元数据与清理丢失项目
+### 4. 全局单书补全队列（播放 > 手动 > 计划，级内 FIFO）
+
+- 所有 STRM 元数据补全入口（播放触发、单本手动、多本手动、媒体库手动、计划任务）共用一个全局书籍队列，同时最多补全一本书。
+- 队列按优先级“播放触发 > 手动执行 > 计划任务”选择下一本书；同一优先级内按请求进入队列的先后顺序 FIFO 处理。当前正在补全的书不会被抢占，完成后才重新选择高优先级队列。
+- 队列初始化于 [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:31)：`strmCompletionQueues = { playback: [], manual: [], scheduled: [] }` 三个队列、`strmCompletionQueueRunning` 运行锁与 `strmCompletionQueuedIds` 去重集合。
+- 入队与调度核心位于 [`enqueueStrmBookCompletion`](../server/managers/PlaybackSessionManager.js:484) 与 [`processStrmCompletionQueue`](../server/managers/PlaybackSessionManager.js:494)：每次轮询按优先级顺序取第一个非空队列，级内 `shift()` 保持 FIFO；取出作业后串行执行，当前作业完成或失败后才重新选择高优先级队列。循环结束后若发现新入队作业会再次触发调度，避免竞态遗漏。
+- 单书作业统一走 [`queueStrmBookById`](../server/managers/PlaybackSessionManager.js:522)：加载书籍后先用 [`isCompleteStrmBookMetadata`](../server/managers/PlaybackSessionManager.js:553) 判断整书是否已完成（有 strm 文件且总时长 > 0 且所有 strm 音轨完整），已完成直接跳过；否则只取缺失时长/编码/声道的 strm 音轨交给 [`completeStrmBook`](../server/managers/PlaybackSessionManager.js:591) 探测。
+- 播放触发的补全通过 [`completeStrmBookAfterPlayback`](../server/managers/PlaybackSessionManager.js:561) 以 `playback` 优先级入队，每本书固定 2.0 QPS，完成后暂停 3 分钟，并用 `strmCompletionQueuedIds` 按书籍 ID 去重。
+- 手动入口以 `manual` 优先级入队：单本 [`completeStrmItem`](../server/managers/PlaybackSessionManager.js:776) 固定 2.0 QPS、每 3000 文件暂停 5 分钟；多本 [`completeStrmItems`](../server/managers/PlaybackSessionManager.js:891) 固定 1.5 QPS 并共享 `throttleState`；媒体库级 [`completeStrmLibrary`](../server/managers/PlaybackSessionManager.js:705) 固定 1.5 QPS、累计 5000 文件暂停 3 分钟。手动入口通过 `strmManualEnqueueChain` 串行准备作业，避免并发重复提交。
+- 计划任务以 `scheduled` 优先级入队，见 [`completeScheduledStrmMetadata`](../server/managers/PlaybackSessionManager.js:798)。
+
+### 5. 计划任务：媒体库扫描、补全元数据与清理丢失项目
 
 - 设置页面的用户下方新增“计划任务”入口，页面适配项目现有主题变量。
-- 页面提供“补全元数据”和“清理丢失项目”两条紧凑横条；每条依次显示大字功能标题、已运行后的上次运行摘要和小字描述，右侧显示立即执行、运行中的普通停止图标与竖三点图标。停止图标不使用背景填充、高亮或额外描边框，点击热区仍保持足够大小；停止按钮调用对应停止 API，服务端协作式取消后才结束任务。
-- 两项任务接口立即返回 HTTP 202，任务 Socket 事件负责反馈运行状态和完成结果。页面按 `task.data.scheduledTask` 区分计划任务与普通手动补全，避免误显示停止按钮；任务完成后在浏览器本地记录上次运行摘要。
+- 页面提供“媒体库扫描”“补全元数据”“清理丢失项目”三条紧凑横条，媒体库扫描排在第一位；每条依次显示大字功能标题、已运行后的上次运行摘要和小字描述，右侧显示立即执行、运行中的普通停止图标与竖三点图标。停止图标不使用背景填充、高亮或额外描边框，点击热区仍保持足够大小；停止按钮调用对应停止 API，服务端协作式取消后才结束任务。
+- 三条横条均支持 cron 表达式；不设置 cron 表达式即为不开启，默认不开启。保存时空字符串与纯空格会被规范化为 `null`（前端 [`saveSettings`](../client/pages/config/scheduled-tasks.vue:263) 与服务端 [`updateServerSettings`](../server/controllers/MiscController.js:141) 双重处理），服务端同时校验 cron 合法性，cron 变更后立即重建对应定时任务（[`updateStrmMetadataCron`](../server/managers/CronManager.js:135)、[`updateMissingItemsCleanupCron`](../server/managers/CronManager.js:175)、[`updateScheduledLibraryScanCron`](../server/managers/CronManager.js:190)，表达式为空时停止并清空定时任务）。
+- 三项任务接口立即返回 HTTP 202，任务 Socket 事件负责反馈运行状态和完成结果。页面按 `task.data.scheduledTask` 区分计划任务与普通手动补全，避免误显示停止按钮；任务完成后在浏览器本地记录上次运行摘要，第二行显示“上次执行：时间，耗时 时长”（清理任务额外显示清理了 N 项）。
+- 媒体库扫描（`scheduled-library-scan`）支持选择要扫描的媒体库（多选，不选则不扫描任何库）和单次最长执行时间（最小 0.5 小时、步长 0.5 小时，服务端校验）；执行时按选定顺序串行扫描，同时只扫描一个媒体库，受截止时间限制，超时或停止后立即结束并只在完成数中统计真正扫描完的库；停止入口为 `/api/scheduled-library-scan/stop`。配置字段为 `scheduledLibraryScanCronExpression`、`scheduledLibraryScanLibraryIds`、`scheduledLibraryScanMaxHours`，保存在服务端设置中（[`ServerSettings.js`](../server/objects/settings/ServerSettings.js:133)）。
 - 补全元数据跳过已完成的 STRM 书籍；计划任务只处理元数据不完整的书籍，部分完成的书籍仅将缺失元数据的 STRM 音轨交给真实目标探测和扫描流程。计划任务进入全局补全队列的优先级低于播放触发和手动补全；停止计划任务时，尚未开始的排队书籍会在轮到时跳过，当前音轨探测完成后协作式退出。
 - 补全元数据支持 cron 表达式和单次最长执行时间，时间限制使用可直接输入的数字步进框，最小 0.5 小时、步长 0.5 小时；服务端校验 cron 和步长。计划任务 QPS 设置字段为 `strmMetadataCompletionQps`，默认 1.0，范围 0.1 至 10.0、步长 0.1。计划任务批量暂停设置字段为 `strmMetadataCompletionBatchSize`，默认 5000、最小 500、步长 500；达到配置阈值后暂停 5 分钟，并受单次小时数截止时间限制。
 - 清理丢失项目支持独立 cron 表达式和立即执行；只清理扫描后标记 `isMissing` 的项目，不处理仅标记 `isInvalid` 的项目。
 - 清理丢失项目复用项目删除的数据库关联清理流程，删除播放进度、播放列表关联、RSS、缓存、metadata 数据和项目记录，但不删除文件系统文件；完成后刷新问题统计并发送项目移除事件。任务结果在 `task.data.result.removed` 返回实际清理数量，页面第二行显示“清理了 N 项”，即使 N 为 `0` 也明确显示 `0`。
-- 两项计划任务均有运行中防重入保护和协作式取消：停止入口分别为 `/api/strm-metadata-completion/stop` 与 `/api/missing-items-cleanup/stop`。STRM 任务在当前探测完成后于下一首音轨或下一本书边界退出，批量暂停等待可被轮询取消；清理任务在每个媒体库和项目边界检查取消状态，已完成删除的数量保留在结果中。配置保存在服务端设置中，cron 变更后立即重建对应定时任务。
+- 三项计划任务均有运行中防重入保护和协作式取消：停止入口分别为 `/api/scheduled-library-scan/stop`、`/api/strm-metadata-completion/stop` 与 `/api/missing-items-cleanup/stop`。STRM 任务在当前探测完成后于下一首音轨或下一本书边界退出，批量暂停等待可被轮询取消；清理任务在每个媒体库和项目边界检查取消状态，已完成删除的数量保留在结果中；扫描任务在每库边界检查取消并设置库级取消标记（[`LibraryScanner.setCancelLibraryScan`](../server/scanner/LibraryScanner.js:41)）。配置保存在服务端设置中，cron 变更后立即重建对应定时任务。
+- 计划任务页面标题使用 `:header-text` 而非 `:title`：`app-settings-content` 组件只声明 `headerText`/`description`/`note` props（[`SettingsContent.vue`](../client/components/app/SettingsContent.vue:18)），未声明的 `title` 会被 Vue 作为原生 HTML 属性渲染到内容根 div 上，产生浏览器原生“计划任务”悬浮提示框；改为 `:header-text` 后标题仅作为文字渲染，不再出现原生悬浮提示（[`scheduled-tasks.vue`](../client/pages/config/scheduled-tasks.vue:2)）。
 
-### 5. 主题
+### 6. 主题
 
 - `浩瀚星空` 回退为静态深邃藏蓝、墨紫和炭黑底色，保留少量错落的银白、浅蓝、淡金和浅紫星点；不使用漂移、缩放或闪烁动画，背景层不阻挡页面交互。
 - 新增 `暗色主题`，采用炭黑、冷灰和低饱和蓝灰配色，适合作为低干扰的纯暗色界面。
 
 ## 代码锚点
 
-### 后端 STRM
+### 后端 STRM 与补全队列
 
 - [`server/utils/globals.js`](../server/utils/globals.js:1)：将 `strm` 注册到音频扩展列表。
 - [`server/objects/files/AudioFile.js`](../server/objects/files/AudioFile.js:112)：创建不依赖远程探测的占位音频对象。
 - [`server/scanner/AudioFileScanner.js`](../server/scanner/AudioFileScanner.js:157)：扫描时识别 `.strm` 并跳过 `ffprobe`。
 - [`server/utils/strmUtils.js`](../server/utils/strmUtils.js:1)：指针解析、URL/本地目标判定、安全校验、完整扫描探测和当前章节媒体代理。
 - [`server/utils/scandir.js`](../server/utils/scandir.js:48)：书籍媒体库按根目录下一层文件夹聚合文件，并仅使用首层目录进行书名解析。
+- [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:31)：全局三级补全队列初始化（playback/manual/scheduled 三个 FIFO 队列 + 运行锁 + 书籍去重）。
+- [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:484)：`enqueueStrmBookCompletion` 入队与 `processStrmCompletionQueue` 优先级调度核心。
+- [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:522)：`queueStrmBookById` 单书作业：过滤已完成书籍、只取缺失元数据的 strm 音轨。
+- [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:547)：`isCompleteStrmAudioFile`（duration/codec/channels 完整性判断）。
+- [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:553)：`isCompleteStrmBookMetadata`（整书是否已补全）。
+- [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:591)：`completeStrmBook` 完整扫描核心：探测、QPS/批量暂停/截止时间控制、结束后重建章节与总时长并保存。
+- [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:561)：播放触发补全（playback 优先级、2.0 QPS、完成后暂停 3 分钟、书籍 ID 去重）。
+- [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:776)：单本手动补全（manual 优先级、2.0 QPS、每 3000 文件暂停 5 分钟）。
+- [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:891)：多本手动补全（manual 优先级、1.5 QPS、跨书共享每 3000 文件暂停 5 分钟）。
+- [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:705)：媒体库级手动补全（manual 优先级、1.5 QPS、累计 5000 文件暂停 3 分钟）。
+- [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:798)：计划任务补全（scheduled 优先级、读取 QPS/批量设置、按时限运行）。
+- [`server/objects/settings/ServerSettings.js`](../server/objects/settings/ServerSettings.js:128)：计划任务设置字段默认值：cron 默认 `null`（不开启）、`strmMetadataCompletionQps` 默认 1.0、`strmMetadataCompletionBatchSize` 默认 5000。
+- [`server/objects/settings/ServerSettings.js`](../server/objects/settings/ServerSettings.js:133)：媒体库扫描设置字段：`scheduledLibraryScanCronExpression`（默认 null）、`scheduledLibraryScanLibraryIds`（默认空数组）、`scheduledLibraryScanMaxHours`（默认 1）。
+- [`server/controllers/MiscController.js`](../server/controllers/MiscController.js:141)：cron 表达式 trim + 空转 `null` + 合法性校验；QPS、批量、时间步长、媒体库 ID 校验。
+- [`server/controllers/MiscController.js`](../server/controllers/MiscController.js:656)：运行/停止 API 和管理员权限校验（`runMissingItemsCleanup`、`stopMissingItemsCleanup`、`runStrmMetadataCompletion`、`stopStrmMetadataCompletion`、`runScheduledLibraryScan`、`stopScheduledLibraryScan`）。
+- [`server/managers/CronManager.js`](../server/managers/CronManager.js:135)：补全元数据 cron 生命周期（表达式为空时停止注册）。
+- [`server/managers/CronManager.js`](../server/managers/CronManager.js:175)：清理丢失项目 cron 生命周期。
+- [`server/managers/CronManager.js`](../server/managers/CronManager.js:190)：媒体库扫描 cron 生命周期与 [`runScheduledLibraryScan`](../server/managers/CronManager.js:206) 串行扫描执行（按选定顺序、截止时间、库级取消）。
+- [`server/managers/CronManager.js`](../server/managers/CronManager.js:253)：`cancelScheduledLibraryScan` 协作式取消。
+- [`server/scanner/LibraryScanner.js`](../server/scanner/LibraryScanner.js:41)：`setCancelLibraryScan` 库级取消标记；[`scan`](../server/scanner/LibraryScanner.js:51) 为实际扫描入口。
+- [`server/routers/ApiRouter.js`](../server/routers/ApiRouter.js:354)：计划任务运行/停止路由和清理 `removed` 数量、取消检查。
+
+### 前端计划任务与主题
+
+- [`client/pages/config/scheduled-tasks.vue`](../client/pages/config/scheduled-tasks.vue:2)：计划任务页面三条任务横条，标题使用 `:header-text`（无原生 title 悬浮提示）；cron 空值规范化为 `null`。
+- [`client/components/app/SettingsContent.vue`](../client/components/app/SettingsContent.vue:18)：只声明 `headerText`/`description`/`note` props，未声明 `title`。
+- [`client/components/app/ConfigSideNav.vue`](../client/components/app/ConfigSideNav.vue:57)：设置页面用户下方的计划任务入口。
 - [`client/components/tables/TracksTable.vue`](../client/components/tables/TracksTable.vue:18)：大量音轨展开时按 100 条增量渲染。
 - [`client/pages/item/_id/index.vue`](../client/pages/item/_id/index.vue:406)：详情页三点菜单的补全元数据入口。
-- [`client/pages/config/scheduled-tasks.vue`](../client/pages/config/scheduled-tasks.vue:1)：计划任务页面、补全元数据和清理丢失项目任务条。
-- [`client/components/app/ConfigSideNav.vue`](../client/components/app/ConfigSideNav.vue:57)：设置页面用户下方的计划任务入口。
-- [`server/managers/CronManager.js`](../server/managers/CronManager.js:123)：计划任务生命周期、cron 调度、统一任务事件和取消状态。
-- [`client/components/tables/TracksTable.vue`](../client/components/tables/TracksTable.vue:18)：大量音轨使用固定行高、上下占位和 requestAnimationFrame 滚动节流的窗口化渲染，避免一次性保留全部音轨行。
-- [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:516)：STRM 目标探测、串行请求间隔及 `throttleState` 批量暂停核心。
-- [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:665)：单本手动补全固定 2.0 QPS、每 3000 文件暂停 5 分钟；多本入口固定 1.5 QPS 并共享计数，媒体库级入口固定 1.5 QPS、每 5000 文件暂停 3 分钟，并通过任务 Socket 反馈当前书名和扫描进度。
-- [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:689)：计划任务读取服务端 QPS/批量设置，反馈当前书名和进度，并按时限运行。
-- [`server/objects/settings/ServerSettings.js`](../server/objects/settings/ServerSettings.js:49)：计划任务 QPS 和批量阈值的默认值、兼容旧配置及序列化。
-- [`server/controllers/MiscController.js`](../server/controllers/MiscController.js:637)：计划任务运行/停止 API 和管理员权限校验；计划任务设置的 cron、QPS 范围和步长校验位于同文件的设置更新逻辑。
-- [`server/routers/ApiRouter.js`](../server/routers/ApiRouter.js:354)：计划任务运行/停止路由和清理 `removed` 数量、取消检查。
-- [`server/scanner/AudioFileScanner.js`](../server/scanner/AudioFileScanner.js:52)：按卷目录自然排序，再使用原有碟号/曲目号排序。
-- [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:373)：播放阶段生成真实/估算时间轴和临时章节。
-- [`server/controllers/LibraryItemController.js`](../server/controllers/LibraryItemController.js:986)：实际章节播放入口，传入当前库目录白名单。
-- [`server/models/Book.js`](../server/models/Book.js:278)：含 `.strm` 时允许后端代理直播放。
-- [`server/models/Podcast.js`](../server/models/Podcast.js:302)：播客 `.strm` 章节允许后端代理直播放。
-
-### 前端主题
-
 - [`client/components/app/ThemeSwitcher.vue`](../client/components/app/ThemeSwitcher.vue:1)：主题按钮、下拉选项、键盘 Escape 关闭、`localStorage` 持久化。
 - [`client/components/app/Appbar.vue`](../client/components/app/Appbar.vue:15)：主题按钮的上游耦合点，位于顶部搜索框右侧工具区。
 - [`client/assets/themes.css`](../client/assets/themes.css:1)：经典、暗色和浩瀚星空主题的 CSS 变量及覆盖规则。
@@ -152,10 +175,11 @@
    - 如果上游调整了库模型查询，重新确认播放会话和播放接口能够获得当前库的 `libraryFolders`。
    - Docker 部署时确认 `.strm` 目标路径已挂载到容器内相同路径；跨库目标使用固定容器根目录 `/NetDisk`，不需要额外环境变量，但不能只挂载宿主机目录而不映射容器路径。
    - 保留当前章节的 STRM 代理播放和播放响应后的整书后台补全；不要重新引入固定数量预取或会话级完整文件缓存。
-   - 保留四类补全入口的限速边界：播放自动补全按请求顺序逐本串行，2.0 QPS，每本完成后暂停 3 分钟；单本手动补全 2.0 QPS；多本手动补全 1.5 QPS，跨书共享每 3000 文件暂停 5 分钟；媒体库级手动补全 1.5 QPS，累计每 5000 文件暂停 3 分钟；计划任务读取 `strmMetadataCompletionQps` 和 `strmMetadataCompletionBatchSize` 设置。所有入口都直接跳过已完成元数据的 STRM 书籍，仅扫描部分完成书籍中仍缺失的音轨元数据。
+   - 保留全局单书补全队列：三个优先级队列（播放 > 手动 > 计划）级内 FIFO、非抢占；初始化、入队、调度和去重分别位于 `PlaybackSessionManager.js` 的 `strmCompletionQueues`、`enqueueStrmBookCompletion`、`processStrmCompletionQueue`、`queueStrmBookById`。播放补全 2.0 QPS 且每本完成后暂停 3 分钟；单本手动 2.0 QPS；多本手动 1.5 QPS、跨书共享每 3000 文件暂停 5 分钟；媒体库级手动 1.5 QPS、累计每 5000 文件暂停 3 分钟；计划任务读取 `strmMetadataCompletionQps` 和 `strmMetadataCompletionBatchSize` 设置。所有入口都直接跳过已完成元数据的 STRM 书籍，仅扫描部分完成书籍中仍缺失的音轨元数据。
    - 保留播放响应后的整书后台补全：只有后台探测成功后才回写书籍数据库和 metadata 文件，扫描阶段仍不得访问 `.strm` 指针目标。
-   - 计划任务页面需要重新接入运行态播放/停止按钮、`task.data.scheduledTask` 过滤和 `task_finished` 结果处理；后端需要重新接入 [`server/managers/CronManager.js`](../server/managers/CronManager.js:155)、[`server/controllers/MiscController.js`](../server/controllers/MiscController.js:637) 与 [`server/routers/ApiRouter.js`](../server/routers/ApiRouter.js:354) 的停止 API。清理摘要依赖 `task.data.result.removed`，不能恢复为耗时显示，也不能把 `0` 项隐藏。
-   - 大量音轨页面需要保留 [`client/components/tables/TracksTable.vue`](../client/components/tables/TracksTable.vue:18) 的窗口化渲染：不要恢复为按 100 条不断累积 DOM；保留固定行高、上下占位和滚动帧合并逻辑。
+   - 计划任务页面需要重新接入运行态播放/停止按钮、`task.data.scheduledTask` 过滤和 `task_finished` 结果处理；后端需要重新接入 `CronManager.js`、`MiscController.js` 与 `ApiRouter.js` 的停止 API。清理摘要依赖 `task.data.result.removed`，不能恢复为耗时显示，也不能把 `0` 项隐藏。媒体库扫描横条依赖 `scheduledLibraryScanCronExpression`、`scheduledLibraryScanLibraryIds`、`scheduledLibraryScanMaxHours` 三个设置字段，执行时按选定顺序串行扫描，不能并发扫描多个媒体库。
+   - 保留计划任务 cron 默认不开启语义：三个 cron 字段默认 `null`，空字符串保存时规范化为 `null`，CronManager 在表达式为空时不注册定时任务。
+   - 大量音轨页面需要保留 `client/components/tables/TracksTable.vue` 的窗口化渲染：不要恢复为按 100 条不断累积 DOM；保留固定行高、上下占位和滚动帧合并逻辑。
    - 不要把 `.strm` 真实目标直接交给 FFmpeg，除非另行实现目标解析后的转码输入。
 3. 保留或重新应用主题功能：
    - 保留独立文件 `client/components/app/ThemeSwitcher.vue` 和 `client/assets/themes.css`。
@@ -168,11 +192,14 @@
    - 验证 `A/A1`、`A/A2` 的书名匹配查询只使用 `A`，不会使用 `A1` 或 `A2`。
    - 展开包含上千音轨的书籍，确认首屏只渲染首批音轨，滚动到底部后继续追加且页面保持响应。
    - 在计划任务页面验证手动执行、cron 校验、0.5 小时步长和管理员权限；确认 QPS 输入范围为 0.1 至 10.0、步长 0.1，默认 1.0，批量阈值默认 5000 且步长 500；已有总时长的书被跳过，任务按设置休息并在时限到达后停止。
+   - 验证媒体库扫描横条排在第一位、不设置 cron 时显示“未启用计划执行”、默认不开启；选择多个媒体库后按选定顺序串行执行且同时只扫描一个库；第二行显示上次执行时间和耗时；超时或停止后正确结束，只在完成数中统计真正扫描完的库。
+   - 验证三个 cron 字段保存空字符串或纯空格后变为 `null`（不开启），页面不再出现原生“计划任务”悬浮提示框。
    - 有声书库使用根目录下一层文件夹作为书籍边界，并验证 `A/A1`、`A/A2` 被聚合为同一本书且按卷目录顺序排列。
    - 播放时验证只访问当前章节目标，章节切换和恢复进度不会额外预取其他章节。
    - 播放响应返回后验证后台按请求顺序逐本以 2.0 QPS 执行完整扫描，每本完成后暂停 3 分钟；成功后数据库中的 STRM 音轨时长、音轨元数据、章节和总时长均被补全；重复播放不会重复请求已完整书籍。
    - 分别验证详情页单本补全使用 2.0 QPS 且每 3000 文件暂停 5 分钟，选择多本补全使用 1.5 QPS 且跨书累计每 3000 文件暂停 5 分钟；媒体库三点菜单补全使用 1.5 QPS 且累计每 5000 文件暂停 3 分钟，并能在任务通知中显示当前书名和进度。
-   - 在设置侧栏用户下方验证计划任务入口；分别手动执行两条任务，确认清理任务只删除 `isMissing` 数据库项目，不删除文件，也不删除仅 `isInvalid` 的项目。
+   - 验证全局单书队列互斥与优先级：播放补全执行中发起手动补全会排队，手动补全执行中发起计划任务会排队；同一优先级内先请求的先执行；当前书完成后才切换到更高优先级队列。
+   - 在设置侧栏用户下方验证计划任务入口；分别手动执行三条任务，确认清理任务只删除 `isMissing` 数据库项目，不删除文件，也不删除仅 `isInvalid` 的项目。
    - 验证已完成元数据的 STRM 书籍在播放补全、单本手动、多本手动、媒体库手动和计划任务中均被跳过；验证部分完成的书籍只扫描缺失元数据的音轨，确认页面显示的是整个扫描任务的服务端总耗时，而不是接口响应耗时。
    - 切换浩瀚星空主题，确认藏蓝/墨紫/炭黑背景及不同颜色和大小的静态星点在桌面和移动端可见且不遮挡交互；切换暗色主题，确认冷灰暗色界面正常显示。
    - 容器内执行 `ls /NetDisk/...` 能看到 `.strm` 指向的目标文件；不需要配置额外环境变量。
@@ -185,6 +212,8 @@
 - `Appbar.vue`、`app.css`、`AudioFileScanner.js`、`LibraryItemController.js` 属于上游高频变化文件，升级时不要整文件覆盖本地版本，只重新应用标记位置的少量耦合代码。
 - 不要把主题颜色散落到业务组件中；主题颜色统一放在 `themes.css` 的变量和主题选择器内。
 - 不要修改数据库结构保存主题；当前主题属于浏览器用户界面偏好，使用 `localStorage` 可以避免迁移和上游数据库冲突。
+- 全局补全队列的状态全部保存在 `PlaybackSessionManager` 实例字段中（不落库），升级时保留这些字段和三个队列处理函数即可，无需迁移数据。
+- 计划任务设置字段属于 `ServerSettings`，上游若重命名或移动设置，需要同步保留 `strmMetadataCompletionCronExpression`、`strmMetadataCompletionMaxHours`、`strmMetadataCompletionQps`、`strmMetadataCompletionBatchSize`、`missingItemsCleanupCronExpression`、`scheduledLibraryScanCronExpression`、`scheduledLibraryScanLibraryIds`、`scheduledLibraryScanMaxHours` 八个字段的构造、序列化和校验逻辑。
 
 ## 验证命令
 

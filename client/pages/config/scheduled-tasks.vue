@@ -152,13 +152,13 @@ export default {
         {
           key: 'metadata',
           title: '补全元数据',
-          description: '仅补全缺少有声书总时长的书籍。',
+          description: '仅补全缺少有声书总时长的书籍',
           hasMaxHours: true
         },
         {
           key: 'missing',
           title: '清理丢失项目',
-          description: '删除扫描后标记为丢失的项目数据库记录，不删除文件系统文件。',
+          description: '删除扫描后标记为丢失的项目数据库记录，不删除文件系统文件',
           hasMaxHours: false
         }
       ]
@@ -204,13 +204,13 @@ export default {
     lastRunText(task) {
       const lastRun = this.lastRuns[task.key]
       if (!lastRun) return ''
-      const dateText = new Date(lastRun.startedAt).toLocaleString()
-      const durationSeconds = Math.floor(lastRun.durationMs / 1000)
-      const duration = durationSeconds < 60
-        ? `${durationSeconds} 秒`
-        : `${Math.floor(durationSeconds / 60)} 分 ${durationSeconds % 60} 秒`
-      if (task.key === 'missing') return `上次执行：${dateText}，耗时 ${duration}，清理了 ${Number(lastRun.removed) || 0} 项`
-      return `上次执行：${dateText}，耗时 ${duration}`
+      const elapsedMs = Math.max(0, Date.now() - Number(lastRun.startedAt))
+      const timeText = elapsedMs < 86400000
+        ? `${Math.floor(elapsedMs / 3600000)} 小时前`
+        : `${Math.floor(elapsedMs / 86400000)} 天前`
+      const durationMinutes = Math.max(1, Math.ceil(Number(lastRun.durationMs) / 60000))
+      if (task.key === 'missing') return `上次执行：${timeText}，耗时 ${durationMinutes} 分钟，清理了 ${Number(lastRun.removed) || 0} 项`
+      return `上次执行：${timeText}，耗时 ${durationMinutes} 分钟`
     },
     openSettings(task) {
       this.selectedTask = task
