@@ -17,6 +17,27 @@ describe('AiBookMatchManager', () => {
     assert.strictEqual(AiBookMatchManager.isAlreadyMatched({ media: { title: 'Matched by AI' }, extraData: { aiBookMatch: { status: 'matched-ai' } } }), true)
   })
 
+  it('extracts title, authors, and narrators for search metadata', async () => {
+    sinon.stub(axios, 'post').resolves({ data: { choices: [{ message: { content: JSON.stringify({ title: '橙红年代', authors: ['骁骑校'], narrators: ['paul'] }) } }] } })
+    const metadata = await AiBookMatchManager.extractSearchMetadata({ media: { title: '橙红年代丨骁骑校丨主播paul' }, relPath: '不应被使用' }, {
+      aiBookMatchApiUrl: 'https://example.test/v1',
+      aiBookMatchApiKey: 'secret',
+      aiBookMatchModel: 'test-model'
+    })
+    assert.deepStrictEqual(metadata, { title: '橙红年代', authors: ['骁骑校'], narrators: ['paul'], author: '骁骑校, paul' })
+    assert.strictEqual(JSON.parse(axios.post.firstCall.args[1].messages[1].content).unprocessedBookName, '橙红年代丨骁骑校丨主播paul')
+  })
+
+  it('deduplicates an author repeated as narrator', async () => {
+    sinon.stub(axios, 'post').resolves({ data: { choices: [{ message: { content: JSON.stringify({ title: '大道朝天', authors: ['猫腻'], narrators: ['北冥有声', '猫腻'] }) } }] } })
+    const metadata = await AiBookMatchManager.extractSearchMetadata({ media: { title: '大道朝天.演播北冥有声.猫腻.2020' } }, {
+      aiBookMatchApiUrl: 'https://example.test/v1',
+      aiBookMatchApiKey: 'secret',
+      aiBookMatchModel: 'test-model'
+    })
+    assert.strictEqual(metadata.author, '猫腻, 北冥有声')
+  })
+
   it('accepts a valid OpenAI-compatible candidate decision', async () => {
     sinon.stub(axios, 'post').resolves({ data: { choices: [{ message: { content: JSON.stringify({ candidateIndex: 1, confidence: 0.96, reason: 'title and author agree' }) } }] } })
     const decision = await AiBookMatchManager.chooseCandidate({ media: { title: 'Book', authorName: 'Author' } }, [{ title: 'Wrong' }, { title: 'Book' }], {

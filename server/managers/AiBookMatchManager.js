@@ -50,13 +50,59 @@ class AiBookMatchManager {
     return normalizedUrl.endsWith('/chat/completions') ? normalizedUrl : `${normalizedUrl}/chat/completions`
   }
 
-  async chooseCandidate(libraryItem, candidates, settings = Database.serverSettings) {
+  async extractSearchMetadata(libraryItem, settings = Database.serverSettings) {
+    const endpoint = this.getEndpoint(settings.aiBookMatchApiUrl)
+    if (!endpoint) throw new Error('AI matching API URL is not configured')
+
+    const sourceName = libraryItem.media?.title || ''
+    const response = await axios.post(endpoint, {
+      model: settings.aiBookMatchModel,
+      temperature: 0,
+      messages: [
+        {
+          role: 'system',
+          content: 'You extract audiobook search metadata from the provided unprocessed audiobook name. Return strict JSON: {"title": string, "authors": string[], "narrators": string[]}. Remove edition, year, format, bitrate, release-group and other technical suffixes. Extract the actual book title, author names, and narrator names. For Chinese names, recognize markers such as 演播, 主播, 播讲, 朗读 and separators such as 丨, |, ., -, parentheses. Never put technical metadata in title or people fields. Use empty arrays when a field is unknown.'
+        },
+        {
+          role: 'user',
+          content: JSON.stringify({ unprocessedBookName: sourceName })
+        }
+      ],
+      response_format: { type: 'json_object' }
+    }, {
+      headers: { Authorization: `Bearer ${settings.aiBookMatchApiKey}`, 'Content-Type': 'application/json' },
+      timeout: 30000
+    })
+
+    const content = response.data?.choices?.[0]?.message?.content
+    let metadata
+    try {
+      metadata = typeof content === 'string' ? JSON.parse(content) : content
+    } catch (error) {
+      throw new Error('AI metadata extraction response is not valid JSON')
+    }
+    if (typeof metadata?.title !== 'string' || !metadata.title.trim()) throw new Error('AI metadata extraction returned no title')
+
+    const toNames = (value) => Array.isArray(value) ? value.filter((name) => typeof name === 'string').map((name) => name.trim()).filter(Boolean).slice(0, 8) : []
+    const authors = toNames(metadata.authors)
+    const narrators = toNames(metadata.narrators)
+    return {
+      title: metadata.title.trim().slice(0, 300),
+      authors,
+      narrators,
+      author: [...new Set([...authors, ...narrators])].join(', ')
+    }
+  }
+
+  async chooseCandidate(libraryItem, candidates, settings = Database.serverSettings, searchMetadata = null) {
     const endpoint = this.getEndpoint(settings.aiBookMatchApiUrl)
     if (!endpoint) throw new Error('AI matching API URL is not configured')
 
     const book = {
-      title: libraryItem.media.title || null,
-      author: libraryItem.media.authorName || null,
+      title: searchMetadata?.title || libraryItem.media.title || null,
+      author: searchMetadata?.author || libraryItem.media.authorName || null,
+      authors: searchMetadata?.authors || [],
+      narrators: searchMetadata?.narrators || [],
       isbn: libraryItem.media.isbn || null,
       asin: libraryItem.media.asin || null,
       durationMinutes: Math.round((Number(libraryItem.media.duration) || 0) / 60),
@@ -102,14 +148,15 @@ class AiBookMatchManager {
     const settings = Database.serverSettings
     if (!this.isConfigured(settings)) throw new Error('AI book matching is not configured')
 
-    const results = await BookFinder.search(libraryItem, library.provider || 'google', libraryItem.media.title, libraryItem.media.authorName, null, null, { maxFuzzySearches: 2 })
+    const searchMetadata = await this.extractSearchMetadata(libraryItem, settings)
+    const results = await BookFinder.search(libraryItem, library.provider || 'google', searchMetadata.title, searchMetadata.author, null, null, { maxFuzzySearches: 2 })
     const candidates = this.getCandidates(results)
     if (!candidates.length) {
       await this.saveAudit(libraryItem, { status: 'unmatched', source: 'provider', updatedAt: Date.now(), reason: 'No metadata provider candidates found' })
       return { status: 'unmatched' }
     }
 
-    const decision = await this.chooseCandidate(libraryItem, candidates, settings)
+    const decision = await this.chooseCandidate(libraryItem, candidates, settings, searchMetadata)
     const threshold = Number(settings.aiBookMatchConfidence) || 0.9
     if (decision.candidateIndex === null || decision.confidence < threshold) {
       await this.saveAudit(libraryItem, {
