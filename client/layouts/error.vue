@@ -6,7 +6,7 @@
           <img src="~static/icon.svg" alt="Audiobookshelf Logo" class="w-10 min-w-10 h-10" />
         </nuxt-link>
         <nuxt-link to="/">
-          <h1 class="text-xl ml-4 hover:underline">audiobookshelf</h1>
+          <h1 class="text-xl ml-4 hover:underline">AudioBookShelf</h1>
         </nuxt-link>
       </div>
     </div>

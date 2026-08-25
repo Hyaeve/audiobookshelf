@@ -44,7 +44,7 @@
             <label class="block text-sm font-semibold mb-2 mt-4" for="book-match-model">模型</label>
             <input id="book-match-model" v-model="draftAiModel" type="text" class="w-full bg-primary border border-gray-600 rounded-md px-3 py-2" placeholder="gpt-4o-mini" />
             <label class="block text-sm font-semibold mb-2 mt-4" for="book-match-confidence">自动应用最低置信度</label>
-            <input id="book-match-confidence" v-model.number="draftAiConfidence" type="number" min="0.5" max="1" step="0.01" class="w-full bg-primary border border-gray-600 rounded-md px-3 py-2" />
+            <input id="book-match-confidence" v-model.number="draftAiConfidence" type="number" min="0.5" max="1" step="0.1" class="w-full bg-primary border border-gray-600 rounded-md px-3 py-2" />
           </section>
         </div>
         <div v-else>
@@ -83,7 +83,7 @@ export default {
     taskDefinitions() {
       return [
         { key: 'scan', title: '媒体库扫描', description: '扫描选定媒体库', hasMaxHours: true },
-        { key: 'bookMatch', title: '书籍匹配', description: '元数据服务搜索候选，由 AI 辅助判断，仅自动应用高置信度的未匹配书籍', hasMaxHours: true },
+        { key: 'bookMatch', title: '书籍匹配', description: 'AI 辅助匹配未匹配书籍', hasMaxHours: true },
         { key: 'metadata', title: '补全元数据', description: '仅补全缺少有声书总时长的书籍', hasMaxHours: true },
         { key: 'missing', title: '清理丢失项目', description: '删除扫描后标记为丢失的项目数据库记录，不删除文件系统文件', hasMaxHours: false }
       ]

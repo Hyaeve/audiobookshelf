@@ -1,9 +1,5 @@
 <template>
   <div>
-    <div v-if="strmMetadataIncomplete" class="flex items-start py-2 px-3 mt-4 mb-2 bg-yellow-400/15 border border-yellow-400/30 rounded-md text-sm text-yellow-100">
-      <span class="material-symbols text-lg mr-2" aria-hidden="true">hourglass_top</span>
-      <span>STRM 元数据补全中：已完成 {{ strmMetadataCompletedTracks }}/{{ strmMetadataTotalTracks }} 个音轨（剩余 {{ strmMetadataIncompleteTracks }} 个）</span>
-    </div>
     <div v-if="narrators?.length" class="flex py-0.5 mt-4">
       <div class="w-34 min-w-34 sm:w-34 sm:min-w-34 break-words">
         <span class="text-white/60 uppercase text-sm">{{ $strings.LabelNarrators }}</span>
@@ -73,8 +69,9 @@
       <div class="w-34 min-w-34 sm:w-34 sm:min-w-34 break-words">
         <span class="text-white/60 uppercase text-sm">{{ $strings.LabelDuration }}</span>
       </div>
-      <div>
-        {{ durationPretty }}
+      <div class="flex items-center">
+        <span>{{ durationPretty }}</span>
+        <span v-if="strmMetadataIncomplete" class="material-symbols text-base ml-1 text-yellow-300" role="img" aria-label="STRM 元数据待完成" title="STRM 元数据待完成">hourglass_top</span>
       </div>
     </div>
     <div role="paragraph" class="flex py-0.5">
@@ -103,6 +100,9 @@ export default {
     libraryId() {
       return this.libraryItem.libraryId
     },
+    mediaType() {
+      return this.libraryItem.mediaType
+    },
     isPodcast() {
       return this.libraryItem.mediaType === 'podcast'
     },
@@ -125,7 +125,7 @@ export default {
       return Math.max(0, this.strmMetadataTotalTracks - this.strmMetadataCompletedTracks)
     },
     strmMetadataIncomplete() {
-      return this.isBook && this.strmMetadataTotalTracks > 0 && this.strmMetadataIncompleteTracks > 0
+      return this.mediaType === 'book' && this.strmMetadataCompletedTracks > 0 && this.strmMetadataIncompleteTracks > 0
     },
     podcastEpisodes() {
       return this.media.episodes || []
