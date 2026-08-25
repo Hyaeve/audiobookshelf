@@ -17,9 +17,11 @@ class AiBookMatchManager {
 
   isAlreadyMatched(libraryItem) {
     const audit = this.getAudit(libraryItem)
-    // Only skip books that are actually matched. Books requiring review remain
-    // eligible for a later scheduled run because they have not been matched.
-    return audit?.status === 'matched-ai' || !!libraryItem.media?.isbn || !!libraryItem.media?.asin
+    const media = libraryItem.media || {}
+    const hasAuthors = Array.isArray(media.authors) ? media.authors.length > 0 : !!media.authorName
+    // A provider match may not contain ISBN/ASIN. Existing author metadata is
+    // the persistent match signal in that case, so do not send it through AI again.
+    return audit?.status === 'matched-ai' || !!media.isbn || !!media.asin || hasAuthors
   }
 
   async saveAudit(libraryItem, audit) {
@@ -77,17 +79,22 @@ class AiBookMatchManager {
     const content = response.data?.choices?.[0]?.message?.content
     let metadata
     try {
-      metadata = typeof content === 'string' ? JSON.parse(content) : content
+      const normalizedContent = typeof content === 'string' ? content.replace(/^```(?:json)?\s*|\s*```$/gi, '').trim() : content
+      metadata = typeof normalizedContent === 'string' ? JSON.parse(normalizedContent) : normalizedContent
     } catch (error) {
       throw new Error('AI metadata extraction response is not valid JSON')
     }
-    if (typeof metadata?.title !== 'string' || !metadata.title.trim()) throw new Error('AI metadata extraction returned no title')
+    const title = metadata?.title || metadata?.bookTitle || metadata?.name
+    if (typeof title !== 'string' || !title.trim()) throw new Error('AI metadata extraction returned no title')
 
-    const toNames = (value) => Array.isArray(value) ? value.filter((name) => typeof name === 'string').map((name) => name.trim()).filter(Boolean).slice(0, 8) : []
-    const authors = toNames(metadata.authors)
-    const narrators = toNames(metadata.narrators)
+    const toNames = (value) => {
+      if (typeof value === 'string') value = value.split(/[,，、;；|丨]/)
+      return Array.isArray(value) ? value.filter((name) => typeof name === 'string').map((name) => name.trim()).filter(Boolean).slice(0, 8) : []
+    }
+    const authors = toNames(metadata.authors || metadata.author)
+    const narrators = toNames(metadata.narrators || metadata.narrator)
     return {
-      title: metadata.title.trim().slice(0, 300),
+      title: title.trim().slice(0, 300),
       authors,
       narrators,
       author: [...new Set([...authors, ...narrators])].join(', ')
@@ -153,7 +160,7 @@ class AiBookMatchManager {
     const candidates = this.getCandidates(results)
     if (!candidates.length) {
       await this.saveAudit(libraryItem, { status: 'unmatched', source: 'provider', updatedAt: Date.now(), reason: 'No metadata provider candidates found' })
-      return { status: 'unmatched' }
+      return { status: 'unmatched', searchTitle: searchMetadata.title, searchAuthor: searchMetadata.author, reason: '没有找到元数据候选' }
     }
 
     const decision = await this.chooseCandidate(libraryItem, candidates, settings, searchMetadata)

@@ -9,7 +9,8 @@ describe('AiBookMatchManager', () => {
   it('recognizes books with an existing external identifier as already matched', () => {
     assert.strictEqual(AiBookMatchManager.isAlreadyMatched({ media: { isbn: '9780000000000' } }), true)
     assert.strictEqual(AiBookMatchManager.isAlreadyMatched({ media: { asin: 'B000000000' } }), true)
-    assert.strictEqual(AiBookMatchManager.isAlreadyMatched({ media: { title: 'Unmatched book' } }), false)
+    assert.strictEqual(AiBookMatchManager.isAlreadyMatched({ media: { title: 'Matched book', authorName: 'Existing Author' } }), true)
+    assert.strictEqual(AiBookMatchManager.isAlreadyMatched({ media: { title: 'Unmatched book', authorName: '' } }), false)
   })
 
   it('does not treat books needing review as already matched', () => {
@@ -36,6 +37,17 @@ describe('AiBookMatchManager', () => {
       aiBookMatchModel: 'test-model'
     })
     assert.strictEqual(metadata.author, '猫腻, 北冥有声')
+  })
+
+  it('accepts alternate AI metadata field names and fenced JSON', async () => {
+    sinon.stub(axios, 'post').resolves({ data: { choices: [{ message: { content: '```json\n{"bookTitle":"创造吧！昆虫战斗卡","author":"保林叔叔","narrator":"主播paul"}\n```' } }] } })
+    const metadata = await AiBookMatchManager.extractSearchMetadata({ media: { title: '创造吧！昆虫战斗卡' } }, {
+      aiBookMatchApiUrl: 'https://example.test/v1',
+      aiBookMatchApiKey: 'secret',
+      aiBookMatchModel: 'test-model'
+    })
+    assert.strictEqual(metadata.title, '创造吧！昆虫战斗卡')
+    assert.strictEqual(metadata.author, '保林叔叔, 主播paul')
   })
 
   it('accepts a valid OpenAI-compatible candidate decision', async () => {

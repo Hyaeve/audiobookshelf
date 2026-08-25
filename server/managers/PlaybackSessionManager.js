@@ -591,13 +591,12 @@ class PlaybackSessionManager {
         if (!allStrmFiles.length || this.isCompleteStrmBookMetadata(libraryItem)) return false
 
         const strmFiles = allStrmFiles.filter((audioFile) => !this.isCompleteStrmAudioFile(audioFile))
-        Logger.info(`[PlaybackSessionManager] STRM元数据补全开始，媒体库 ID：${libraryItem.libraryId}，书籍："${libraryItem.media.title || libraryItem.id}"，待补全音轨：${strmFiles.length}`)
+        Logger.info(`[PlaybackSessionManager] STRM元数据补全开始：书籍 "${libraryItem.media.title || '未命名'}"，待补全音轨：${strmFiles.length}`)
         const result = await this.completeStrmBook(libraryItem, strmFiles, {
           qps: 2.0,
           throttleState: { scannedTracks: 0, requestIntervalMs: 1000 / 2.0 }
         })
-        Logger.info(`[PlaybackSessionManager] STRM元数据补全完成，书籍："${libraryItem.media.title || libraryItem.id}"，结果：${result ? '已更新' : '未更新'}`)
-        Logger.info(`[PlaybackSessionManager] Waiting 3 minutes before the next queued STRM book completion`)
+        Logger.info(`[PlaybackSessionManager] STRM元数据补全完成：书籍 "${libraryItem.media.title || '未命名'}"，结果：${result ? '已更新' : '未更新'}`)
         await new Promise((resolve) => setTimeout(resolve, 3 * 60 * 1000))
         return result
       } catch (error) {

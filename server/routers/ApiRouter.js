@@ -379,7 +379,7 @@ class ApiRouter {
   async runMissingItemsCleanup(isCancelled = () => false) {
     const startedAt = Date.now()
     const libraries = await Database.libraryModel.findAll()
-    Logger.info(`[ApiRouter] 清理丢失项目开始，时间 ${new Date(startedAt).toISOString()}，媒体库数量：${libraries.length}`)
+    Logger.info(`[ApiRouter] 清理丢失项目开始：媒体库数量 ${libraries.length}`)
     let removed = 0
     for (const library of libraries) {
       if (isCancelled()) return { removed, cancelled: true }
@@ -394,7 +394,7 @@ class ApiRouter {
       for (const item of missingItems) {
         if (isCancelled()) return { removed, cancelled: true }
         const itemName = item.media?.title || item.id
-        Logger.info(`[ApiRouter] 清理丢失项目：媒体库 ID：${library.id}，项目："${itemName}" (${item.id})`)
+        Logger.info(`[ApiRouter] 清理丢失项目：媒体库 "${library.name}"，项目："${itemName}"`)
         const mediaItemIds = item.mediaType === 'podcast' ? item.media.podcastEpisodes.map((episode) => episode.id) : [item.mediaId]
         await this.handleDeleteLibraryItem(item.id, mediaItemIds, library.id)
         removed++
@@ -402,7 +402,7 @@ class ApiRouter {
       await Database.resetLibraryIssuesFilterData(library.id)
     }
     const result = { removed, cancelled: false }
-    Logger.info(`[ApiRouter] 清理丢失项目完成，时间 ${new Date().toISOString()}，结果 ${JSON.stringify(result)}`)
+    Logger.info(`[ApiRouter] 清理丢失项目完成：${JSON.stringify(result)}`)
     return result
   }
 
