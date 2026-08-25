@@ -219,11 +219,13 @@ class CronManager {
     const task = TaskManager.createAndAddTask('ai-book-match', { text: '书籍匹配' }, null, true, { scheduledTask: true, progress: 0, libraryIds })
     const result = { matched: 0, unmatched: 0, needsReview: 0, skipped: 0, cancelled: false }
     const startedAt = Date.now()
+    Logger.info(`[CronManager] AI书籍匹配计划任务开始，时间 ${new Date(startedAt).toISOString()}，目标媒体库 ID：${libraryIds.join(', ') || '无'}`)
     try {
       const libraries = await Database.libraryModel.getAllWithFolders()
       const selectedLibraries = libraryIds.map((id) => libraries.find((library) => library.id === id)).filter((library) => library?.mediaType === 'book')
       let processed = 0
       for (const library of selectedLibraries) {
+        Logger.info(`[CronManager] AI书籍匹配开始处理媒体库 "${library.name}" (${library.id})`)
         let offset = 0
         while (!this.aiBookMatchCancelRequested && Date.now() < deadline) {
           const items = await Database.libraryItemModel.getLibraryItemsIncrement(offset, 50, { libraryId: library.id, mediaType: 'book', isMissing: false, isInvalid: false })
@@ -243,6 +245,7 @@ class CronManager {
             else if (matchResult.status === 'unmatched') result.unmatched += 1
             else if (matchResult.status === 'needs-review') result.needsReview += 1
             else result.skipped += 1
+            Logger.info(`[CronManager] AI书籍匹配：媒体库 "${library.name}"，原名称 "${libraryItem.media?.title || libraryItem.title || libraryItem.id}"，搜索标题 "${matchResult.searchTitle || '-'}"，搜索作者 "${matchResult.searchAuthor || '-'}"，结果 ${matchResult.status}${matchResult.candidateTitle ? `，匹配为 "${matchResult.candidateTitle}"` : ''}`)
             processed += 1
             TaskManager.updateTaskProgress(task, selectedLibraries.length ? Math.min(99, ((selectedLibraries.indexOf(library) + 1) / selectedLibraries.length) * 100) : 100, { currentLibrary: library.name, processed, ...result })
           }
@@ -250,6 +253,7 @@ class CronManager {
         }
       }
       result.cancelled = this.aiBookMatchCancelRequested || Date.now() >= deadline
+      Logger.info(`[CronManager] AI书籍匹配计划任务结束，时间 ${new Date().toISOString()}，结果 ${JSON.stringify(result)}`)
       task.data.result = result
       task.setFinished(null, true)
       Database.serverSettings.aiBookMatchLastRun = { startedAt, finishedAt: Date.now(), durationMs: Date.now() - startedAt, ...result }
@@ -300,6 +304,7 @@ class CronManager {
     const maxHours = Number(settings.scheduledLibraryScanMaxHours) > 0 ? Number(settings.scheduledLibraryScanMaxHours) : 1
     const task = TaskManager.createAndAddTask('scheduled-library-scan', '媒体库扫描', null, true, { scheduledTask: true, progress: 0, libraryIds })
     const deadline = Date.now() + maxHours * 60 * 60 * 1000
+    Logger.info(`[CronManager] 媒体库扫描计划任务开始，时间 ${new Date().toISOString()}，目标媒体库 ID：${libraryIds.join(', ') || '无'}`)
     let currentLibraryId = null
     let scanned = 0
     try {
@@ -308,6 +313,7 @@ class CronManager {
       for (let index = 0; index < selectedLibraries.length; index += 1) {
         if (this.scheduledLibraryScanCancelRequested || Date.now() >= deadline) break
         const library = selectedLibraries[index]
+        Logger.info(`[CronManager] 媒体库扫描开始处理媒体库 "${library.name}" (${library.id})`)
         currentLibraryId = library.id
         this.scheduledLibraryScanCurrentLibraryId = library.id
         const remainingMs = deadline - Date.now()
@@ -318,9 +324,11 @@ class CronManager {
         currentLibraryId = null
         this.scheduledLibraryScanCurrentLibraryId = null
         scanned += 1
+        Logger.info(`[CronManager] 媒体库扫描完成处理媒体库 "${library.name}" (${library.id})`)
         TaskManager.updateTaskProgress(task, ((index + 1) / Math.max(selectedLibraries.length, 1)) * 100, { currentLibrary: library.name })
       }
       task.data.result = { scanned, canceled: this.scheduledLibraryScanCancelRequested || Date.now() >= deadline }
+      Logger.info(`[CronManager] 媒体库扫描计划任务结束，时间 ${new Date().toISOString()}，结果 ${JSON.stringify(task.data.result)}`)
       task.setFinished(null, true)
       return task.data.result
     } catch (error) {
@@ -350,10 +358,12 @@ class CronManager {
     this.missingItemsCleanupExecuting = true
     this.missingItemsCleanupCancelRequested = false
     const task = TaskManager.createAndAddTask('missing-items-cleanup', 'Cleaning missing items', null, true, { scheduledTask: true, progress: 0 })
+    Logger.info(`[CronManager] 清理丢失项目计划任务开始，时间 ${new Date().toISOString()}`)
     try {
       if (!this.missingItemsCleanupHandler) throw new Error('Missing items cleanup handler is not initialized')
       const result = await this.missingItemsCleanupHandler(() => this.missingItemsCleanupCancelRequested)
       task.data.result = result
+      Logger.info(`[CronManager] 清理丢失项目计划任务结束，时间 ${new Date().toISOString()}，结果 ${JSON.stringify(result)}`)
       task.setFinished(null, true)
       return result
     } catch (error) {

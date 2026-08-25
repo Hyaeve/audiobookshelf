@@ -532,7 +532,14 @@ class PlaybackSessionManager {
       if (!strmFiles.length) return false
 
       options.onStarted?.(libraryItem, strmFiles)
-      return this.completeStrmBook(libraryItem, strmFiles, options)
+      try {
+        const result = await this.completeStrmBook(libraryItem, strmFiles, options)
+        options.onCompleted?.(libraryItem, strmFiles, result)
+        return result
+      } catch (error) {
+        options.onFailed?.(libraryItem, strmFiles, error)
+        throw error
+      }
     })
   }
 
@@ -584,10 +591,12 @@ class PlaybackSessionManager {
         if (!allStrmFiles.length || this.isCompleteStrmBookMetadata(libraryItem)) return false
 
         const strmFiles = allStrmFiles.filter((audioFile) => !this.isCompleteStrmAudioFile(audioFile))
+        Logger.info(`[PlaybackSessionManager] STRM元数据补全开始，媒体库 ID：${libraryItem.libraryId}，书籍："${libraryItem.media.title || libraryItem.id}"，待补全音轨：${strmFiles.length}`)
         const result = await this.completeStrmBook(libraryItem, strmFiles, {
           qps: 2.0,
           throttleState: { scannedTracks: 0, requestIntervalMs: 1000 / 2.0 }
         })
+        Logger.info(`[PlaybackSessionManager] STRM元数据补全完成，书籍："${libraryItem.media.title || libraryItem.id}"，结果：${result ? '已更新' : '未更新'}`)
         Logger.info(`[PlaybackSessionManager] Waiting 3 minutes before the next queued STRM book completion`)
         await new Promise((resolve) => setTimeout(resolve, 3 * 60 * 1000))
         return result
@@ -889,7 +898,14 @@ class PlaybackSessionManager {
         isCancelled: () => cancellation.requested || Date.now() >= deadline,
         onStarted: (expandedItem, strmFiles) => {
           task.data.totalTracks += strmFiles.length
+          Logger.info(`[PlaybackSessionManager] 计划补全元数据开始：媒体库 ID：${expandedItem.libraryId}，书籍："${expandedItem.media.title || expandedItem.id}"，待补全音轨：${strmFiles.length}`)
           updateProgress(expandedItem.media.title || expandedItem.title || expandedItem.id)
+        },
+        onCompleted: (expandedItem, strmFiles, result) => {
+          Logger.info(`[PlaybackSessionManager] 计划补全元数据完成：媒体库 ID：${expandedItem.libraryId}，书籍："${expandedItem.media.title || expandedItem.id}"，结果：${result ? '已更新' : '未更新'}`)
+        },
+        onFailed: (expandedItem, strmFiles, error) => {
+          Logger.warn(`[PlaybackSessionManager] 计划补全元数据失败：媒体库 ID：${expandedItem.libraryId}，书籍："${expandedItem.media.title || expandedItem.id}"，原因：${error.message}`)
         }
       }))
       const results = await Promise.all(jobs)
@@ -897,6 +913,7 @@ class PlaybackSessionManager {
 
       const finishedAt = Date.now()
       const cancelled = this.strmScheduledCompletionCancelRequested
+      Logger.info(`[PlaybackSessionManager] 计划补全元数据任务结束，时间 ${new Date(finishedAt).toISOString()}，处理书籍：${items.length}，更新书籍：${updated}，已取消：${cancelled}`)
       task.data.result = { books: items.length, updated, cancelled }
       task.setFinished(null, true)
       TaskManager.taskFinished(task)

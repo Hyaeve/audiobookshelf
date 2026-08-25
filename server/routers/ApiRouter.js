@@ -377,7 +377,9 @@ class ApiRouter {
   }
 
   async runMissingItemsCleanup(isCancelled = () => false) {
+    const startedAt = Date.now()
     const libraries = await Database.libraryModel.findAll()
+    Logger.info(`[ApiRouter] 清理丢失项目开始，时间 ${new Date(startedAt).toISOString()}，媒体库数量：${libraries.length}`)
     let removed = 0
     for (const library of libraries) {
       if (isCancelled()) return { removed, cancelled: true }
@@ -385,19 +387,23 @@ class ApiRouter {
         where: { libraryId: library.id, isMissing: true },
         attributes: ['id', 'mediaId', 'mediaType'],
         include: [
-          { model: Database.podcastModel, attributes: ['id'], include: { model: Database.podcastEpisodeModel, attributes: ['id'] } },
-          { model: Database.bookModel, attributes: ['id'], include: [{ model: Database.bookAuthorModel, attributes: ['authorId'] }, { model: Database.bookSeriesModel, attributes: ['seriesId'] }] }
+          { model: Database.podcastModel, attributes: ['id', 'title'], include: { model: Database.podcastEpisodeModel, attributes: ['id'] } },
+          { model: Database.bookModel, attributes: ['id', 'title'], include: [{ model: Database.bookAuthorModel, attributes: ['authorId'] }, { model: Database.bookSeriesModel, attributes: ['seriesId'] }] }
         ]
       })
       for (const item of missingItems) {
         if (isCancelled()) return { removed, cancelled: true }
+        const itemName = item.media?.title || item.id
+        Logger.info(`[ApiRouter] 清理丢失项目：媒体库 ID：${library.id}，项目："${itemName}" (${item.id})`)
         const mediaItemIds = item.mediaType === 'podcast' ? item.media.podcastEpisodes.map((episode) => episode.id) : [item.mediaId]
         await this.handleDeleteLibraryItem(item.id, mediaItemIds, library.id)
         removed++
       }
       await Database.resetLibraryIssuesFilterData(library.id)
     }
-    return { removed, cancelled: false }
+    const result = { removed, cancelled: false }
+    Logger.info(`[ApiRouter] 清理丢失项目完成，时间 ${new Date().toISOString()}，结果 ${JSON.stringify(result)}`)
+    return result
   }
 
   //

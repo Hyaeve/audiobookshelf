@@ -162,14 +162,20 @@ class AiBookMatchManager {
       await this.saveAudit(libraryItem, {
         status: 'needs-review', source: 'ai', model: settings.aiBookMatchModel, confidence: decision.confidence, updatedAt: Date.now(), reason: decision.reason || 'AI confidence did not reach the configured threshold'
       })
-      return { status: 'needs-review' }
+      return { status: 'needs-review', searchTitle: searchMetadata.title, searchAuthor: searchMetadata.author }
     }
 
-    const result = await Scanner.applyBookMatch(apiRouterCtx, libraryItem, results[decision.candidateIndex])
+    const selectedResult = results[decision.candidateIndex]
+    const result = await Scanner.applyBookMatch(apiRouterCtx, libraryItem, selectedResult)
     await this.saveAudit(libraryItem, {
       status: result.updated ? 'matched-ai' : 'needs-review', source: 'ai', model: settings.aiBookMatchModel, confidence: decision.confidence, updatedAt: Date.now(), candidate: candidates[decision.candidateIndex], reason: decision.reason
     })
-    return { status: result.updated ? 'matched' : 'needs-review' }
+    return {
+      status: result.updated ? 'matched' : 'needs-review',
+      searchTitle: searchMetadata.title,
+      searchAuthor: searchMetadata.author,
+      candidateTitle: selectedResult.title || selectedResult.name || null
+    }
   }
 }
 
