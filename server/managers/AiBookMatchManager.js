@@ -17,7 +17,9 @@ class AiBookMatchManager {
 
   isAlreadyMatched(libraryItem) {
     const audit = this.getAudit(libraryItem)
-    return ['matched-ai', 'needs-review'].includes(audit?.status) || (!!libraryItem.media?.isbn || !!libraryItem.media?.asin)
+    // Only skip books that are actually matched. Books requiring review remain
+    // eligible for a later scheduled run because they have not been matched.
+    return audit?.status === 'matched-ai' || !!libraryItem.media?.isbn || !!libraryItem.media?.asin
   }
 
   async saveAudit(libraryItem, audit) {

@@ -8,7 +8,13 @@ describe('AiBookMatchManager', () => {
 
   it('recognizes books with an existing external identifier as already matched', () => {
     assert.strictEqual(AiBookMatchManager.isAlreadyMatched({ media: { isbn: '9780000000000' } }), true)
+    assert.strictEqual(AiBookMatchManager.isAlreadyMatched({ media: { asin: 'B000000000' } }), true)
     assert.strictEqual(AiBookMatchManager.isAlreadyMatched({ media: { title: 'Unmatched book' } }), false)
+  })
+
+  it('does not treat books needing review as already matched', () => {
+    assert.strictEqual(AiBookMatchManager.isAlreadyMatched({ media: { title: 'Needs review' }, extraData: { aiBookMatch: { status: 'needs-review' } } }), false)
+    assert.strictEqual(AiBookMatchManager.isAlreadyMatched({ media: { title: 'Matched by AI' }, extraData: { aiBookMatch: { status: 'matched-ai' } } }), true)
   })
 
   it('accepts a valid OpenAI-compatible candidate decision', async () => {
