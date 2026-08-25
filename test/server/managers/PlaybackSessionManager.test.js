@@ -13,6 +13,47 @@ describe('PlaybackSessionManager STRM completion queue', () => {
     return manager
   }
 
+  it('calculates partial STRM completion without persisting a separate status field', () => {
+    const manager = createManager()
+    const libraryItem = {
+      media: {
+        duration: 120,
+        audioFiles: [
+          { metadata: { path: '01.strm' }, duration: 60, codec: 'aac', channels: 2 },
+          { metadata: { path: '02.strm' }, duration: 0, codec: null, channels: 0 },
+          { metadata: { path: '03.strm' }, duration: 60, codec: 'aac', channels: 2 },
+          { metadata: { path: 'cover.jpg' }, duration: 0, codec: null, channels: 0 }
+        ]
+      }
+    }
+
+    assert.deepStrictEqual(manager.getStrmBookMetadataStatus(libraryItem), {
+      totalTracks: 3,
+      completedTracks: 2,
+      incompleteTracks: 1,
+      percent: 67,
+      isComplete: false
+    })
+    assert.strictEqual(manager.isCompleteStrmBookMetadata(libraryItem), false)
+  })
+
+  it('marks a STRM book complete only when all STRM tracks and duration are complete', () => {
+    const manager = createManager()
+    const libraryItem = {
+      media: {
+        duration: 120,
+        audioFiles: [
+          { metadata: { path: '01.strm' }, duration: 60, codec: 'aac', channels: 2 },
+          { metadata: { path: '02.strm' }, duration: 60, codec: 'aac', channels: 2 }
+        ]
+      }
+    }
+
+    assert.strictEqual(manager.isCompleteStrmBookMetadata(libraryItem), true)
+    libraryItem.media.duration = 0
+    assert.strictEqual(manager.isCompleteStrmBookMetadata(libraryItem), false)
+  })
+
   it('processes only one book at a time and keeps FIFO within a priority', async () => {
     const manager = createManager()
     const active = { count: 0, max: 0 }

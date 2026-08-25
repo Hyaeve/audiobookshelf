@@ -62,6 +62,7 @@ class ApiRouter {
     if (this.cronManager?.setMissingItemsCleanupHandler) {
       this.cronManager.setMissingItemsCleanupHandler((isCancelled) => this.runMissingItemsCleanup(isCancelled))
     }
+    this.cronManager?.setApiRouterContext?.(this)
   }
 
   init() {
@@ -357,6 +358,8 @@ class ApiRouter {
     this.router.post('/missing-items-cleanup/stop', MiscController.stopMissingItemsCleanup.bind(this))
     this.router.post('/scheduled-library-scan/run', MiscController.runScheduledLibraryScan.bind(this))
     this.router.post('/scheduled-library-scan/stop', MiscController.stopScheduledLibraryScan.bind(this))
+    this.router.post('/ai-book-match/run', MiscController.runAiBookMatch.bind(this))
+    this.router.post('/ai-book-match/stop', MiscController.stopAiBookMatch.bind(this))
     this.router.patch('/settings', MiscController.updateServerSettings.bind(this))
     this.router.patch('/sorting-prefixes', MiscController.updateSortingPrefixes.bind(this))
     this.router.post('/authorize', MiscController.authorize.bind(this))

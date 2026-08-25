@@ -1,5 +1,9 @@
 <template>
   <div>
+    <div v-if="strmMetadataIncomplete" class="flex items-start py-2 px-3 mt-4 mb-2 bg-yellow-400/15 border border-yellow-400/30 rounded-md text-sm text-yellow-100">
+      <span class="material-symbols text-lg mr-2" aria-hidden="true">hourglass_top</span>
+      <span>STRM 元数据补全中：已完成 {{ strmMetadataCompletedTracks }}/{{ strmMetadataTotalTracks }} 个音轨（剩余 {{ strmMetadataIncompleteTracks }} 个）</span>
+    </div>
     <div v-if="narrators?.length" class="flex py-0.5 mt-4">
       <div class="w-34 min-w-34 sm:w-34 sm:min-w-34 break-words">
         <span class="text-white/60 uppercase text-sm">{{ $strings.LabelNarrators }}</span>
@@ -107,6 +111,21 @@ export default {
     },
     tracks() {
       return this.media.tracks || []
+    },
+    strmAudioFiles() {
+      return this.isPodcast ? [] : (this.media.audioFiles || []).filter((audioFile) => audioFile.metadata?.path?.toLowerCase().endsWith('.strm'))
+    },
+    strmMetadataCompletedTracks() {
+      return this.strmAudioFiles.filter((audioFile) => Number(audioFile.duration) > 0 && !!audioFile.codec && Number(audioFile.channels) > 0).length
+    },
+    strmMetadataTotalTracks() {
+      return this.strmAudioFiles.length
+    },
+    strmMetadataIncompleteTracks() {
+      return Math.max(0, this.strmMetadataTotalTracks - this.strmMetadataCompletedTracks)
+    },
+    strmMetadataIncomplete() {
+      return this.isBook && this.strmMetadataTotalTracks > 0 && this.strmMetadataIncompleteTracks > 0
     },
     podcastEpisodes() {
       return this.media.episodes || []

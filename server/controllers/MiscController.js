@@ -138,7 +138,7 @@ class MiscController {
     if (!isObject(settingsUpdate)) {
       return res.status(400).send('Invalid settings update object')
     }
-    const cronSettingKeys = ['strmMetadataCompletionCronExpression', 'missingItemsCleanupCronExpression', 'scheduledLibraryScanCronExpression']
+    const cronSettingKeys = ['strmMetadataCompletionCronExpression', 'missingItemsCleanupCronExpression', 'scheduledLibraryScanCronExpression', 'aiBookMatchCronExpression']
     for (const key of cronSettingKeys) {
       if (settingsUpdate[key] === undefined) continue
       const expression = typeof settingsUpdate[key] === 'string' ? settingsUpdate[key].trim() : settingsUpdate[key]
@@ -183,6 +183,26 @@ class MiscController {
         return res.status(400).send('Invalid library ID in scheduled library scan settings')
       }
     }
+    if (settingsUpdate.aiBookMatchMaxHours !== undefined) {
+      const maxHours = Number(settingsUpdate.aiBookMatchMaxHours)
+      if (!Number.isFinite(maxHours) || maxHours < 0.5 || Math.round(maxHours * 2) !== maxHours * 2) return res.status(400).send('AI book match time limit must use 0.5 hour increments')
+      settingsUpdate.aiBookMatchMaxHours = maxHours
+    }
+    if (settingsUpdate.aiBookMatchConfidence !== undefined) {
+      const confidence = Number(settingsUpdate.aiBookMatchConfidence)
+      if (!Number.isFinite(confidence) || confidence < 0.5 || confidence > 1) return res.status(400).send('AI book match confidence must be between 0.5 and 1')
+      settingsUpdate.aiBookMatchConfidence = confidence
+    }
+    if (settingsUpdate.aiBookMatchLibraryIds !== undefined) {
+      if (!Array.isArray(settingsUpdate.aiBookMatchLibraryIds)) return res.status(400).send('AI book match library IDs must be an array')
+      const libraries = await Database.libraryModel.findAll({ attributes: ['id', 'mediaType'] })
+      const validIds = new Set(libraries.filter((library) => library.mediaType === 'book').map((library) => library.id))
+      if (settingsUpdate.aiBookMatchLibraryIds.some((id) => typeof id !== 'string' || !validIds.has(id))) return res.status(400).send('Invalid book library ID in AI book match settings')
+    }
+    for (const key of ['aiBookMatchApiUrl', 'aiBookMatchApiKey', 'aiBookMatchModel']) {
+      if (settingsUpdate[key] !== undefined && settingsUpdate[key] !== null && typeof settingsUpdate[key] !== 'string') return res.status(400).send(`Invalid ${key}`)
+      if (typeof settingsUpdate[key] === 'string') settingsUpdate[key] = settingsUpdate[key].trim() || null
+    }
     if (settingsUpdate.allowIframe == false && process.env.ALLOW_IFRAME === '1') {
       Logger.warn('Cannot disable iframe when ALLOW_IFRAME is enabled in environment')
       return res.status(400).send('Cannot disable iframe when ALLOW_IFRAME is enabled in environment')
@@ -207,6 +227,9 @@ class MiscController {
       }
       if (settingsUpdate.scheduledLibraryScanCronExpression !== undefined || settingsUpdate.scheduledLibraryScanLibraryIds !== undefined || settingsUpdate.scheduledLibraryScanMaxHours !== undefined) {
         this.cronManager.updateScheduledLibraryScanCron()
+      }
+      if (settingsUpdate.aiBookMatchCronExpression !== undefined || settingsUpdate.aiBookMatchLibraryIds !== undefined || settingsUpdate.aiBookMatchMaxHours !== undefined) {
+        this.cronManager.updateAiBookMatchCron()
       }
     }
     return res.json({
@@ -706,6 +729,23 @@ class MiscController {
   async stopScheduledLibraryScan(req, res) {
     if (!req.user.isAdminOrUp) return res.sendStatus(403)
     return res.json({ stopped: this.cronManager.cancelScheduledLibraryScan() })
+  }
+
+  async runAiBookMatch(req, res) {
+    if (!req.user.isAdminOrUp) return res.sendStatus(403)
+    try {
+      const taskPromise = this.cronManager.runAiBookMatch()
+      taskPromise.catch((error) => Logger.error('[MiscController] AI book matching failed', error))
+      return res.status(202).json({ startedAt: Date.now() })
+    } catch (error) {
+      Logger.error('[MiscController] AI book matching failed to start', error)
+      return res.status(500).send('AI book matching failed')
+    }
+  }
+
+  async stopAiBookMatch(req, res) {
+    if (!req.user.isAdminOrUp) return res.sendStatus(403)
+    return res.json({ stopped: this.cronManager.cancelAiBookMatch() })
   }
 
   validateCronExpression(req, res) {

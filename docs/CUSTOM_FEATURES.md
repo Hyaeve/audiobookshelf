@@ -92,9 +92,14 @@
 - 手动入口以 `manual` 优先级入队：单本 [`completeStrmItem`](../server/managers/PlaybackSessionManager.js:776) 固定 2.0 QPS、每 3000 文件暂停 5 分钟；多本 [`completeStrmItems`](../server/managers/PlaybackSessionManager.js:891) 固定 1.5 QPS 并共享 `throttleState`；媒体库级 [`completeStrmLibrary`](../server/managers/PlaybackSessionManager.js:705) 固定 1.5 QPS、累计 5000 文件暂停 3 分钟。手动入口通过 `strmManualEnqueueChain` 串行准备作业，避免并发重复提交。
 - 计划任务以 `scheduled` 优先级入队，见 [`completeScheduledStrmMetadata`](../server/managers/PlaybackSessionManager.js:798)。
 
-### 5. 计划任务：媒体库扫描、补全元数据与清理丢失项目
+### 5. 计划任务：媒体库扫描、书籍匹配、补全元数据与清理丢失项目
 
 - 设置页面的用户下方新增“计划任务”入口，页面适配项目现有主题变量。
+- 本地新增的第二项“书籍匹配”横条使用 `ai-book-match` 任务动作。它支持 cron、图书媒体库多选和 0.5 小时步长的时间限制；设置窗口为左右双栏，左侧是任务参数，右侧是 OpenAI 兼容接口地址、API 密钥、模型和自动应用最低置信度。横条第二行在任务完成后显示上次执行时间、耗时和成功匹配的图书数量。
+- [`AiBookMatchManager`](../server/managers/AiBookMatchManager.js:9) 先通过既有 [`BookFinder.search`](../server/finders/BookFinder.js:329) 和媒体库原有 provider 获取最多 8 个候选，再把当前书籍线索及候选摘要发送至 OpenAI 协议 `/chat/completions`。AI 只能返回本次候选数组中的序号、0 至 1 置信度和理由；服务端拒绝越界序号、非法 JSON 与非法置信度，禁止 AI 自由生成并直接写入元数据。
+- 达到 `aiBookMatchConfidence` 阈值后，任务调用 [`Scanner.applyBookMatch`](../server/scanner/Scanner.js:130)，与原快速匹配共用封面、作者、系列、元数据文件和 Socket 更新流程。已有 ISBN、ASIN 或 `extraData.aiBookMatch.status === "matched-ai"` 的图书视为已匹配并跳过；只有明确未匹配的图书才产生候选搜索和 AI API 费用。
+- 每次失败、低置信度或成功判断都持久化到已有 `LibraryItem.extraData.aiBookMatch`，记录 `status`、`source`、`model`、`confidence`、`candidate`、`updatedAt`、`reason` 等审计信息，不新增数据库表或列。状态包括 `unmatched`、`needs-review` 与 `matched-ai`；单书错误只标记待复核并继续下一本。`needs-review` 已经经过一次 AI 判断，后续计划任务会跳过，避免重复消费 API；没有 provider 候选的 `unmatched` 允许下次在 provider 数据更新后重试。
+- 配置字段为 `aiBookMatchCronExpression`、`aiBookMatchLibraryIds`、`aiBookMatchMaxHours`、`aiBookMatchApiUrl`、`aiBookMatchApiKey`、`aiBookMatchModel` 和 `aiBookMatchConfidence`。密钥只保存在服务端设置，`toJSONForBrowser` 会删除密钥并仅返回 `aiBookMatchApiConfigured`；页面留空密钥时不覆盖已保存值。最后一次执行摘要持久化在 `aiBookMatchLastRun`，因此即使 cron 在浏览器未打开时运行，下次进入页面仍能显示上次执行时间、耗时和匹配数量。
 - 页面提供“媒体库扫描”“补全元数据”“清理丢失项目”三条紧凑横条，媒体库扫描排在第一位；每条依次显示大字功能标题、已运行后的上次运行摘要和小字描述，右侧显示立即执行、运行中的普通停止图标与竖三点图标。停止图标不使用背景填充、高亮或额外描边框，点击热区仍保持足够大小；停止按钮调用对应停止 API，服务端协作式取消后才结束任务。
 - 三条横条均支持 cron 表达式；不设置 cron 表达式即为不开启，默认不开启。保存时空字符串与纯空格会被规范化为 `null`（前端 [`saveSettings`](../client/pages/config/scheduled-tasks.vue:263) 与服务端 [`updateServerSettings`](../server/controllers/MiscController.js:141) 双重处理），服务端同时校验 cron 合法性，cron 变更后立即重建对应定时任务（[`updateStrmMetadataCron`](../server/managers/CronManager.js:135)、[`updateMissingItemsCleanupCron`](../server/managers/CronManager.js:175)、[`updateScheduledLibraryScanCron`](../server/managers/CronManager.js:190)，表达式为空时停止并清空定时任务）。
 - 三项任务接口立即返回 HTTP 202，任务 Socket 事件负责反馈运行状态和完成结果。页面按 `task.data.scheduledTask` 区分计划任务与普通手动补全，避免误显示停止按钮；任务完成后在浏览器本地记录上次运行摘要，第二行显示“上次执行：时间，耗时 时长”（清理任务额外显示清理了 N 项）。
@@ -106,7 +111,16 @@
 - 三项计划任务均有运行中防重入保护和协作式取消：停止入口分别为 `/api/scheduled-library-scan/stop`、`/api/strm-metadata-completion/stop` 与 `/api/missing-items-cleanup/stop`。STRM 任务在当前探测完成后于下一首音轨或下一本书边界退出，批量暂停等待可被轮询取消；清理任务在每个媒体库和项目边界检查取消状态，已完成删除的数量保留在结果中；扫描任务在每库边界检查取消并设置库级取消标记（[`LibraryScanner.setCancelLibraryScan`](../server/scanner/LibraryScanner.js:41)）。配置保存在服务端设置中，cron 变更后立即重建对应定时任务。
 - 计划任务页面标题使用 `:header-text` 而非 `:title`：`app-settings-content` 组件只声明 `headerText`/`description`/`note` props（[`SettingsContent.vue`](../client/components/app/SettingsContent.vue:18)），未声明的 `title` 会被 Vue 作为原生 HTML 属性渲染到内容根 div 上，产生浏览器原生“计划任务”悬浮提示框；改为 `:header-text` 后标题仅作为文字渲染，不再出现原生悬浮提示（[`scheduled-tasks.vue`](../client/pages/config/scheduled-tasks.vue:2)）。
 
-### 6. 主题
+### 6. STRM 书内断点接续与未完成标注
+
+- 这是本地新增功能，不新增数据库字段。音轨是否完成仍以 `duration > 0`、存在 `codec` 且 `channels > 0` 为事实来源；整书完成还要求所有 STRM 音轨完成且书籍 `media.duration > 0`。
+- [`getStrmBookMetadataStatus`](../server/managers/PlaybackSessionManager.js:553) 动态计算 STRM 音轨总数、已完成数、未完成数、百分比和整书完成状态。由于状态由已保存音轨实时推导，扫描新增或删除 `.strm` 文件后，重新扫描媒体库即可自动纳入或移除统计，不会留下过期状态字段。
+- [`completeStrmBook`](../server/managers/PlaybackSessionManager.js:613) 在每成功探测一个音轨后累积待保存数量；每 50 个成功音轨执行一次局部持久化，并在取消、时间限制、循环结束时强制 flush。持久化会先重建当前已知的音轨排序、章节和总时长，再调用 `media.save()` 与 `saveMetadataFile()`，随后发送 `item_updated` 事件。
+- 取消或超时只会停止后续探测，不回滚已经成功且已保存的音轨。下次入口重新读取书籍后，`queueStrmBookById` 只把不完整音轨传给探测器，因此可以从上次保存位置继续；已经完成的音轨不会重复请求。当前小批次阈值是内部常量 50，与计划任务的 3000/5000 音轨暂停阈值相互独立。
+- [`LibraryItemDetails.vue`](../client/components/content/LibraryItemDetails.vue:1) 在有声书详情页根据 `media.audioFiles` 动态显示“已完成/总数/剩余数”提示。该提示是元数据状态，不与 `isMissing`、`isInvalid` 或用户播放进度混用；全部 STRM 音轨完成后自动消失。
+- 数据库保存成功但 metadata 文件写入失败时会记录错误，数据库中的进度仍可供下一次断点接续；下一次成功 flush 会再次写 metadata 文件。该策略避免为了 metadata 文件失败而丢弃已经持久化的音轨事实。
+
+### 7. 主题
 
 - `浩瀚星空` 回退为静态深邃藏蓝、墨紫和炭黑底色，保留少量错落的银白、浅蓝、淡金和浅紫星点；不使用漂移、缩放或闪烁动画，背景层不阻挡页面交互。
 - 新增 `暗色主题`，采用炭黑、冷灰和低饱和蓝灰配色，适合作为低干扰的纯暗色界面。
@@ -125,7 +139,8 @@
 - [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:522)：`queueStrmBookById` 单书作业：过滤已完成书籍、只取缺失元数据的 strm 音轨。
 - [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:547)：`isCompleteStrmAudioFile`（duration/codec/channels 完整性判断）。
 - [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:553)：`isCompleteStrmBookMetadata`（整书是否已补全）。
-- [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:591)：`completeStrmBook` 完整扫描核心：探测、QPS/批量暂停/截止时间控制、结束后重建章节与总时长并保存。
+- [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:591)：`completeStrmBook` 完整扫描核心：探测、QPS/批量暂停/截止时间控制、书内断点保存、结束后重建章节与总时长并保存。
+- [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:553)：`getStrmBookMetadataStatus` 动态计算音轨完成比例；持久化批次和取消前 flush 逻辑位于 `completeStrmBook` 内部，未引入新的数据库状态列。
 - [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:561)：播放触发补全（playback 优先级、2.0 QPS、完成后暂停 3 分钟、书籍 ID 去重）。
 - [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:776)：单本手动补全（manual 优先级、2.0 QPS、每 3000 文件暂停 5 分钟）。
 - [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:891)：多本手动补全（manual 优先级、1.5 QPS、跨书共享每 3000 文件暂停 5 分钟）。
@@ -144,7 +159,9 @@
 
 ### 前端计划任务与主题
 
-- [`client/pages/config/scheduled-tasks.vue`](../client/pages/config/scheduled-tasks.vue:2)：计划任务页面三条任务横条，标题使用 `:header-text`（无原生 title 悬浮提示）；cron 空值规范化为 `null`。
+- [`client/pages/config/scheduled-tasks.vue`](../client/pages/config/scheduled-tasks.vue:2)：计划任务页面四条任务横条，第二项为书籍匹配；标题使用 `:header-text`（无原生 title 悬浮提示）；cron 空值规范化为 `null`。书籍匹配设置使用左右双栏并隐藏已保存密钥。
+- [`server/managers/AiBookMatchManager.js`](../server/managers/AiBookMatchManager.js:1)：AI 候选白名单、OpenAI 协议调用、严格结果校验、未匹配筛选及 `extraData.aiBookMatch` 审计持久化。
+- [`server/scanner/Scanner.js`](../server/scanner/Scanner.js:130)：`applyBookMatch` 是普通快速匹配与 AI 匹配共用的候选应用入口。
 - [`client/components/app/SettingsContent.vue`](../client/components/app/SettingsContent.vue:18)：只声明 `headerText`/`description`/`note` props，未声明 `title`。
 - [`client/components/app/ConfigSideNav.vue`](../client/components/app/ConfigSideNav.vue:57)：设置页面用户下方的计划任务入口。
 - [`client/components/tables/TracksTable.vue`](../client/components/tables/TracksTable.vue:18)：大量音轨展开时按 100 条增量渲染。
@@ -178,8 +195,12 @@
    - 保留全局单书补全队列：三个优先级队列（播放 > 手动 > 计划）级内 FIFO、非抢占；初始化、入队、调度和去重分别位于 `PlaybackSessionManager.js` 的 `strmCompletionQueues`、`enqueueStrmBookCompletion`、`processStrmCompletionQueue`、`queueStrmBookById`。播放补全 2.0 QPS 且每本完成后暂停 3 分钟；单本手动 2.0 QPS；多本手动 1.5 QPS、跨书共享每 3000 文件暂停 5 分钟；媒体库级手动 1.5 QPS、累计每 5000 文件暂停 3 分钟；计划任务读取 `strmMetadataCompletionQps` 和 `strmMetadataCompletionBatchSize` 设置。所有入口都直接跳过已完成元数据的 STRM 书籍，仅扫描部分完成书籍中仍缺失的音轨元数据。
    - 保留播放响应后的整书后台补全：只有后台探测成功后才回写书籍数据库和 metadata 文件，扫描阶段仍不得访问 `.strm` 指针目标。
    - 计划任务页面需要重新接入运行态播放/停止按钮、`task.data.scheduledTask` 过滤和 `task_finished` 结果处理；后端需要重新接入 `CronManager.js`、`MiscController.js` 与 `ApiRouter.js` 的停止 API。清理摘要依赖 `task.data.result.removed`，不能恢复为耗时显示，也不能把 `0` 项隐藏。媒体库扫描横条依赖 `scheduledLibraryScanCronExpression`、`scheduledLibraryScanLibraryIds`、`scheduledLibraryScanMaxHours` 三个设置字段，执行时按选定顺序串行扫描，不能并发扫描多个媒体库。
-   - 保留计划任务 cron 默认不开启语义：三个 cron 字段默认 `null`，空字符串保存时规范化为 `null`，CronManager 在表达式为空时不注册定时任务。
+   - 保留计划任务 cron 默认不开启语义：所有 cron 字段默认 `null`，空字符串保存时规范化为 `null`，CronManager 在表达式为空时不注册定时任务。
+   - AI 书籍匹配升级时优先保留独立文件 `AiBookMatchManager.js`；若上游调整 `BookFinder.search` 返回结构，只修改候选摘要映射。若上游调整快速匹配写入逻辑，继续让普通快速匹配和 AI 匹配共同调用 `Scanner.applyBookMatch`，不要复制两套作者、系列和封面保存逻辑。
+   - 保留 AI 安全边界：模型只能选择 provider 已返回的候选序号，服务端必须校验序号和置信度；`aiBookMatchApiKey` 不得出现在 `toJSONForBrowser`、Socket 任务数据或日志中。审计继续写入 `LibraryItem.extraData.aiBookMatch`，不要写入用户可编辑的标签、描述或 metadata 文件。
    - 大量音轨页面需要保留 `client/components/tables/TracksTable.vue` 的窗口化渲染：不要恢复为按 100 条不断累积 DOM；保留固定行高、上下占位和滚动帧合并逻辑。
+   - 保留 `getStrmBookMetadataStatus` 的事实计算、`completeStrmBook` 内部每 50 条成功音轨的增量保存，以及取消/截止时间/循环结束前的强制 flush。上游若重写 `completeStrmBook`，先把音轨探测结果写回对象，再重新接入局部重建、`media.save()`、`saveMetadataFile()` 和 `item_updated` 通知；不要只恢复整本书结束时的一次保存，否则会丢失断点接续能力。
+   - 保留 `client/components/content/LibraryItemDetails.vue` 的 STRM 状态计算和提示。若上游改变详情组件结构，只迁移这段展示和四个计算属性，不要把状态写成数据库列或永久 metadata 字段。
    - 不要把 `.strm` 真实目标直接交给 FFmpeg，除非另行实现目标解析后的转码输入。
 3. 保留或重新应用主题功能：
    - 保留独立文件 `client/components/app/ThemeSwitcher.vue` 和 `client/assets/themes.css`。
@@ -199,8 +220,10 @@
    - 播放响应返回后验证后台按请求顺序逐本以 2.0 QPS 执行完整扫描，每本完成后暂停 3 分钟；成功后数据库中的 STRM 音轨时长、音轨元数据、章节和总时长均被补全；重复播放不会重复请求已完整书籍。
    - 分别验证详情页单本补全使用 2.0 QPS 且每 3000 文件暂停 5 分钟，选择多本补全使用 1.5 QPS 且跨书累计每 3000 文件暂停 5 分钟；媒体库三点菜单补全使用 1.5 QPS 且累计每 5000 文件暂停 3 分钟，并能在任务通知中显示当前书名和进度。
    - 验证全局单书队列互斥与优先级：播放补全执行中发起手动补全会排队，手动补全执行中发起计划任务会排队；同一优先级内先请求的先执行；当前书完成后才切换到更高优先级队列。
-   - 在设置侧栏用户下方验证计划任务入口；分别手动执行三条任务，确认清理任务只删除 `isMissing` 数据库项目，不删除文件，也不删除仅 `isInvalid` 的项目。
+   - 在设置侧栏用户下方验证计划任务入口；分别手动执行四条任务，确认清理任务只删除 `isMissing` 数据库项目，不删除文件，也不删除仅 `isInvalid` 的项目。
+   - 为书籍匹配配置测试用 OpenAI 兼容接口、一个图书媒体库和高置信度阈值；确认第二项横条、左右双栏设置、运行/停止、上次执行摘要及“匹配了 N 本图书”正常。确认有 ISBN/ASIN 和 `matched-ai` 审计的书不请求 AI，低置信度写入 `needs-review`，越界候选不会写入元数据，API 密钥不会返回浏览器。
    - 验证已完成元数据的 STRM 书籍在播放补全、单本手动、多本手动、媒体库手动和计划任务中均被跳过；验证部分完成的书籍只扫描缺失元数据的音轨，确认页面显示的是整个扫描任务的服务端总耗时，而不是接口响应耗时。
+   - 手工制造一本包含大量 `.strm` 音轨的书，在补全完成一部分后停止或触发时间限制；确认已成功音轨在数据库中保留，重新执行时只请求剩余音轨，详情页显示完成数量/剩余数量，全部完成后提示消失。
    - 切换浩瀚星空主题，确认藏蓝/墨紫/炭黑背景及不同颜色和大小的静态星点在桌面和移动端可见且不遮挡交互；切换暗色主题，确认冷灰暗色界面正常显示。
    - 容器内执行 `ls /NetDisk/...` 能看到 `.strm` 指向的目标文件；不需要配置额外环境变量。
    - 播放远程 URL、本地 POSIX 路径和 Windows 路径目标均正常。
@@ -213,7 +236,8 @@
 - 不要把主题颜色散落到业务组件中；主题颜色统一放在 `themes.css` 的变量和主题选择器内。
 - 不要修改数据库结构保存主题；当前主题属于浏览器用户界面偏好，使用 `localStorage` 可以避免迁移和上游数据库冲突。
 - 全局补全队列的状态全部保存在 `PlaybackSessionManager` 实例字段中（不落库），升级时保留这些字段和三个队列处理函数即可，无需迁移数据。
-- 计划任务设置字段属于 `ServerSettings`，上游若重命名或移动设置，需要同步保留 `strmMetadataCompletionCronExpression`、`strmMetadataCompletionMaxHours`、`strmMetadataCompletionQps`、`strmMetadataCompletionBatchSize`、`missingItemsCleanupCronExpression`、`scheduledLibraryScanCronExpression`、`scheduledLibraryScanLibraryIds`、`scheduledLibraryScanMaxHours` 八个字段的构造、序列化和校验逻辑。
+- 书内断点接续不依赖新的数据库迁移；升级时重点检查 `PlaybackSessionManager.completeStrmBook` 是否仍在成功探测后批量保存，以及 `LibraryItemDetails.vue` 是否仍依据 `media.audioFiles` 动态计算提示。若上游改变媒体模型的 JSON 序列化，只需保证 `audioFiles` 的 `duration`、`codec`、`channels` 和 `metadata.path` 仍可用。
+- 计划任务设置字段属于 `ServerSettings`，上游若重命名或移动设置，需要同步保留 STRM、清理、媒体库扫描以及 `aiBookMatchCronExpression`、`aiBookMatchLibraryIds`、`aiBookMatchMaxHours`、`aiBookMatchApiUrl`、`aiBookMatchApiKey`、`aiBookMatchModel`、`aiBookMatchConfidence` 的构造、序列化和校验逻辑；浏览器序列化必须继续删除 API 密钥。
 
 ## 验证命令
 

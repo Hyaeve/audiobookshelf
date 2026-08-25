@@ -3,6 +3,7 @@ const cron = require('../libs/nodeCron')
 const Logger = require('../Logger')
 const Database = require('../Database')
 const LibraryScanner = require('../scanner/LibraryScanner')
+const AiBookMatchManager = require('./AiBookMatchManager')
 
 const ShareManager = require('./ShareManager')
 const TaskManager = require('./TaskManager')
@@ -19,6 +20,9 @@ class CronManager {
     this.strmMetadataCron = null
     this.missingItemsCleanupCron = null
     this.scheduledLibraryScanCron = null
+    this.aiBookMatchCron = null
+    this.aiBookMatchExecuting = false
+    this.aiBookMatchCancelRequested = false
     this.scheduledLibraryScanExecuting = false
     this.scheduledLibraryScanCancelRequested = false
     this.scheduledLibraryScanTimer = null
@@ -41,6 +45,7 @@ class CronManager {
     this.updateStrmMetadataCron()
     this.updateMissingItemsCleanupCron()
     this.updateScheduledLibraryScanCron()
+    this.updateAiBookMatchCron()
     await this.initPodcastCrons()
   }
 
@@ -185,6 +190,89 @@ class CronManager {
     }
     const task = cron.schedule(expression, () => this.runMissingItemsCleanup())
     this.missingItemsCleanupCron = { expression, task }
+  }
+
+  updateAiBookMatchCron() {
+    const expression = Database.serverSettings.aiBookMatchCronExpression
+    if (this.aiBookMatchCron && (!expression || this.aiBookMatchCron.expression !== expression)) {
+      this.aiBookMatchCron.task.stop()
+      this.aiBookMatchCron = null
+    }
+    if (!expression || this.aiBookMatchCron) return
+    if (!cron.validate(expression)) {
+      Logger.error(`[CronManager] Invalid AI book match cron expression "${expression}"`)
+      return
+    }
+    const task = cron.schedule(expression, () => this.runAiBookMatch())
+    this.aiBookMatchCron = { expression, task }
+  }
+
+  async runAiBookMatch() {
+    if (this.aiBookMatchExecuting) return { skipped: true }
+    if (!AiBookMatchManager.isConfigured()) throw new Error('AI book matching is not configured')
+    this.aiBookMatchExecuting = true
+    this.aiBookMatchCancelRequested = false
+    const settings = Database.serverSettings
+    const libraryIds = Array.isArray(settings.aiBookMatchLibraryIds) ? settings.aiBookMatchLibraryIds : []
+    const maxHours = Number(settings.aiBookMatchMaxHours) > 0 ? Number(settings.aiBookMatchMaxHours) : 1
+    const deadline = Date.now() + maxHours * 60 * 60 * 1000
+    const task = TaskManager.createAndAddTask('ai-book-match', { text: '书籍匹配' }, null, true, { scheduledTask: true, progress: 0, libraryIds })
+    const result = { matched: 0, unmatched: 0, needsReview: 0, skipped: 0, cancelled: false }
+    const startedAt = Date.now()
+    try {
+      const libraries = await Database.libraryModel.getAllWithFolders()
+      const selectedLibraries = libraryIds.map((id) => libraries.find((library) => library.id === id)).filter((library) => library?.mediaType === 'book')
+      let processed = 0
+      for (const library of selectedLibraries) {
+        let offset = 0
+        while (!this.aiBookMatchCancelRequested && Date.now() < deadline) {
+          const items = await Database.libraryItemModel.getLibraryItemsIncrement(offset, 50, { libraryId: library.id, mediaType: 'book', isMissing: false, isInvalid: false })
+          if (!items.length) break
+          offset += items.length
+          for (const libraryItem of items) {
+            if (this.aiBookMatchCancelRequested || Date.now() >= deadline) break
+            let matchResult
+            try {
+              matchResult = await AiBookMatchManager.matchLibraryItem(this.apiRouterCtx, libraryItem, library)
+            } catch (error) {
+              Logger.warn(`[CronManager] AI matching failed for "${libraryItem.id}": ${error.message}`)
+              await AiBookMatchManager.saveAudit(libraryItem, { status: 'needs-review', source: 'ai', model: settings.aiBookMatchModel, updatedAt: Date.now(), reason: error.message })
+              matchResult = { status: 'needs-review' }
+            }
+            if (matchResult.status === 'matched') result.matched += 1
+            else if (matchResult.status === 'unmatched') result.unmatched += 1
+            else if (matchResult.status === 'needs-review') result.needsReview += 1
+            else result.skipped += 1
+            processed += 1
+            TaskManager.updateTaskProgress(task, selectedLibraries.length ? Math.min(99, ((selectedLibraries.indexOf(library) + 1) / selectedLibraries.length) * 100) : 100, { currentLibrary: library.name, processed, ...result })
+          }
+          if (items.length < 50) break
+        }
+      }
+      result.cancelled = this.aiBookMatchCancelRequested || Date.now() >= deadline
+      task.data.result = result
+      task.setFinished(null, true)
+      Database.serverSettings.aiBookMatchLastRun = { startedAt, finishedAt: Date.now(), durationMs: Date.now() - startedAt, ...result }
+      await Database.updateServerSettings()
+      return result
+    } catch (error) {
+      task.setFailed({ text: error.message || 'AI book matching failed' })
+      throw error
+    } finally {
+      TaskManager.taskFinished(task)
+      this.aiBookMatchExecuting = false
+      this.aiBookMatchCancelRequested = false
+    }
+  }
+
+  cancelAiBookMatch() {
+    if (!this.aiBookMatchExecuting) return false
+    this.aiBookMatchCancelRequested = true
+    return true
+  }
+
+  setApiRouterContext(apiRouterCtx) {
+    this.apiRouterCtx = apiRouterCtx
   }
 
   updateScheduledLibraryScanCron() {

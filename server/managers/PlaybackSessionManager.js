@@ -550,12 +550,24 @@ class PlaybackSessionManager {
       && Number(audioFile.channels) > 0
   }
 
-  isCompleteStrmBookMetadata(libraryItem) {
+  getStrmBookMetadataStatus(libraryItem) {
     const allAudioFiles = libraryItem?.media?.audioFiles || []
     const strmFiles = allAudioFiles.filter((audioFile) => isStrmPath(audioFile.metadata?.path))
-    return strmFiles.length > 0
-      && Number(libraryItem.media.duration) > 0
-      && strmFiles.every((audioFile) => this.isCompleteStrmAudioFile(audioFile))
+    const completedTracks = strmFiles.filter((audioFile) => this.isCompleteStrmAudioFile(audioFile)).length
+    const totalTracks = strmFiles.length
+    return {
+      totalTracks,
+      completedTracks,
+      incompleteTracks: Math.max(0, totalTracks - completedTracks),
+      percent: totalTracks ? Math.round((completedTracks / totalTracks) * 100) : 0,
+      isComplete: totalTracks > 0
+        && Number(libraryItem?.media?.duration) > 0
+        && completedTracks === totalTracks
+    }
+  }
+
+  isCompleteStrmBookMetadata(libraryItem) {
+    return this.getStrmBookMetadataStatus(libraryItem).isComplete
   }
 
   async completeStrmBookAfterPlayback(libraryItemId) {
@@ -603,7 +615,56 @@ class PlaybackSessionManager {
     const totalStrmFiles = (libraryItem.media.audioFiles || []).filter((audioFile) => isStrmPath(audioFile.metadata?.path)).length
     const qps = Number(options.qps) > 0 ? Number(options.qps) : 0.5
     const requestIntervalMs = 1000 / qps
+    const persistBatchSize = 50
     let updatedCount = 0
+    let pendingPersistCount = 0
+
+    const rebuildBookAggregation = () => {
+      libraryItem.media.audioFiles = AudioFileScanner.runSmartTrackOrder(libraryItem.relPath, libraryItem.media.audioFiles)
+      let duration = 0
+      const chapters = []
+      let chapterId = 0
+      const hasEmbeddedChapters = libraryItem.media.audioFiles.some((audioFile) => audioFile.chapters?.length)
+      for (const [index, audioFile] of libraryItem.media.audioFiles.entries()) {
+        const fileDuration = Number(audioFile.duration) > 0 ? Number(audioFile.duration) : 0
+        if (!fileDuration) continue
+
+        if (hasEmbeddedChapters && audioFile.chapters?.length) {
+          for (const chapter of audioFile.chapters) {
+            const start = duration + Math.max(0, Number(chapter.start) || 0)
+            const end = duration + Math.min(fileDuration, Number(chapter.end) || fileDuration)
+            if (end > start) chapters.push({ ...chapter, id: chapterId++, start, end })
+          }
+        } else {
+          chapters.push({
+            id: chapterId++,
+            start: duration,
+            end: duration + fileDuration,
+            title: audioFile.metadata?.filename || `Chapter ${index + 1}`
+          })
+        }
+        duration += fileDuration
+      }
+      libraryItem.media.duration = duration
+      libraryItem.media.chapters = chapters
+    }
+
+    const persistProgress = async (force = false) => {
+      if (!pendingPersistCount || (!force && pendingPersistCount < persistBatchSize)) return false
+      rebuildBookAggregation()
+      libraryItem.media.changed('audioFiles', true)
+      libraryItem.media.changed('chapters', true)
+      try {
+        await libraryItem.media.save()
+        await libraryItem.saveMetadataFile()
+        pendingPersistCount = 0
+        SocketAuthority.libraryItemEmitter('item_updated', libraryItem)
+        return true
+      } catch (error) {
+        Logger.error(`[PlaybackSessionManager] Failed to persist partial STRM metadata for book "${libraryItem.id}": ${error.message}`)
+        return false
+      }
+    }
 
     if (strmFiles.length) {
       Logger.info(`[PlaybackSessionManager] Starting full STRM scan for book "${libraryItem.id}" (${strmFiles.length}/${totalStrmFiles} incomplete files, QPS ${qps})`)
@@ -634,13 +695,17 @@ class PlaybackSessionManager {
         if (audioFile.metaTags?.discNumber !== undefined) audioFile.discNumFromMeta = audioFile.metaTags.discNumber
         audioFile.updatedAt = Date.now()
         updatedCount += 1
+        pendingPersistCount += 1
       } catch (error) {
         Logger.warn(`[PlaybackSessionManager] Failed to complete STRM metadata for "${audioFile.metadata.path}": ${error.message}`)
       }
     }
 
     for (const [index, audioFile] of strmFiles.entries()) {
-      if (isCancelled()) return false
+      if (isCancelled()) {
+        await persistProgress(true)
+        return false
+      }
       if (options.throttleState) {
         if (options.throttleState.scannedTracks > 0) await wait(options.throttleState.requestIntervalMs)
         options.throttleState.scannedTracks += 1
@@ -648,8 +713,12 @@ class PlaybackSessionManager {
       } else if (index > 0) {
         await wait(requestIntervalMs)
       }
-      if (isCancelled()) return false
+      if (isCancelled()) {
+        await persistProgress(true)
+        return false
+      }
       await completeAudioFile(audioFile)
+      await persistProgress()
       if (options.throttleState?.deadline && Date.now() >= options.throttleState.deadline) {
         Logger.info(`[PlaybackSessionManager] STRM metadata completion time limit reached after ${options.throttleState.scannedTracks} tracks`)
         break
@@ -661,38 +730,17 @@ class PlaybackSessionManager {
       }
     }
 
+    if (isCancelled()) {
+      await persistProgress(true)
+      return updatedCount > 0
+    }
     if (strmFiles.length && !updatedCount) return false
+    await persistProgress(true)
     if (strmFiles.length) {
       Logger.info(`[PlaybackSessionManager] Completed metadata for ${updatedCount}/${strmFiles.length} STRM tracks in book "${libraryItem.id}"`)
     }
 
-    libraryItem.media.audioFiles = AudioFileScanner.runSmartTrackOrder(libraryItem.relPath, libraryItem.media.audioFiles)
-    let duration = 0
-    const chapters = []
-    let chapterId = 0
-    const hasEmbeddedChapters = libraryItem.media.audioFiles.some((audioFile) => audioFile.chapters?.length)
-    for (const [index, audioFile] of libraryItem.media.audioFiles.entries()) {
-      const fileDuration = Number(audioFile.duration) > 0 ? Number(audioFile.duration) : 0
-      if (!fileDuration) continue
-
-      if (hasEmbeddedChapters && audioFile.chapters?.length) {
-        for (const chapter of audioFile.chapters) {
-          const start = duration + Math.max(0, Number(chapter.start) || 0)
-          const end = duration + Math.min(fileDuration, Number(chapter.end) || fileDuration)
-          if (end > start) chapters.push({ ...chapter, id: chapterId++, start, end })
-        }
-      } else {
-        chapters.push({
-          id: chapterId++,
-          start: duration,
-          end: duration + fileDuration,
-          title: audioFile.metadata?.filename || `Chapter ${index + 1}`
-        })
-      }
-      duration += fileDuration
-    }
-    libraryItem.media.duration = duration
-    libraryItem.media.chapters = chapters
+    rebuildBookAggregation()
     libraryItem.media.changed('audioFiles', true)
     libraryItem.media.changed('chapters', true)
     await libraryItem.media.save()

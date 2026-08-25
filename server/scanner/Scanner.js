@@ -58,26 +58,7 @@ class Scanner {
           warning: `No ${provider} match found`
         }
       }
-      const matchData = results[0]
-
-      // Update cover if not set OR overrideCover flag
-      if (matchData.cover && (!libraryItem.media.coverPath || options.overrideCover)) {
-        Logger.debug(`[Scanner] Updating cover "${matchData.cover}"`)
-        const coverResult = await CoverManager.downloadCoverFromUrlNew(matchData.cover, libraryItem.id, libraryItem.isFile ? null : libraryItem.path)
-        if (coverResult.error) {
-          Logger.warn(`[Scanner] Match cover "${matchData.cover}" failed to use: ${coverResult.error}`)
-        } else {
-          libraryItem.media.coverPath = coverResult.cover
-          libraryItem.media.changed('coverPath', true) // Cover path may be the same but this forces the update
-          hasUpdated = true
-        }
-      }
-
-      const bookBuildUpdateData = await this.quickMatchBookBuildUpdatePayload(apiRouterCtx, libraryItem, matchData, options)
-      updatePayload = bookBuildUpdateData.updatePayload
-      if (bookBuildUpdateData.hasSeriesUpdates || bookBuildUpdateData.hasAuthorUpdates) {
-        hasUpdated = true
-      }
+      return this.applyBookMatch(apiRouterCtx, libraryItem, results[0], options)
     } else if (libraryItem.isPodcast) {
       // Podcast quick match
       const results = await PodcastFinder.search(searchTitle)
@@ -133,6 +114,48 @@ class Scanner {
       updated: hasUpdated,
       libraryItem: libraryItem.toOldJSONExpanded()
     }
+  }
+
+  /**
+   * Apply a previously selected book metadata candidate.
+   * Both regular quick matching and AI-assisted matching use this method so they
+   * share the same metadata, author, series, cover, persistence, and socket flow.
+   *
+   * @param {import('../routers/ApiRouter')} apiRouterCtx
+   * @param {import('../models/LibraryItem')} libraryItem
+   * @param {Object} matchData
+   * @param {QuickMatchOptions} options
+   * @returns {Promise<{updated: boolean, libraryItem: Object}>}
+   */
+  async applyBookMatch(apiRouterCtx, libraryItem, matchData, options = {}) {
+    let hasUpdated = false
+    if (matchData.cover && (!libraryItem.media.coverPath || options.overrideCover)) {
+      Logger.debug(`[Scanner] Updating cover "${matchData.cover}"`)
+      const coverResult = await CoverManager.downloadCoverFromUrlNew(matchData.cover, libraryItem.id, libraryItem.isFile ? null : libraryItem.path)
+      if (coverResult.error) {
+        Logger.warn(`[Scanner] Match cover "${matchData.cover}" failed to use: ${coverResult.error}`)
+      } else {
+        libraryItem.media.coverPath = coverResult.cover
+        libraryItem.media.changed('coverPath', true)
+        hasUpdated = true
+      }
+    }
+
+    const bookBuildUpdateData = await this.quickMatchBookBuildUpdatePayload(apiRouterCtx, libraryItem, matchData, options)
+    if (Object.keys(bookBuildUpdateData.updatePayload).length) {
+      libraryItem.media.set(bookBuildUpdateData.updatePayload)
+      if (libraryItem.media.changed()) hasUpdated = true
+    }
+    if (bookBuildUpdateData.hasSeriesUpdates || bookBuildUpdateData.hasAuthorUpdates) hasUpdated = true
+
+    if (hasUpdated) {
+      await libraryItem.media.save()
+      libraryItem.changed('updatedAt', true)
+      await libraryItem.save()
+      await libraryItem.saveMetadataFile()
+      SocketAuthority.libraryItemEmitter('item_updated', libraryItem)
+    }
+    return { updated: hasUpdated, libraryItem: libraryItem.toOldJSONExpanded() }
   }
 
   /**

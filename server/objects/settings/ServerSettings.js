@@ -51,6 +51,14 @@ class ServerSettings {
     this.strmMetadataCompletionQps = 1.0
     this.strmMetadataCompletionBatchSize = 5000
     this.missingItemsCleanupCronExpression = null
+    this.aiBookMatchCronExpression = null
+    this.aiBookMatchLibraryIds = []
+    this.aiBookMatchMaxHours = 1
+    this.aiBookMatchApiUrl = null
+    this.aiBookMatchApiKey = null
+    this.aiBookMatchModel = null
+    this.aiBookMatchConfidence = 0.9
+    this.aiBookMatchLastRun = null
     this.scheduledLibraryScanCronExpression = null
     this.scheduledLibraryScanLibraryIds = []
     this.scheduledLibraryScanMaxHours = 1
@@ -130,6 +138,14 @@ class ServerSettings {
     this.strmMetadataCompletionQps = Number(settings.strmMetadataCompletionQps) >= 0.1 ? Number(settings.strmMetadataCompletionQps) : 1.0
     this.strmMetadataCompletionBatchSize = Number(settings.strmMetadataCompletionBatchSize) >= 500 ? Number(settings.strmMetadataCompletionBatchSize) : 5000
     this.missingItemsCleanupCronExpression = settings.missingItemsCleanupCronExpression || null
+    this.aiBookMatchCronExpression = settings.aiBookMatchCronExpression || null
+    this.aiBookMatchLibraryIds = Array.isArray(settings.aiBookMatchLibraryIds) ? settings.aiBookMatchLibraryIds : []
+    this.aiBookMatchMaxHours = Number(settings.aiBookMatchMaxHours) > 0 ? Number(settings.aiBookMatchMaxHours) : 1
+    this.aiBookMatchApiUrl = settings.aiBookMatchApiUrl || null
+    this.aiBookMatchApiKey = settings.aiBookMatchApiKey || null
+    this.aiBookMatchModel = settings.aiBookMatchModel || null
+    this.aiBookMatchConfidence = Number(settings.aiBookMatchConfidence) >= 0.5 && Number(settings.aiBookMatchConfidence) <= 1 ? Number(settings.aiBookMatchConfidence) : 0.9
+    this.aiBookMatchLastRun = settings.aiBookMatchLastRun && typeof settings.aiBookMatchLastRun === 'object' ? settings.aiBookMatchLastRun : null
     this.scheduledLibraryScanCronExpression = settings.scheduledLibraryScanCronExpression || null
     this.scheduledLibraryScanLibraryIds = Array.isArray(settings.scheduledLibraryScanLibraryIds) ? settings.scheduledLibraryScanLibraryIds : []
     this.scheduledLibraryScanMaxHours = Number(settings.scheduledLibraryScanMaxHours) > 0 ? Number(settings.scheduledLibraryScanMaxHours) : 1
@@ -251,6 +267,14 @@ class ServerSettings {
       strmMetadataCompletionQps: this.strmMetadataCompletionQps,
       strmMetadataCompletionBatchSize: this.strmMetadataCompletionBatchSize,
       missingItemsCleanupCronExpression: this.missingItemsCleanupCronExpression,
+      aiBookMatchCronExpression: this.aiBookMatchCronExpression,
+      aiBookMatchLibraryIds: [...this.aiBookMatchLibraryIds],
+      aiBookMatchMaxHours: this.aiBookMatchMaxHours,
+      aiBookMatchApiUrl: this.aiBookMatchApiUrl,
+      aiBookMatchApiKey: this.aiBookMatchApiKey,
+      aiBookMatchModel: this.aiBookMatchModel,
+      aiBookMatchConfidence: this.aiBookMatchConfidence,
+      aiBookMatchLastRun: this.aiBookMatchLastRun ? { ...this.aiBookMatchLastRun } : null,
       scheduledLibraryScanCronExpression: this.scheduledLibraryScanCronExpression,
       scheduledLibraryScanLibraryIds: [...this.scheduledLibraryScanLibraryIds],
       scheduledLibraryScanMaxHours: this.scheduledLibraryScanMaxHours,
@@ -301,6 +325,8 @@ class ServerSettings {
   toJSONForBrowser() {
     const json = this.toJSON()
     delete json.tokenSecret
+    delete json.aiBookMatchApiKey
+    json.aiBookMatchApiConfigured = !!(this.aiBookMatchApiUrl && this.aiBookMatchApiKey && this.aiBookMatchModel)
     delete json.authOpenIDClientID
     delete json.authOpenIDClientSecret
     delete json.authOpenIDMobileRedirectURIs
