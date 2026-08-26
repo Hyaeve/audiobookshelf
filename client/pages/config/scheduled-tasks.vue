@@ -97,7 +97,7 @@ export default {
   beforeDestroy() { this.$root.socket?.off('task_finished', this.scheduledTaskFinished) },
   methods: {
     actionFor(task) { return { scan: 'scheduled-library-scan', bookMatch: 'ai-book-match', metadata: 'strm-metadata-completion', missing: 'missing-items-cleanup' }[task.key] },
-    scheduledTask(task) { return this.tasks.find((item) => item.action === this.actionFor(task) && item.data?.scheduledTask && !item.isFinished) },
+    scheduledTask(task) { return this.tasks.find((item) => item.action === this.actionFor(task) && !item.isFinished) },
     isTaskRunning(task) { return !!this.scheduledTask(task) || !!this.running[task.key] },
     taskProgress(task) { return Number(this.scheduledTask(task)?.data?.progress) || 0 },
     cronFor(task) { return { scan: this.serverSettings.scheduledLibraryScanCronExpression, bookMatch: this.serverSettings.aiBookMatchCronExpression, metadata: this.serverSettings.strmMetadataCompletionCronExpression, missing: this.serverSettings.missingItemsCleanupCronExpression }[task.key] },
@@ -127,7 +127,12 @@ export default {
     scheduledTaskFinished(task) {
       const key = { 'scheduled-library-scan': 'scan', 'ai-book-match': 'bookMatch', 'strm-metadata-completion': 'metadata', 'missing-items-cleanup': 'missing' }[task.action]
       if (!key) return
-      this.$set(this.lastRuns, key, { startedAt: task.startedAt || Date.now(), durationMs: Math.max(0, (task.finishedAt || Date.now()) - (task.startedAt || Date.now())), removed: Number(task.data?.result?.removed) || 0, matched: Number(task.data?.result?.matched) || 0 })
+      const taskResult = task.data?.result || {}
+      const startedAt = Number(taskResult.startedAt) || Number(task.startedAt) || Date.now()
+      const finishedAt = Number(taskResult.finishedAt) || Number(task.finishedAt) || Date.now()
+      const summary = { startedAt, finishedAt, durationMs: Number(taskResult.durationMs) || Math.max(0, finishedAt - startedAt), removed: Number(taskResult.removed) || 0, matched: Number(taskResult.matched) || 0 }
+      this.$set(this.lastRuns, key, summary)
+      if (key === 'bookMatch' && this.serverSettings.aiBookMatchLastRun?.finishedAt !== finishedAt) this.$store.commit('setServerSettings', { ...this.serverSettings, aiBookMatchLastRun: summary })
       this.$set(this.running, key, false)
       localStorage.setItem(LAST_RUN_STORAGE_KEY, JSON.stringify(this.lastRuns))
     },

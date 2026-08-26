@@ -734,7 +734,7 @@ class MiscController {
   async runAiBookMatch(req, res) {
     if (!req.user.isAdminOrUp) return res.sendStatus(403)
     try {
-      const taskPromise = this.cronManager.runAiBookMatch()
+      const taskPromise = this.cronManager.runAiBookMatch(false)
       taskPromise.catch((error) => Logger.error('[MiscController] AI book matching failed', error))
       return res.status(202).json({ startedAt: Date.now() })
     } catch (error) {

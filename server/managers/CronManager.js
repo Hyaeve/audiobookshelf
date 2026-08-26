@@ -204,11 +204,11 @@ class CronManager {
       Logger.error(`[CronManager] Invalid AI book match cron expression "${expression}"`)
       return
     }
-    const task = cron.schedule(expression, () => this.runAiBookMatch())
+    const task = cron.schedule(expression, () => this.runAiBookMatch(true))
     this.aiBookMatchCron = { expression, task }
   }
 
-  async runAiBookMatch() {
+  async runAiBookMatch(scheduledTask = false) {
     if (this.aiBookMatchExecuting) return { skipped: true }
     if (!AiBookMatchManager.isConfigured()) throw new Error('AI book matching is not configured')
     this.aiBookMatchExecuting = true
@@ -217,14 +217,16 @@ class CronManager {
     const libraryIds = Array.isArray(settings.aiBookMatchLibraryIds) ? settings.aiBookMatchLibraryIds : []
     const maxHours = Number(settings.aiBookMatchMaxHours) > 0 ? Number(settings.aiBookMatchMaxHours) : 1
     const deadline = Date.now() + maxHours * 60 * 60 * 1000
-    const task = TaskManager.createAndAddTask('ai-book-match', { text: '书籍匹配' }, null, true, { scheduledTask: true, progress: 0, libraryIds })
+    const task = TaskManager.createAndAddTask('ai-book-match', { text: '书籍匹配' }, null, true, { scheduledTask, progress: 0, libraryIds })
     const result = { matched: 0, unmatched: 0, needsReview: 0, skipped: 0, cancelled: false }
     const startedAt = Date.now()
     this.aiBookMatchAbortController = new AbortController()
-    Logger.info(`[CronManager] AI书籍匹配计划任务开始，目标媒体库：${libraryIds.length ? libraryIds.join(', ') : '无'}`)
+    const taskTypeText = scheduledTask ? '计划任务' : '手动任务'
     try {
       const libraries = await Database.libraryModel.getAllWithFolders()
       const selectedLibraries = libraryIds.map((id) => libraries.find((library) => library.id === id)).filter((library) => library?.mediaType === 'book')
+      const selectedLibraryNames = selectedLibraries.map((library) => library.name)
+      Logger.info(`[CronManager] AI书籍匹配${taskTypeText}开始，目标媒体库：${selectedLibraryNames.length ? selectedLibraryNames.join('、') : '无'}`)
       let processed = 0
       for (const library of selectedLibraries) {
         Logger.info(`[CronManager] AI书籍匹配开始处理媒体库："${library.name}"`)
@@ -261,12 +263,14 @@ class CronManager {
         }
       }
       result.cancelled = this.aiBookMatchCancelRequested || Date.now() >= deadline
-      Logger.info(`[CronManager] AI书籍匹配计划任务结束：${JSON.stringify(result)}`)
-      task.data.result = result
+      const finishedAt = Date.now()
+      const summary = { startedAt, finishedAt, durationMs: finishedAt - startedAt, ...result }
+      Logger.info(`[CronManager] AI书籍匹配${taskTypeText}结束：${JSON.stringify(summary)}`)
+      task.data.result = summary
       task.setFinished(null, true)
-      Database.serverSettings.aiBookMatchLastRun = { startedAt, finishedAt: Date.now(), durationMs: Date.now() - startedAt, ...result }
+      Database.serverSettings.aiBookMatchLastRun = summary
       await Database.updateServerSettings()
-      return result
+      return summary
     } catch (error) {
       task.setFailed({ text: error.message || 'AI book matching failed' })
       throw error
@@ -314,12 +318,13 @@ class CronManager {
     const maxHours = Number(settings.scheduledLibraryScanMaxHours) > 0 ? Number(settings.scheduledLibraryScanMaxHours) : 1
     const task = TaskManager.createAndAddTask('scheduled-library-scan', '媒体库扫描', null, true, { scheduledTask: true, progress: 0, libraryIds })
     const deadline = Date.now() + maxHours * 60 * 60 * 1000
-    Logger.info(`[CronManager] 媒体库扫描计划任务开始，目标媒体库：${libraryIds.length ? libraryIds.join(', ') : '无'}`)
     let currentLibraryId = null
     let scanned = 0
     try {
       const libraries = await Database.libraryModel.getAllWithFolders()
       const selectedLibraries = libraryIds.map((id) => libraries.find((library) => library.id === id)).filter(Boolean)
+      const selectedLibraryNames = selectedLibraries.map((library) => library.name)
+      Logger.info(`[CronManager] 媒体库扫描计划任务开始，目标媒体库：${selectedLibraryNames.length ? selectedLibraryNames.join('、') : '无'}`)
       for (let index = 0; index < selectedLibraries.length; index += 1) {
         if (this.scheduledLibraryScanCancelRequested || Date.now() >= deadline) break
         const library = selectedLibraries[index]

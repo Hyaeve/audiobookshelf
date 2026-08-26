@@ -867,6 +867,9 @@ class PlaybackSessionManager {
       const items = await Database.libraryItemModel.findAllExpandedWhere({
         mediaType: 'book'
       })
+      const libraries = await Database.libraryModel.getAllWithFolders()
+      const libraryNames = new Map(libraries.map((library) => [library.id, library.name]))
+      const getLibraryName = (libraryId) => libraryNames.get(libraryId) || libraryId || '未知媒体库'
       task.data.totalBooks = items.length
       let currentTitle = ''
       const updateProgress = (title = currentTitle) => {
@@ -895,14 +898,14 @@ class PlaybackSessionManager {
         isCancelled: () => cancellation.requested || Date.now() >= deadline,
         onStarted: (expandedItem, strmFiles) => {
           task.data.totalTracks += strmFiles.length
-          Logger.info(`[PlaybackSessionManager] 计划补全元数据开始：媒体库 ID：${expandedItem.libraryId}，书籍："${expandedItem.media.title || expandedItem.id}"，待补全音轨：${strmFiles.length}`)
+          Logger.info(`[PlaybackSessionManager] 计划补全元数据开始：媒体库：${getLibraryName(expandedItem.libraryId)}，书籍："${expandedItem.media.title || expandedItem.id}"，待补全音轨：${strmFiles.length}`)
           updateProgress(expandedItem.media.title || expandedItem.title || expandedItem.id)
         },
         onCompleted: (expandedItem, strmFiles, result) => {
-          Logger.info(`[PlaybackSessionManager] 计划补全元数据完成：媒体库 ID：${expandedItem.libraryId}，书籍："${expandedItem.media.title || expandedItem.id}"，结果：${result ? '已更新' : '未更新'}`)
+          Logger.info(`[PlaybackSessionManager] 计划补全元数据完成：媒体库：${getLibraryName(expandedItem.libraryId)}，书籍："${expandedItem.media.title || expandedItem.id}"，结果：${result ? '已更新' : '未更新'}`)
         },
         onFailed: (expandedItem, strmFiles, error) => {
-          Logger.warn(`[PlaybackSessionManager] 计划补全元数据失败：媒体库 ID：${expandedItem.libraryId}，书籍："${expandedItem.media.title || expandedItem.id}"，原因：${error.message}`)
+          Logger.warn(`[PlaybackSessionManager] 计划补全元数据失败：媒体库：${getLibraryName(expandedItem.libraryId)}，书籍："${expandedItem.media.title || expandedItem.id}"，原因：${error.message}`)
         }
       }))
       const results = await Promise.all(jobs)
