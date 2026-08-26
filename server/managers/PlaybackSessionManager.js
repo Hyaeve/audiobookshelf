@@ -567,9 +567,7 @@ class PlaybackSessionManager {
       completedTracks,
       incompleteTracks: Math.max(0, totalTracks - completedTracks),
       percent: totalTracks ? Math.round((completedTracks / totalTracks) * 100) : 0,
-      isComplete: totalTracks > 0
-        && Number(libraryItem?.media?.duration) > 0
-        && completedTracks === totalTracks
+      isComplete: totalTracks > 0 && completedTracks === totalTracks
     }
   }
 

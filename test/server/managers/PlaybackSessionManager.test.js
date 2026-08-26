@@ -37,7 +37,7 @@ describe('PlaybackSessionManager STRM completion queue', () => {
     assert.strictEqual(manager.isCompleteStrmBookMetadata(libraryItem), false)
   })
 
-  it('marks a STRM book complete only when all STRM tracks and duration are complete', () => {
+  it('marks a STRM book complete when all STRM tracks are complete', () => {
     const manager = createManager()
     const libraryItem = {
       media: {
@@ -51,7 +51,7 @@ describe('PlaybackSessionManager STRM completion queue', () => {
 
     assert.strictEqual(manager.isCompleteStrmBookMetadata(libraryItem), true)
     libraryItem.media.duration = 0
-    assert.strictEqual(manager.isCompleteStrmBookMetadata(libraryItem), false)
+    assert.strictEqual(manager.isCompleteStrmBookMetadata(libraryItem), true)
   })
 
   it('processes only one book at a time and keeps FIFO within a priority', async () => {
