@@ -13,19 +13,19 @@
     </div>
     <transition name="slide">
       <div ref="filesViewport" class="files-viewport w-full max-h-[70vh] overflow-y-auto" v-show="showFiles" @scroll.passive="loadMoreFiles">
-        <table class="text-sm tracksTable">
-          <tr>
-            <th class="text-left px-4">{{ $strings.LabelPath }}</th>
-            <th class="text-left w-24 min-w-24">{{ $strings.LabelSize }}</th>
-            <th class="text-left px-4 w-24">{{ $strings.LabelType }}</th>
-            <th v-if="hasActionColumn" class="text-center w-16"></th>
-          </tr>
-          <tr v-if="topSpacerHeight" class="files-virtual-spacer"><td :colspan="columnCount" :style="{ height: topSpacerHeight + 'px' }"></td></tr>
-          <template v-for="file in visibleFiles">
-            <tables-library-files-table-row :key="file.ino || file.metadata.path" :libraryItemId="libraryItemId" :showFullPath="showFullPath" :file="file" :inModal="inModal" @showMore="showMore" />
-          </template>
-          <tr v-if="bottomSpacerHeight" class="files-virtual-spacer"><td :colspan="columnCount" :style="{ height: bottomSpacerHeight + 'px' }"></td></tr>
-        </table>
+        <div class="files-virtual-canvas" :style="{ height: totalVirtualHeight + 'px' }">
+          <table class="text-sm tracksTable files-virtual-table" :style="{ height: totalVirtualHeight + 'px' }">
+            <tr class="files-header-row">
+              <th class="text-left px-4">{{ $strings.LabelPath }}</th>
+              <th class="text-left w-24 min-w-24">{{ $strings.LabelSize }}</th>
+              <th class="text-left px-4 w-24">{{ $strings.LabelType }}</th>
+              <th v-if="hasActionColumn" class="text-center w-16"></th>
+            </tr>
+            <template v-for="entry in visibleFiles">
+              <tables-library-files-table-row :key="entry.file.ino || entry.file.metadata.path" :style="{ top: (entry.index + 1) * rowHeight + 'px' }" :libraryItemId="libraryItemId" :showFullPath="showFullPath" :file="entry.file" :inModal="inModal" @showMore="showMore" />
+            </template>
+          </table>
+        </div>
       </div>
     </transition>
 
@@ -81,23 +81,20 @@ export default {
     audioFileByIno() {
       return new Map(this.audioFiles.map((audioFile) => [audioFile.ino, audioFile]))
     },
-    visibleFiles() {
-      return this.files.slice(this.virtualStart, this.virtualEnd).map((file) => {
+    filesWithAudio() {
+      return this.files.map((file) => {
         if (file.fileType !== 'audio') return file
         return { ...file, audioFile: this.audioFileByIno.get(file.ino) }
       })
     },
-    topSpacerHeight() {
-      return this.virtualStart * this.rowHeight
+    visibleFiles() {
+      return this.filesWithAudio.slice(this.virtualStart, this.virtualEnd).map((file, offset) => ({ file, index: this.virtualStart + offset }))
     },
-    bottomSpacerHeight() {
-      return Math.max(0, (this.files.length - this.virtualEnd) * this.rowHeight)
+    totalVirtualHeight() {
+      return (this.files.length + 1) * this.rowHeight
     },
     hasActionColumn() {
       return this.userCanDelete || this.userCanDownload || (this.userIsAdmin && this.audioFiles.length && !this.inModal)
-    },
-    columnCount() {
-      return this.hasActionColumn ? 4 : 3
     }
   },
   methods: {
@@ -112,12 +109,10 @@ export default {
     updateVirtualWindow() {
       const viewport = this.$refs.filesViewport
       if (!viewport) return
-      const firstVisible = Math.floor(viewport.scrollTop / this.rowHeight)
+      const firstVisible = Math.max(0, Math.floor(Math.max(0, viewport.scrollTop - this.rowHeight) / this.rowHeight))
       const visibleRows = Math.ceil(viewport.clientHeight / this.rowHeight)
-      const nextStart = Math.max(0, firstVisible - this.overscan)
-      const nextEnd = Math.min(this.files.length, firstVisible + visibleRows + this.overscan)
-      if (nextStart !== this.virtualStart) this.virtualStart = nextStart
-      if (nextEnd !== this.virtualEnd) this.virtualEnd = nextEnd
+      this.virtualStart = Math.max(0, firstVisible - this.overscan)
+      this.virtualEnd = Math.min(this.files.length, firstVisible + visibleRows + this.overscan)
     },
     loadMoreFiles() {
       if (this.scrollFrame) return
@@ -152,23 +147,35 @@ export default {
 </script>
 
 <style scoped>
-.files-viewport,
-.files-viewport table,
-.files-viewport tr {
+.files-viewport {
   overflow-anchor: none;
 }
 
-.tracksTable :deep(tr:not(.files-virtual-spacer):not(:first-child)) {
+.files-virtual-canvas {
+  position: relative;
+  width: 100%;
+}
+
+.files-virtual-table {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+
+.files-virtual-table :deep(tr:not(.files-header-row)) {
+  position: absolute;
+  left: 0;
+  right: 0;
   height: 48px;
 }
 
-.files-virtual-spacer,
-.files-virtual-spacer:hover {
-  background: transparent;
-}
-
-.files-virtual-spacer td {
-  padding: 0;
-  border: 0;
+.files-virtual-table :deep(.files-header-row) {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 48px;
 }
 </style>

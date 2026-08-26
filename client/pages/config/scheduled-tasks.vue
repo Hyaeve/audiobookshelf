@@ -80,6 +80,11 @@ export default {
     libraries() { return this.$store.state.libraries.libraries || [] },
     bookLibraries() { return this.libraries.filter((library) => library.mediaType === 'book') },
     serverSettings() { return this.$store.state.serverSettings || {} },
+    latestCompletedBookMatchTask() {
+      return this.tasks
+        .filter((task) => task.action === 'ai-book-match' && task.isFinished)
+        .sort((a, b) => Number(b.finishedAt) - Number(a.finishedAt))[0] || null
+    },
     taskDefinitions() {
       return [
         { key: 'scan', title: '媒体库扫描', description: '扫描选定媒体库', hasMaxHours: true },
@@ -92,9 +97,14 @@ export default {
   mounted() {
     try { this.lastRuns = JSON.parse(localStorage.getItem(LAST_RUN_STORAGE_KEY) || '{}') } catch (error) { this.lastRuns = {} }
     if (!this.lastRuns.bookMatch && this.serverSettings.aiBookMatchLastRun) this.$set(this.lastRuns, 'bookMatch', { ...this.serverSettings.aiBookMatchLastRun })
-    this.$root.socket?.on('task_finished', this.scheduledTaskFinished)
+    this.$eventBus.$on('task-finished', this.scheduledTaskFinished)
   },
-  beforeDestroy() { this.$root.socket?.off('task_finished', this.scheduledTaskFinished) },
+  beforeDestroy() { this.$eventBus.$off('task-finished', this.scheduledTaskFinished) },
+  watch: {
+    latestCompletedBookMatchTask(task) {
+      if (task) this.scheduledTaskFinished(task)
+    }
+  },
   methods: {
     actionFor(task) { return { scan: 'scheduled-library-scan', bookMatch: 'ai-book-match', metadata: 'strm-metadata-completion', missing: 'missing-items-cleanup' }[task.key] },
     scheduledTask(task) { return this.tasks.find((item) => item.action === this.actionFor(task) && !item.isFinished) },
@@ -130,9 +140,13 @@ export default {
       const taskResult = task.data?.result || {}
       const startedAt = Number(taskResult.startedAt) || Number(task.startedAt) || Date.now()
       const finishedAt = Number(taskResult.finishedAt) || Number(task.finishedAt) || Date.now()
+      if (Number(this.lastRuns[key]?.finishedAt) === finishedAt) {
+        this.$set(this.running, key, false)
+        return
+      }
       const summary = { startedAt, finishedAt, durationMs: Number(taskResult.durationMs) || Math.max(0, finishedAt - startedAt), removed: Number(taskResult.removed) || 0, matched: Number(taskResult.matched) || 0 }
       this.$set(this.lastRuns, key, summary)
-      if (key === 'bookMatch' && this.serverSettings.aiBookMatchLastRun?.finishedAt !== finishedAt) this.$store.commit('setServerSettings', { ...this.serverSettings, aiBookMatchLastRun: summary })
+      if (key === 'bookMatch') this.$store.commit('setServerSettings', { ...this.serverSettings, aiBookMatchLastRun: summary })
       this.$set(this.running, key, false)
       localStorage.setItem(LAST_RUN_STORAGE_KEY, JSON.stringify(this.lastRuns))
     },

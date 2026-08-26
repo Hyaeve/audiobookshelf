@@ -1,5 +1,7 @@
 const Path = require('path')
 const { filePathToPOSIX } = require('./fileUtils')
+
+const naturalPathCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
 const globals = require('./globals')
 const LibraryFile = require('../objects/files/LibraryFile')
 const parseNameString = require('./parsers/parseNameString')
@@ -123,6 +125,21 @@ function groupFileItemsIntoLibraryItemDirs(mediaType, fileItems, audiobooksOnly,
       }
     }
   })
+
+  // A top-level anchored book can contain several nested book folders. Keep
+  // their files deterministic: compare the nested folder first and fall back
+  // to the filename when no numeric sequence can be inferred from the folder.
+  if (mediaType === 'book' && topLevelBookAnchor) {
+    Object.keys(libraryItemGroup).forEach((libraryItemPath) => {
+      const files = libraryItemGroup[libraryItemPath]
+      // Only reorder the common anchored layout where every entry is one file
+      // below an A1-level directory. More complex layouts keep the scanner's
+      // established traversal order for covers and auxiliary files.
+      if (Array.isArray(files) && files.length && files.every((file) => file.split('/').filter(Boolean).length === 2)) {
+        files.sort((a, b) => naturalPathCollator.compare(a, b))
+      }
+    })
+  }
   return libraryItemGroup
 }
 module.exports.groupFileItemsIntoLibraryItemDirs = groupFileItemsIntoLibraryItemDirs

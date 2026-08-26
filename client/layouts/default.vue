@@ -256,6 +256,7 @@ export default {
     taskFinished(task) {
       console.log('Task finished', task)
       this.$store.commit('tasks/addUpdateTask', task)
+      this.$eventBus.$emit('task-finished', task)
     },
     taskProgress(data) {
       if (data.taskId) {

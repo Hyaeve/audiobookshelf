@@ -84,6 +84,29 @@ describe('scanUtils', async () => {
     })
   })
 
+  it('sorts top-level anchored files by nested folder and filename naturally', () => {
+    const fileItems = [
+      '哈利·波特（系列）/哈利·波特与魔法石/7《哈利·波特》第一部 第6集 猫头鹰传书6.strm',
+      '哈利·波特（系列）/哈利·波特与阿兹卡班的囚徒/106《哈利·波特》第三部 第2集 猫头鹰传书2.strm',
+      '哈利·波特（系列）/哈利·波特与魔法石/2.strm',
+      '哈利·波特（系列）/哈利·波特与阿兹卡班的囚徒/10.strm'
+    ].map((filePath) => ({
+      name: Path.basename(filePath),
+      reldirpath: Path.dirname(filePath),
+      extension: Path.extname(filePath),
+      deep: filePath.split('/').length - 1
+    }))
+
+    expect(scanUtils.groupFileItemsIntoLibraryItemDirs('book', fileItems, false, false, true)).to.deep.equal({
+      '哈利·波特（系列）': [
+        '哈利·波特与阿兹卡班的囚徒/10.strm',
+        '哈利·波特与阿兹卡班的囚徒/106《哈利·波特》第三部 第2集 猫头鹰传书2.strm',
+        '哈利·波特与魔法石/2.strm',
+        '哈利·波特与魔法石/7《哈利·波特》第一部 第6集 猫头鹰传书6.strm'
+      ]
+    })
+  })
+
   it('uses the matching folder as the book title source', () => {
     expect(scanUtils.getDataFromMediaDir('book', '/Read', 'Author/Book').mediaMetadata.title).to.equal('Book')
     expect(scanUtils.getDataFromMediaDir('book', '/Read', 'Author/Book', true).mediaMetadata.title).to.equal('Author')
