@@ -65,10 +65,10 @@
 
 ### 1. 有声书书名匹配边界
 
-- 媒体库设置新增 `topLevelBookAnchor`（界面名称“顶层书籍锚点”），仅书籍媒体库显示，默认关闭。
-- 关闭时恢复原项目行为：按音频文件所在的父级目录分组并使用末级目录名匹配书名；例如 `作者/A1/...`、`作者/A2/...` 分别识别为书籍 `A1` 和 `A2`。
-- 开启时只使用媒体库根目录下的直接子目录名作为书名匹配输入。例如 `/Read/有声读物/A/A1/...` 只匹配 `A`，不会把 `A1`、更深层目录名或卷目录名拼入综合书名；`A/A1`、`A/A2` 属于同一本书，音频文件相对路径保留卷目录层级。
-- 完整扫描与 watcher 增量扫描均读取同一个设置，避免两种扫描入口产生不同的书籍边界。
+- 媒体库设置新增 `topLevelBookAnchor`（界面名称“顶层书籍锚点”），仅书籍媒体库显示，默认关闭；该字段保存在媒体库 JSON `settings` 中，不新增数据库列。
+- 关闭时恢复原项目行为：按音频文件所在的父级目录分组并使用末级目录名匹配书名；标准 `CD`/`Disc` 目录仍按原项目规则向上合并。例如 `作者/A1/...`、`作者/A2/...` 分别识别为书籍 `A1` 和 `A2`，适合第一层为作者集合包的结构。
+- 开启时应用本地定制的顶层锚点规则：只使用媒体库根目录下的直接子目录名作为书名匹配输入。例如 `/Read/有声读物/A/A1/...` 只匹配 `A`，不会把 `A1`、更深层目录名或卷目录名拼入综合书名；`A/A1`、`A/A2` 属于同一本书，音频文件相对路径保留卷目录层级。
+- 完整扫描与 watcher 增量扫描均读取同一个设置，避免两种扫描入口产生不同的书籍边界。已有媒体库未保存该字段时按默认关闭处理。
 
 ### 2. 详情页补全元数据
 
@@ -77,10 +77,12 @@
 - 选择多本书籍补全时固定使用 1.5 QPS，并在选中书籍之间共享同一个 `throttleState`；跨书累计每 3000 个文件暂停 5 分钟。媒体库级手动补全独立使用 1.5 QPS，并在整个媒体库累计扫描 5000 个文件后暂停 3 分钟。多本书籍会按提交顺序依次进入全局补全队列，不会并发扫描。
 - 手动补全接口立即返回 HTTP 202，实际扫描在后台异步执行；任务 Socket 事件反馈运行进度、当前书名和完成/失败状态。已完成元数据的书籍直接跳过，部分完成的书籍只扫描尚未补全的 STRM 音轨。
 
-### 3. 大量音轨按需渲染
+### 3. 大量音轨和章节按需渲染
 
 - 音轨展开不再一次创建全部表格行，首次只渲染可视区及少量缓冲行。
-- 在音轨区域滚动时仅保留窗口范围内的行，并用上下占位维持完整滚动高度；不改变服务端音轨数据、排序或播放行为。
+- 详情页章节展开复用音轨表的虚拟窗口策略，不再一次创建全部章节 DOM；首次只渲染可视区和少量缓冲行。
+- 音轨和章节区域滚动时均使用固定行高、上下占位和 `requestAnimationFrame` 节流，只保留窗口范围内的行，维持完整滚动高度并降低大量数据展开时的主线程和 DOM 压力。
+- 章节原有的时间点击播放、展开/收起、编辑入口和章节数量显示均保留；虚拟化只改变渲染方式，不改变章节数据、排序或播放行为。
 
 ### 4. 全局单书补全队列（播放 > 手动 > 计划，级内 FIFO）
 
@@ -166,7 +168,8 @@
 - [`server/scanner/Scanner.js`](../server/scanner/Scanner.js:130)：`applyBookMatch` 是普通快速匹配与 AI 匹配共用的候选应用入口。
 - [`client/components/app/SettingsContent.vue`](../client/components/app/SettingsContent.vue:18)：只声明 `headerText`/`description`/`note` props，未声明 `title`。
 - [`client/components/app/ConfigSideNav.vue`](../client/components/app/ConfigSideNav.vue:57)：设置页面用户下方的计划任务入口。
-- [`client/components/tables/TracksTable.vue`](../client/components/tables/TracksTable.vue:18)：大量音轨展开时按 100 条增量渲染。
+- [`client/components/tables/TracksTable.vue`](../client/components/tables/TracksTable.vue:18)：大量音轨展开时使用固定行高、可视窗口和上下占位进行虚拟渲染。
+- [`client/components/tables/ChaptersTable.vue`](../client/components/tables/ChaptersTable.vue:13)：详情页大量章节展开时复用音轨表的虚拟窗口渲染，保留章节播放跳转和编辑入口。
 - [`client/pages/item/_id/index.vue`](../client/pages/item/_id/index.vue:406)：详情页三点菜单的补全元数据入口。
 - [`client/components/app/ThemeSwitcher.vue`](../client/components/app/ThemeSwitcher.vue:1)：主题按钮、下拉选项、键盘 Escape 关闭、`localStorage` 持久化。
 - [`client/components/app/Appbar.vue`](../client/components/app/Appbar.vue:15)：主题按钮的上游耦合点，位于顶部搜索框右侧工具区。
