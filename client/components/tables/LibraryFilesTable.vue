@@ -12,8 +12,8 @@
       </div>
     </div>
     <transition name="slide">
-      <div ref="filesViewport" class="w-full max-h-[70vh] overflow-y-auto overscroll-contain" v-if="showFiles" @scroll.passive="loadMoreFiles">
-        <table class="text-sm tracksTable table-fixed">
+      <div ref="filesViewport" class="files-viewport w-full max-h-[70vh] overflow-y-auto" v-show="showFiles" @scroll.passive="loadMoreFiles">
+        <table class="text-sm tracksTable">
           <tr>
             <th class="text-left px-4">{{ $strings.LabelPath }}</th>
             <th class="text-left w-24 min-w-24">{{ $strings.LabelSize }}</th>
@@ -22,7 +22,7 @@
           </tr>
           <tr v-if="topSpacerHeight" class="files-virtual-spacer"><td :colspan="columnCount" :style="{ height: topSpacerHeight + 'px' }"></td></tr>
           <template v-for="file in visibleFiles">
-            <tables-library-files-table-row :key="file.path" :libraryItemId="libraryItemId" :showFullPath="showFullPath" :file="file" :inModal="inModal" @showMore="showMore" />
+            <tables-library-files-table-row :key="file.ino || file.metadata.path" :libraryItemId="libraryItemId" :showFullPath="showFullPath" :file="file" :inModal="inModal" @showMore="showMore" />
           </template>
           <tr v-if="bottomSpacerHeight" class="files-virtual-spacer"><td :colspan="columnCount" :style="{ height: bottomSpacerHeight + 'px' }"></td></tr>
         </table>
@@ -152,6 +152,12 @@ export default {
 </script>
 
 <style scoped>
+.files-viewport,
+.files-viewport table,
+.files-viewport tr {
+  overflow-anchor: none;
+}
+
 .tracksTable :deep(tr:not(.files-virtual-spacer):not(:first-child)) {
   height: 48px;
 }

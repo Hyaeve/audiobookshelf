@@ -85,6 +85,7 @@
 - 章节原有的时间点击播放、展开/收起、编辑入口和章节数量显示均保留；虚拟化只改变渲染方式，不改变章节数据、排序或播放行为。
 - 详情页媒体库文件展开复用同样的虚拟窗口策略，不再一次创建全部文件行；只渲染视口及缓冲区内的文件，并通过上下占位维持完整滚动高度。
 - 文件列表滚动使用 `requestAnimationFrame` 节流，支持完整路径切换、音频文件详情、下载和删除操作；虚拟化只改变 DOM 创建数量，不改变文件排序、关联音频文件或操作行为。
+- 文件虚拟列表使用固定 48px 行高、长路径单行省略、稳定文件键和 `overflow-anchor: none`；文件表保持与音轨表一致的滚动容器结构，避免嵌套滚动和浏览器滚动锚定在快速上下滑动时造成跳动。
 
 ### 4. 全局单书补全队列（播放 > 手动 > 计划，级内 FIFO）
 
@@ -113,11 +114,11 @@
 - ISBN、ASIN、副标题、出版日期/年份、出版社、语言、作者、演播者、系列、标签、类型或 `matched-ai` 成功审计任一存在，即视为已有匹配信息并在批次层排除，不执行 AI 提取、provider 搜索或候选判断；书籍封面可有可无，不参与匹配状态判断。`unmatched` 和 `needs-review` 审计仍允许后续计划任务重试。
 - [`matchLibraryItem`](../server/managers/AiBookMatchManager.js:178) 仍保留同一候选判断作为防御性保护，防止其他调用入口绕过计划任务批次预过滤。
 - 每次失败、低置信度或成功判断都持久化到已有 `LibraryItem.extraData.aiBookMatch`，记录 `status`、`source`、`model`、`confidence`、`candidate`、`updatedAt`、`reason` 等审计信息，不新增数据库表或列。AI 提取失败会记录具体原因并标记待复核；没有 provider 候选的 `unmatched` 会保留实际搜索标题和作者，便于后续排查。
-- 四类计划任务都会写入可读的执行日志：媒体库扫描记录目标媒体库和扫描开始/完成；书籍匹配记录媒体库、原名称、AI 提取后的搜索标题和作者、匹配结果及候选书名；元数据补全记录书名、待补全音轨数和成功/失败结果；清理丢失项目记录媒体库名称和被清理项目名称。日志正文不重复写时间，也不使用媒体库 ID，时间由日志系统自动标注。书籍匹配选择多个媒体库时按设置顺序逐个处理，单个媒体库内按书籍顺序逐本处理，不并行执行。
+- 四类计划任务都会写入可读的执行日志：媒体库扫描记录目标媒体库和扫描开始/完成；书籍匹配记录媒体库、原名称、AI 提取后的搜索标题和作者、匹配结果及候选书名；元数据补全记录书名、待补全音轨数和成功/失败结果；清理丢失项目记录媒体库名称和被清理项目名称。日志正文不重复写时间，也不使用媒体库 ID，时间由日志系统自动标注。书籍匹配选择多个媒体库时按设置顺序逐个处理，单个媒体库内按书籍顺序逐本处理，不并行执行；STRM 元数据补全通过媒体库 ID 到名称的映射输出媒体库名称。
 - 配置字段为 `aiBookMatchCronExpression`、`aiBookMatchLibraryIds`、`aiBookMatchMaxHours`、`aiBookMatchApiUrl`、`aiBookMatchApiKey`、`aiBookMatchModel` 和 `aiBookMatchConfidence`。密钥只保存在服务端设置，`toJSONForBrowser` 会删除密钥并仅返回 `aiBookMatchApiConfigured`；页面留空密钥时不覆盖已保存值。最后一次执行摘要持久化在 `aiBookMatchLastRun`，因此即使 cron 在浏览器未打开时运行，下次进入页面仍能显示上次执行时间、耗时和匹配数量。
 - 页面提供“媒体库扫描”“补全元数据”“清理丢失项目”三条紧凑横条，媒体库扫描排在第一位；每条依次显示大字功能标题、已运行后的上次运行摘要和小字描述，右侧显示立即执行、运行中的普通停止图标与竖三点图标。停止图标不使用背景填充、高亮或额外描边框，点击热区仍保持足够大小；停止按钮调用对应停止 API，服务端协作式取消后才结束任务。
 - 三条横条均支持 cron 表达式；不设置 cron 表达式即为不开启，默认不开启。保存时空字符串与纯空格会被规范化为 `null`（前端 [`saveSettings`](../client/pages/config/scheduled-tasks.vue:263) 与服务端 [`updateServerSettings`](../server/controllers/MiscController.js:141) 双重处理），服务端同时校验 cron 合法性，cron 变更后立即重建对应定时任务（[`updateStrmMetadataCron`](../server/managers/CronManager.js:135)、[`updateMissingItemsCleanupCron`](../server/managers/CronManager.js:175)、[`updateScheduledLibraryScanCron`](../server/managers/CronManager.js:190)，表达式为空时停止并清空定时任务）。
-- 三项任务接口立即返回 HTTP 202，任务 Socket 事件负责反馈运行状态和完成结果。页面按 `task.data.scheduledTask` 区分计划任务与普通手动补全，避免误显示停止按钮；任务完成后在浏览器本地记录上次运行摘要，第二行显示“上次执行：时间，耗时 时长”（清理任务额外显示清理了 N 项）。
+- 三项任务接口立即返回 HTTP 202，任务 Socket 事件负责反馈运行状态和完成结果。页面按任务 action 查找未完成任务，手动执行和 cron 执行均显示运行状态与停止按钮；任务完成后优先读取 `task.data.result` 中的服务端摘要并同步浏览器本地记录，书籍匹配横条显示“上次执行：时间，耗时 时长，匹配了 N 本图书”（清理任务额外显示清理了 N 项）。
 - 媒体库扫描（`scheduled-library-scan`）支持选择要扫描的媒体库（多选，不选则不扫描任何库）和单次最长执行时间（最小 0.5 小时、步长 0.5 小时，服务端校验）；执行时按选定顺序串行扫描，同时只扫描一个媒体库，受截止时间限制，超时或停止后立即结束并只在完成数中统计真正扫描完的库；停止入口为 `/api/scheduled-library-scan/stop`。配置字段为 `scheduledLibraryScanCronExpression`、`scheduledLibraryScanLibraryIds`、`scheduledLibraryScanMaxHours`，保存在服务端设置中（[`ServerSettings.js`](../server/objects/settings/ServerSettings.js:133)）。日志正文使用媒体库名称，不重复输出日志系统已经提供的时间戳。
 - 补全元数据跳过已完成的 STRM 书籍；计划任务只处理元数据不完整的书籍，部分完成的书籍仅将缺失元数据的 STRM 音轨交给真实目标探测和扫描流程。计划任务进入全局补全队列的优先级低于播放触发和手动补全；停止计划任务时，尚未开始的排队书籍会在轮到时跳过，当前音轨探测完成后协作式退出。
 - 补全元数据支持 cron 表达式和单次最长执行时间，时间限制使用可直接输入的数字步进框，最小 0.5 小时、步长 0.5 小时；服务端校验 cron 和步长。计划任务 QPS 设置字段为 `strmMetadataCompletionQps`，默认 1.0，范围 0.1 至 10.0、步长 0.1。计划任务批量暂停设置字段为 `strmMetadataCompletionBatchSize`，默认 5000、最小 500、步长 500；达到配置阈值后暂停 5 分钟，并受单次小时数截止时间限制。
@@ -168,7 +169,7 @@
 - [`server/managers/CronManager.js`](../server/managers/CronManager.js:135)：补全元数据 cron 生命周期（表达式为空时停止注册）。
 - [`server/managers/CronManager.js`](../server/managers/CronManager.js:175)：清理丢失项目 cron 生命周期。
 - [`server/managers/CronManager.js`](../server/managers/CronManager.js:190)：媒体库扫描 cron 生命周期与 [`runScheduledLibraryScan`](../server/managers/CronManager.js:206) 串行扫描执行（按选定顺序、截止时间、库级取消）。
-- [`server/managers/CronManager.js`](../server/managers/CronManager.js:253)：`cancelScheduledLibraryScan` 协作式取消。
+- [`server/managers/CronManager.js`](../server/managers/CronManager.js:253)：`cancelScheduledLibraryScan` 协作式取消；计划扫描启动日志将选中的媒体库 ID 映射为名称后输出。
 - [`server/scanner/LibraryScanner.js`](../server/scanner/LibraryScanner.js:41)：`setCancelLibraryScan` 库级取消标记；[`scan`](../server/scanner/LibraryScanner.js:51) 为实际扫描入口。
 - [`server/routers/ApiRouter.js`](../server/routers/ApiRouter.js:354)：计划任务运行/停止路由和清理 `removed` 数量、取消检查。
 
@@ -177,13 +178,14 @@
 - [`client/pages/config/scheduled-tasks.vue`](../client/pages/config/scheduled-tasks.vue:2)：计划任务页面四条任务横条，第二项为书籍匹配；标题使用 `:header-text`（无原生 title 悬浮提示）；cron 空值规范化为 `null`。书籍匹配设置使用左右双栏并隐藏已保存密钥。
 - [`server/managers/AiBookMatchManager.js`](../server/managers/AiBookMatchManager.js:1)：AI 候选白名单、OpenAI 协议调用、严格结果校验、“仅标题/描述和扫描基础信息”的未匹配筛选（封面不参与判断）及 `extraData.aiBookMatch` 审计持久化。
 - [`server/managers/CronManager.js`](../server/managers/CronManager.js:231)：AI 书籍匹配按 50 本分页读取后先批量过滤，只有未匹配候选进入逐本 AI 流程；已匹配项直接计入 `skipped`。运行中通过 `AbortController` 取消 AI 请求，停止后不再写入失败审计；启动和结束日志使用媒体库名称，多个媒体库和书籍均按顺序串行处理。
+- [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:867)：STRM 计划补全建立媒体库 ID 到名称的映射，开始、完成和失败日志均输出媒体库名称，不输出媒体库 ID；计划补全仍通过全局队列逐书调度。
 - [`server/scanner/Scanner.js`](../server/scanner/Scanner.js:130)：`applyBookMatch` 是普通快速匹配与 AI 匹配共用的候选应用入口。
 - [`server/managers/AiBookMatchManager.js`](../server/managers/AiBookMatchManager.js:84)：书名号本地书名提取、AI 作者/演播者提取、仅标题搜索回退和停止信号检查。
 - [`client/components/app/SettingsContent.vue`](../client/components/app/SettingsContent.vue:18)：只声明 `headerText`/`description`/`note` props，未声明 `title`。
 - [`client/components/app/ConfigSideNav.vue`](../client/components/app/ConfigSideNav.vue:57)：设置页面用户下方的计划任务入口。
 - [`client/components/tables/TracksTable.vue`](../client/components/tables/TracksTable.vue:18)：大量音轨展开时使用固定行高、可视窗口和上下占位进行虚拟渲染。
 - [`client/components/tables/ChaptersTable.vue`](../client/components/tables/ChaptersTable.vue:13)：详情页大量章节展开时复用音轨表的虚拟窗口渲染，保留章节播放跳转和编辑入口。
-- [`client/components/tables/LibraryFilesTable.vue`](../client/components/tables/LibraryFilesTable.vue:15)：详情页大量媒体库文件展开时使用固定行高、可视窗口、上下占位和 `requestAnimationFrame` 节流，保留文件操作入口。
+- [`client/components/tables/LibraryFilesTable.vue`](../client/components/tables/LibraryFilesTable.vue:15)：详情页大量媒体库文件展开时使用固定行高、可视窗口、上下占位和 `requestAnimationFrame` 节流，保留文件操作入口；通过稳定文件键、长路径单行截断和 `overflow-anchor: none` 避免快速滚动时发生跳顶或跳底。
 - [`client/pages/item/_id/index.vue`](../client/pages/item/_id/index.vue:406)：详情页三点菜单的补全元数据入口。
 - [`client/components/app/ThemeSwitcher.vue`](../client/components/app/ThemeSwitcher.vue:1)：主题按钮、下拉选项、键盘 Escape 关闭、`localStorage` 持久化。
 - [`client/components/app/Appbar.vue`](../client/components/app/Appbar.vue:15)：主题按钮的上游耦合点，位于顶部搜索框右侧工具区。
@@ -213,7 +215,7 @@
    - 保留当前章节的 STRM 代理播放和播放响应后的整书后台补全；不要重新引入固定数量预取或会话级完整文件缓存。
    - 保留全局单书补全队列：三个优先级队列（播放 > 手动 > 计划）级内 FIFO、非抢占；初始化、入队、调度和去重分别位于 `PlaybackSessionManager.js` 的 `strmCompletionQueues`、`enqueueStrmBookCompletion`、`processStrmCompletionQueue`、`queueStrmBookById`。播放补全 2.0 QPS 且每本完成后暂停 3 分钟；单本手动 2.0 QPS；多本手动 1.5 QPS、跨书共享每 3000 文件暂停 5 分钟；媒体库级手动 1.5 QPS、累计每 5000 文件暂停 3 分钟；计划任务读取 `strmMetadataCompletionQps` 和 `strmMetadataCompletionBatchSize` 设置。所有入口都直接跳过已完成元数据的 STRM 书籍，仅扫描部分完成书籍中仍缺失的音轨元数据。
    - 保留播放响应后的整书后台补全：只有后台探测成功后才回写书籍数据库和 metadata 文件，扫描阶段仍不得访问 `.strm` 指针目标。
-   - 计划任务页面需要重新接入运行态播放/停止按钮、`task.data.scheduledTask` 过滤和 `task_finished` 结果处理；后端需要重新接入 `CronManager.js`、`MiscController.js` 与 `ApiRouter.js` 的停止 API。清理摘要依赖 `task.data.result.removed`，不能恢复为耗时显示，也不能把 `0` 项隐藏。媒体库扫描横条依赖 `scheduledLibraryScanCronExpression`、`scheduledLibraryScanLibraryIds`、`scheduledLibraryScanMaxHours` 三个设置字段，执行时按选定顺序串行扫描，不能并发扫描多个媒体库。
+   - 计划任务页面需要重新接入运行态播放/停止按钮、任务 action 过滤和 `task_finished` 结果处理；后端需要重新接入 `CronManager.js`、`MiscController.js` 与 `ApiRouter.js` 的停止 API。清理摘要依赖 `task.data.result.removed`，不能恢复为耗时显示，也不能把 `0` 项隐藏。媒体库扫描横条依赖 `scheduledLibraryScanCronExpression`、`scheduledLibraryScanLibraryIds`、`scheduledLibraryScanMaxHours` 三个设置字段，执行时按选定顺序串行扫描，不能并发扫描多个媒体库；书籍匹配手动和 cron 执行都必须保留服务端完成摘要和运行状态。
    - 保留计划任务 cron 默认不开启语义：所有 cron 字段默认 `null`，空字符串保存时规范化为 `null`，CronManager 在表达式为空时不注册定时任务。
    - AI 书籍匹配升级时优先保留独立文件 `AiBookMatchManager.js`；若上游调整 `BookFinder.search` 返回结构，只修改候选摘要映射。若上游调整快速匹配写入逻辑，继续让普通快速匹配和 AI 匹配共同调用 `Scanner.applyBookMatch`，不要复制两套作者、系列和封面保存逻辑。
    - 保留 AI 安全边界：模型只能选择 provider 已返回的候选序号，服务端必须校验序号和置信度；`aiBookMatchApiKey` 不得出现在 `toJSONForBrowser`、Socket 任务数据或日志中。审计继续写入 `LibraryItem.extraData.aiBookMatch`，不要写入用户可编辑的标签、描述或 metadata 文件。
@@ -235,6 +237,7 @@
    - 在计划任务页面验证手动执行、cron 校验、0.5 小时步长和管理员权限；确认 QPS 输入范围为 0.1 至 10.0、步长 0.1，默认 1.0，批量阈值默认 5000 且步长 500；已有总时长的书被跳过，任务按设置休息并在时限到达后停止。
    - 验证媒体库扫描横条排在第一位、不设置 cron 时显示“未启用计划执行”、默认不开启；选择多个媒体库后按选定顺序串行执行且同时只扫描一个库；第二行显示上次执行时间和耗时；超时或停止后正确结束，只在完成数中统计真正扫描完的库。
    - 验证书籍匹配手动执行完成后，横条立即更新上次执行时间、耗时和匹配数量；选择多个媒体库时日志显示媒体库名称而非 ID，并按选择顺序逐个处理，每个媒体库内逐本串行匹配。
+   - 验证媒体库扫描和 STRM 元数据补全的开始、完成、失败日志均显示媒体库名称而非 ID；快速滑动媒体库文件列表时不发生自动跳顶或跳底。
    - 验证三个 cron 字段保存空字符串或纯空格后变为 `null`（不开启），页面不再出现原生“计划任务”悬浮提示框。
    - 验证“顶层书籍锚点”默认关闭：`作者/A1`、`作者/A2` 按原项目父级目录逻辑识别为两本书；开启后验证 `A/A1`、`A/A2` 被聚合为同一本书 `A`，且按卷目录顺序排列。完整扫描和 watcher 增量扫描结果应一致。
    - 播放时验证只访问当前章节目标，章节切换和恢复进度不会额外预取其他章节。
