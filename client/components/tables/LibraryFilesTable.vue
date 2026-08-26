@@ -12,8 +12,8 @@
       </div>
     </div>
     <transition name="slide">
-      <div ref="filesViewport" class="w-full max-h-[70vh] overflow-y-auto" v-if="showFiles" @scroll.passive="loadMoreFiles">
-        <table class="text-sm tracksTable">
+      <div ref="filesViewport" class="w-full max-h-[70vh] overflow-y-auto overscroll-contain" v-if="showFiles" @scroll.passive="loadMoreFiles">
+        <table class="text-sm tracksTable table-fixed">
           <tr>
             <th class="text-left px-4">{{ $strings.LabelPath }}</th>
             <th class="text-left w-24 min-w-24">{{ $strings.LabelSize }}</th>

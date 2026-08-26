@@ -23,6 +23,7 @@ class CronManager {
     this.aiBookMatchCron = null
     this.aiBookMatchExecuting = false
     this.aiBookMatchCancelRequested = false
+    this.aiBookMatchAbortController = null
     this.scheduledLibraryScanExecuting = false
     this.scheduledLibraryScanCancelRequested = false
     this.scheduledLibraryScanTimer = null
@@ -219,6 +220,7 @@ class CronManager {
     const task = TaskManager.createAndAddTask('ai-book-match', { text: '书籍匹配' }, null, true, { scheduledTask: true, progress: 0, libraryIds })
     const result = { matched: 0, unmatched: 0, needsReview: 0, skipped: 0, cancelled: false }
     const startedAt = Date.now()
+    this.aiBookMatchAbortController = new AbortController()
     Logger.info(`[CronManager] AI书籍匹配计划任务开始，目标媒体库：${libraryIds.length ? libraryIds.join(', ') : '无'}`)
     try {
       const libraries = await Database.libraryModel.getAllWithFolders()
@@ -231,15 +233,21 @@ class CronManager {
           const items = await Database.libraryItemModel.getLibraryItemsIncrement(offset, 50, { libraryId: library.id, mediaType: 'book', isMissing: false, isInvalid: false })
           if (!items.length) break
           offset += items.length
-          for (const libraryItem of items) {
+          const unmatchedItems = AiBookMatchManager.getUnmatchedCandidates(items)
+          result.skipped += items.length - unmatchedItems.length
+          for (const libraryItem of unmatchedItems) {
             if (this.aiBookMatchCancelRequested || Date.now() >= deadline) break
             let matchResult
             try {
-              matchResult = await AiBookMatchManager.matchLibraryItem(this.apiRouterCtx, libraryItem, library)
+              matchResult = await AiBookMatchManager.matchLibraryItem(this.apiRouterCtx, libraryItem, library, { signal: this.aiBookMatchAbortController.signal })
             } catch (error) {
-              Logger.warn(`[CronManager] AI matching failed for "${libraryItem.id}": ${error.message}`)
-              await AiBookMatchManager.saveAudit(libraryItem, { status: 'needs-review', source: 'ai', model: settings.aiBookMatchModel, updatedAt: Date.now(), reason: error.message })
-              matchResult = { status: 'needs-review', reason: error.message }
+              if (this.aiBookMatchCancelRequested || error.code === 'ERR_CANCELED' || error.name === 'CanceledError') {
+                matchResult = { status: 'skipped', reason: '已停止' }
+              } else {
+                Logger.warn(`[CronManager] AI matching failed for "${libraryItem.id}": ${error.message}`)
+                await AiBookMatchManager.saveAudit(libraryItem, { status: 'needs-review', source: 'ai', model: settings.aiBookMatchModel, updatedAt: Date.now(), reason: error.message })
+                matchResult = { status: 'needs-review', reason: error.message }
+              }
             }
             if (matchResult.status === 'matched') result.matched += 1
             else if (matchResult.status === 'unmatched') result.unmatched += 1
@@ -266,12 +274,14 @@ class CronManager {
       TaskManager.taskFinished(task)
       this.aiBookMatchExecuting = false
       this.aiBookMatchCancelRequested = false
+      this.aiBookMatchAbortController = null
     }
   }
 
   cancelAiBookMatch() {
     if (!this.aiBookMatchExecuting) return false
     this.aiBookMatchCancelRequested = true
+    if (this.aiBookMatchAbortController) this.aiBookMatchAbortController.abort()
     return true
   }
 

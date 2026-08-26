@@ -102,7 +102,16 @@
 - 设置页面的用户下方新增“计划任务”入口，页面适配项目现有主题变量。
 - 本地新增的第二项“书籍匹配”横条使用 `ai-book-match` 任务动作。它支持 cron、图书媒体库多选和 0.5 小时步长的时间限制；设置窗口为左右双栏，左侧是任务参数，右侧是 OpenAI 兼容接口地址、API 密钥、模型和自动应用最低置信度。横条第二行在任务完成后显示上次执行时间、耗时和成功匹配的图书数量。
 - [`AiBookMatchManager`](../server/managers/AiBookMatchManager.js:9) 先把入库书籍的 `media.title`（该字段就是原始文件夹名）发送给 OpenAI 兼容接口 `/chat/completions`，提取书名、作者和演播者；作者与演播者去重合并后分别作为既有 [`BookFinder.search`](../server/finders/BookFinder.js:329) 的标题和作者参数，再获取最多 8 个候选。随后 AI 只能返回本次候选数组中的序号、0 至 1 置信度和理由；服务端拒绝越界序号、非法 JSON 与非法置信度，禁止 AI 自由生成并直接写入元数据。
-- 达到 `aiBookMatchConfidence` 阈值后，任务调用 [`Scanner.applyBookMatch`](../server/scanner/Scanner.js:130)，与原快速匹配共用封面、作者、系列、元数据文件和 Socket 更新流程。已有 ISBN、ASIN、AI 成功记录或已有作者元数据的图书视为已匹配并直接跳过，不再提取、不再搜索、不再调用 AI；只有明确未匹配且缺少作者信息的图书才进入 AI 流程。
+- 达到 `aiBookMatchConfidence` 阈值后，任务调用 [`Scanner.applyBookMatch`](../server/scanner/Scanner.js:130)，与原快速匹配共用封面、作者、系列、元数据文件和 Socket 更新流程。
+- 书名号场景先由本地从 `《》`、`「」` 或 `『』` 提取并固定书名，AI 主要补充作者和演播者；无书名号时由 AI 提取书名、作者和演播者。提取结果分别作为书名和作者信息参与搜索与候选判断。
+- provider 搜索先使用“书名 + 作者/演播者”，无结果时自动删除作者条件，仅按书名重试；只有候选判断达到置信度阈值后才应用匹配。
+- 计划任务停止通过 [`AbortController`](../server/managers/CronManager.js:223) 中断当前 AI HTTP 请求，并在 provider 搜索和候选判断边界检查停止状态，避免停止后继续处理或写入取消结果。
+- 书名提取采用本地优先：原名称包含 `《》`、`「」` 或 `『』` 时，直接把括号内文本作为确认书名，AI 只补充作者/演播者信息，不能修改确认书名；无书名号时才由 AI 同时提取书名、作者和演播者。AI 提取超时或失败时，书名号场景仍使用本地确认书名继续搜索。
+- 搜索先使用“书名 + AI 提取的人物”请求 provider；若没有候选且人物条件非空，则自动删除作者/演播者条件，仅使用书名再次搜索。匹配搜索结果仍由 AI 候选判断后才允许写入，避免仅凭名称直接误匹配。
+- 计划任务停止会通过 `AbortController` 取消当前 AI HTTP 请求，并在 provider 搜索和候选判断前后检查停止状态；取消不会写入 `needs-review` 审计，也不会继续处理下一本书。
+- 计划任务每批读取书籍后先调用 [`getUnmatchedCandidates`](../server/managers/AiBookMatchManager.js:18) 预过滤，只有“除标题、描述和扫描基础信息外，所有扩展元数据均为空”的历史书籍才进入逐本 AI 匹配。持续时间、文件大小、音轨、章节、文件路径和 `libraryFiles` 属于扫描基础信息，不影响候选资格。
+- ISBN、ASIN、副标题、出版日期/年份、出版社、语言、作者、演播者、系列、标签、类型或 `matched-ai` 成功审计任一存在，即视为已有匹配信息并在批次层排除，不执行 AI 提取、provider 搜索或候选判断；书籍封面可有可无，不参与匹配状态判断。`unmatched` 和 `needs-review` 审计仍允许后续计划任务重试。
+- [`matchLibraryItem`](../server/managers/AiBookMatchManager.js:178) 仍保留同一候选判断作为防御性保护，防止其他调用入口绕过计划任务批次预过滤。
 - 每次失败、低置信度或成功判断都持久化到已有 `LibraryItem.extraData.aiBookMatch`，记录 `status`、`source`、`model`、`confidence`、`candidate`、`updatedAt`、`reason` 等审计信息，不新增数据库表或列。AI 提取失败会记录具体原因并标记待复核；没有 provider 候选的 `unmatched` 会保留实际搜索标题和作者，便于后续排查。
 - 四类计划任务都会写入可读的执行日志：媒体库扫描记录目标媒体库和扫描开始/完成；书籍匹配记录媒体库、原名称、AI 提取后的搜索标题和作者、匹配结果及候选书名；元数据补全记录书名、待补全音轨数和成功/失败结果；清理丢失项目记录媒体库名称和被清理项目名称。日志正文不重复写时间，也不使用媒体库 ID，时间由日志系统自动标注。
 - 配置字段为 `aiBookMatchCronExpression`、`aiBookMatchLibraryIds`、`aiBookMatchMaxHours`、`aiBookMatchApiUrl`、`aiBookMatchApiKey`、`aiBookMatchModel` 和 `aiBookMatchConfidence`。密钥只保存在服务端设置，`toJSONForBrowser` 会删除密钥并仅返回 `aiBookMatchApiConfigured`；页面留空密钥时不覆盖已保存值。最后一次执行摘要持久化在 `aiBookMatchLastRun`，因此即使 cron 在浏览器未打开时运行，下次进入页面仍能显示上次执行时间、耗时和匹配数量。
@@ -166,8 +175,10 @@
 ### 前端计划任务与主题
 
 - [`client/pages/config/scheduled-tasks.vue`](../client/pages/config/scheduled-tasks.vue:2)：计划任务页面四条任务横条，第二项为书籍匹配；标题使用 `:header-text`（无原生 title 悬浮提示）；cron 空值规范化为 `null`。书籍匹配设置使用左右双栏并隐藏已保存密钥。
-- [`server/managers/AiBookMatchManager.js`](../server/managers/AiBookMatchManager.js:1)：AI 候选白名单、OpenAI 协议调用、严格结果校验、未匹配筛选及 `extraData.aiBookMatch` 审计持久化。
+- [`server/managers/AiBookMatchManager.js`](../server/managers/AiBookMatchManager.js:1)：AI 候选白名单、OpenAI 协议调用、严格结果校验、“仅标题/描述和扫描基础信息”的未匹配筛选（封面不参与判断）及 `extraData.aiBookMatch` 审计持久化。
+- [`server/managers/CronManager.js`](../server/managers/CronManager.js:231)：AI 书籍匹配按 50 本分页读取后先批量过滤，只有未匹配候选进入逐本 AI 流程；已匹配项直接计入 `skipped`。运行中通过 `AbortController` 取消 AI 请求，停止后不再写入失败审计。
 - [`server/scanner/Scanner.js`](../server/scanner/Scanner.js:130)：`applyBookMatch` 是普通快速匹配与 AI 匹配共用的候选应用入口。
+- [`server/managers/AiBookMatchManager.js`](../server/managers/AiBookMatchManager.js:84)：书名号本地书名提取、AI 作者/演播者提取、仅标题搜索回退和停止信号检查。
 - [`client/components/app/SettingsContent.vue`](../client/components/app/SettingsContent.vue:18)：只声明 `headerText`/`description`/`note` props，未声明 `title`。
 - [`client/components/app/ConfigSideNav.vue`](../client/components/app/ConfigSideNav.vue:57)：设置页面用户下方的计划任务入口。
 - [`client/components/tables/TracksTable.vue`](../client/components/tables/TracksTable.vue:18)：大量音轨展开时使用固定行高、可视窗口和上下占位进行虚拟渲染。
@@ -220,6 +231,7 @@
    - 扫描含 `.strm` 的目录时不会触发远程请求或访问真实本地目标。
    - 验证 `A/A1`、`A/A2` 的书名匹配查询只使用 `A`，不会使用 `A1` 或 `A2`。
    - 展开包含上千音轨的书籍，确认首屏只渲染首批音轨，滚动到底部后继续追加且页面保持响应。
+   - 展开包含上千章节或媒体库文件的书籍，确认首屏仅渲染可视区及缓冲行，快速上下滑动时不会跳到顶部或底部，文件路径过长时保持单行截断。
    - 在计划任务页面验证手动执行、cron 校验、0.5 小时步长和管理员权限；确认 QPS 输入范围为 0.1 至 10.0、步长 0.1，默认 1.0，批量阈值默认 5000 且步长 500；已有总时长的书被跳过，任务按设置休息并在时限到达后停止。
    - 验证媒体库扫描横条排在第一位、不设置 cron 时显示“未启用计划执行”、默认不开启；选择多个媒体库后按选定顺序串行执行且同时只扫描一个库；第二行显示上次执行时间和耗时；超时或停止后正确结束，只在完成数中统计真正扫描完的库。
    - 验证三个 cron 字段保存空字符串或纯空格后变为 `null`（不开启），页面不再出现原生“计划任务”悬浮提示框。
@@ -229,7 +241,8 @@
    - 分别验证详情页单本补全使用 2.0 QPS 且每 3000 文件暂停 5 分钟，选择多本补全使用 1.5 QPS 且跨书累计每 3000 文件暂停 5 分钟；媒体库三点菜单补全使用 1.5 QPS 且累计每 5000 文件暂停 3 分钟，并能在任务通知中显示当前书名和进度。
    - 验证全局单书队列互斥与优先级：播放补全执行中发起手动补全会排队，手动补全执行中发起计划任务会排队；同一优先级内先请求的先执行；当前书完成后才切换到更高优先级队列。
    - 在设置侧栏用户下方验证计划任务入口；分别手动执行四条任务，确认清理任务只删除 `isMissing` 数据库项目，不删除文件，也不删除仅 `isInvalid` 的项目。
-   - 为书籍匹配配置测试用 OpenAI 兼容接口、一个图书媒体库和高置信度阈值；确认第二项横条、左右双栏设置、运行/停止、上次执行摘要及“匹配了 N 本图书”正常。确认已有 ISBN/ASIN、作者元数据或 `matched-ai` 审计的书直接跳过，不提取、不搜索、不请求 AI；确认未匹配书籍先从 `media.title` 提取书名、作者和演播者，再用提取结果搜索候选，低置信度写入 `needs-review`，越界候选不会写入元数据，API 密钥不会返回浏览器。
+   - 验证书名号书籍名称由本地固定提取，AI 只补充作者/演播者；无书名号时由 AI 提取书名、作者和演播者；带人物条件搜索无结果时自动回退到仅书名搜索；停止计划任务时当前 AI 请求立即取消且不写入取消失败审计。
+   - 为书籍匹配配置测试用 OpenAI 兼容接口、一个图书媒体库和高置信度阈值；确认第二项横条、左右双栏设置、运行/停止、上次执行摘要及“匹配了 N 本图书”正常。确认只有标题、描述、持续时间、文件大小、音轨、章节和路径等扫描基础信息的书进入 AI 流程；确认 ISBN、ASIN、副标题、出版信息、语言、作者、演播者、系列、标签、类型或 `matched-ai` 审计任一存在时在批次层排除，不提取、不搜索、不请求 AI；确认有无实际封面均不影响判断。确认带 `《书名》` 的原名称由本地确定书名、AI 提取作者/演播者；无书名号时由 AI 提取书名和人物；“书名+人物”无结果时自动回退到“仅书名”搜索。确认停止按钮可立即中断当前 AI 请求，不写入取消失败审计；确认 `unmatched`/`needs-review` 可重试，低置信度写入 `needs-review`，越界候选不会写入元数据，API 密钥不会返回浏览器。
    - 验证已完成元数据的 STRM 书籍在播放补全、单本手动、多本手动、媒体库手动和计划任务中均被直接跳过；即使书籍聚合 `media.duration` 为 0，只要所有 STRM 音轨的时长、编码和声道均完整，也不得再次补全。验证部分完成的书籍只扫描缺失元数据的音轨，确认页面显示的是整个扫描任务的服务端总耗时，而不是接口响应耗时。
    - 手工制造一本包含大量 `.strm` 音轨的书，在补全完成一部分后停止或触发时间限制；确认已成功音轨在数据库中保留，重新执行时只请求剩余音轨，详情页显示完成数量/剩余数量，全部完成后提示消失。
    - 切换浩瀚星空主题，确认藏蓝/墨紫/炭黑背景及不同颜色和大小的静态星点在桌面和移动端可见且不遮挡交互；切换暗色主题，确认冷灰暗色界面正常显示。

@@ -1,7 +1,7 @@
 <template>
   <tr>
-    <td class="px-4">
-      {{ showFullPath ? file.metadata.path : file.metadata.relPath }}
+    <td class="px-4 max-w-0">
+      <p class="truncate" :title="showFullPath ? file.metadata.path : file.metadata.relPath">{{ showFullPath ? file.metadata.path : file.metadata.relPath }}</p>
     </td>
     <td>
       {{ $bytesPretty(file.metadata.size) }}

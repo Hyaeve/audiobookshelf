@@ -15,13 +15,42 @@ class AiBookMatchManager {
     return libraryItem.extraData?.[AUDIT_KEY] || null
   }
 
-  isAlreadyMatched(libraryItem) {
+  getUnmatchedCandidates(libraryItems) {
+    return libraryItems.filter((libraryItem) => this.isUnmatchedCandidate(libraryItem))
+  }
+
+  hasValue(value) {
+    if (Array.isArray(value)) return value.length > 0
+    if (value && typeof value === 'object') return Object.keys(value).length > 0
+    return value !== undefined && value !== null && String(value).trim() !== ''
+  }
+
+  isUnmatchedCandidate(libraryItem) {
     const audit = this.getAudit(libraryItem)
+    if (audit?.status === 'matched-ai') return false
+
     const media = libraryItem.media || {}
-    const hasAuthors = Array.isArray(media.authors) ? media.authors.length > 0 : !!media.authorName
-    // A provider match may not contain ISBN/ASIN. Existing author metadata is
-    // the persistent match signal in that case, so do not send it through AI again.
-    return audit?.status === 'matched-ai' || !!media.isbn || !!media.asin || hasAuthors
+    const expandedAuthors = Array.isArray(media.authors) ? media.authors : []
+    const externalMetadata = [
+      media.subtitle,
+      media.publishedYear,
+      media.publishedDate,
+      media.publisher,
+      media.isbn,
+      media.asin,
+      media.language,
+      media.authorName,
+      media.narrators,
+      media.tags,
+      media.genres,
+      media.series,
+      expandedAuthors
+    ]
+    return !externalMetadata.some((value) => this.hasValue(value))
+  }
+
+  isAlreadyMatched(libraryItem) {
+    return !this.isUnmatchedCandidate(libraryItem)
   }
 
   async saveAudit(libraryItem, audit) {
@@ -52,28 +81,37 @@ class AiBookMatchManager {
     return normalizedUrl.endsWith('/chat/completions') ? normalizedUrl : `${normalizedUrl}/chat/completions`
   }
 
-  async extractSearchMetadata(libraryItem, settings = Database.serverSettings) {
+  extractLocalTitle(sourceName) {
+    const quotedTitle = String(sourceName || '').match(/[《「『]([^》」』]+)[》」』]/)
+    return quotedTitle?.[1]?.trim().slice(0, 300) || ''
+  }
+
+  async extractSearchMetadata(libraryItem, settings = Database.serverSettings, options = {}) {
     const endpoint = this.getEndpoint(settings.aiBookMatchApiUrl)
     if (!endpoint) throw new Error('AI matching API URL is not configured')
 
     const sourceName = libraryItem.media?.title || ''
+    const confirmedTitle = this.extractLocalTitle(sourceName)
     const response = await axios.post(endpoint, {
       model: settings.aiBookMatchModel,
       temperature: 0,
       messages: [
         {
           role: 'system',
-          content: 'You extract audiobook search metadata from the provided unprocessed audiobook name. Return strict JSON: {"title": string, "authors": string[], "narrators": string[]}. Remove edition, year, format, bitrate, release-group and other technical suffixes. Extract the actual book title, author names, and narrator names. For Chinese names, recognize markers such as 演播, 主播, 播讲, 朗读 and separators such as 丨, |, ., -, parentheses. Never put technical metadata in title or people fields. Use empty arrays when a field is unknown.'
+          content: confirmedTitle
+            ? 'You extract people metadata from an audiobook name. Return strict JSON: {"title": string, "authors": string[], "narrators": string[]}. The confirmedTitle was extracted locally from book-title brackets and must be copied exactly into title. Do not alter, shorten, translate, or omit it. Extract authors only after markers such as 著, 作者, 原著. Extract narrators only after 播, 主播, 演播, 播讲, 朗读, or CV. Do not guess an author. Do not treat narrator, studio, platform, or publisher as an author. Ignore episode counts, completion markers, seasons, collections, and technical suffixes. Use empty arrays when unknown.'
+            : 'You extract audiobook search metadata from an unprocessed audiobook name. Return strict JSON: {"title": string, "authors": string[], "narrators": string[]}. Identify the actual work title and remove edition, year, format, bitrate, release-group, episode counts, completion markers, collection/season markers, and other technical suffixes. Extract authors only after 著, 作者, 原著 or an unmistakable author separator; extract narrators only after 演播, 主播, 播讲, 朗读, 播, or CV. Never guess. For Chinese names, recognize 《》, 「」, 『』 and separators such as 丨, |, ., -, &, parentheses. Use empty arrays when unknown.'
         },
         {
           role: 'user',
-          content: JSON.stringify({ unprocessedBookName: sourceName })
+          content: JSON.stringify({ unprocessedBookName: sourceName, confirmedTitle: confirmedTitle || null })
         }
       ],
       response_format: { type: 'json_object' }
     }, {
       headers: { Authorization: `Bearer ${settings.aiBookMatchApiKey}`, 'Content-Type': 'application/json' },
-      timeout: 30000
+      timeout: 30000,
+      signal: options.signal
     })
 
     const content = response.data?.choices?.[0]?.message?.content
@@ -84,7 +122,7 @@ class AiBookMatchManager {
     } catch (error) {
       throw new Error('AI metadata extraction response is not valid JSON')
     }
-    const title = metadata?.title || metadata?.bookTitle || metadata?.name
+    const title = confirmedTitle || metadata?.title || metadata?.bookTitle || metadata?.name
     if (typeof title !== 'string' || !title.trim()) throw new Error('AI metadata extraction returned no title')
 
     const toNames = (value) => {
@@ -101,7 +139,7 @@ class AiBookMatchManager {
     }
   }
 
-  async chooseCandidate(libraryItem, candidates, settings = Database.serverSettings, searchMetadata = null) {
+  async chooseCandidate(libraryItem, candidates, settings = Database.serverSettings, searchMetadata = null, options = {}) {
     const endpoint = this.getEndpoint(settings.aiBookMatchApiUrl)
     if (!endpoint) throw new Error('AI matching API URL is not configured')
 
@@ -131,7 +169,8 @@ class AiBookMatchManager {
       response_format: { type: 'json_object' }
     }, {
       headers: { Authorization: `Bearer ${settings.aiBookMatchApiKey}`, 'Content-Type': 'application/json' },
-      timeout: 30000
+      timeout: 30000,
+      signal: options.signal
     })
 
     const content = response.data?.choices?.[0]?.message?.content
@@ -150,26 +189,44 @@ class AiBookMatchManager {
     return { candidateIndex, confidence, reason: typeof decision?.reason === 'string' ? decision.reason.slice(0, 500) : '' }
   }
 
-  async matchLibraryItem(apiRouterCtx, libraryItem, library) {
+  async matchLibraryItem(apiRouterCtx, libraryItem, library, options = {}) {
     if (!libraryItem.isBook || this.isAlreadyMatched(libraryItem)) return { status: 'skipped' }
     const settings = Database.serverSettings
     if (!this.isConfigured(settings)) throw new Error('AI book matching is not configured')
 
-    const searchMetadata = await this.extractSearchMetadata(libraryItem, settings)
-    const results = await BookFinder.search(libraryItem, library.provider || 'google', searchMetadata.title, searchMetadata.author, null, null, { maxFuzzySearches: 2 })
+    let searchMetadata
+    const localTitle = this.extractLocalTitle(libraryItem.media?.title || '')
+    try {
+      searchMetadata = await this.extractSearchMetadata(libraryItem, settings, options)
+    } catch (error) {
+      if (options.signal?.aborted || error.code === 'ERR_CANCELED' || error.name === 'CanceledError') throw error
+      if (!localTitle) throw error
+      searchMetadata = { title: localTitle, authors: [], narrators: [], author: '' }
+    }
+    if (options.signal?.aborted) throw new Error('AI matching cancelled')
+    let searchAuthor = searchMetadata.author
+    let results = await BookFinder.search(libraryItem, library.provider || 'google', searchMetadata.title, searchAuthor, null, null, { maxFuzzySearches: 2 })
+    if (!results.length && searchAuthor) {
+      if (options.signal?.aborted) throw new Error('AI matching cancelled')
+      searchAuthor = ''
+      results = await BookFinder.search(libraryItem, library.provider || 'google', searchMetadata.title, null, null, null, { maxFuzzySearches: 2 })
+    }
+    if (options.signal?.aborted) throw new Error('AI matching cancelled')
     const candidates = this.getCandidates(results)
+    if (options.signal?.aborted) throw new Error('AI matching cancelled')
     if (!candidates.length) {
       await this.saveAudit(libraryItem, { status: 'unmatched', source: 'provider', updatedAt: Date.now(), reason: 'No metadata provider candidates found' })
-      return { status: 'unmatched', searchTitle: searchMetadata.title, searchAuthor: searchMetadata.author, reason: '没有找到元数据候选' }
+      return { status: 'unmatched', searchTitle: searchMetadata.title, searchAuthor, reason: '没有找到元数据候选' }
     }
 
-    const decision = await this.chooseCandidate(libraryItem, candidates, settings, searchMetadata)
+    if (options.signal?.aborted) throw new Error('AI matching cancelled')
+    const decision = await this.chooseCandidate(libraryItem, candidates, settings, { ...searchMetadata, author: searchAuthor }, options)
     const threshold = Number(settings.aiBookMatchConfidence) || 0.9
     if (decision.candidateIndex === null || decision.confidence < threshold) {
       await this.saveAudit(libraryItem, {
         status: 'needs-review', source: 'ai', model: settings.aiBookMatchModel, confidence: decision.confidence, updatedAt: Date.now(), reason: decision.reason || 'AI confidence did not reach the configured threshold'
       })
-      return { status: 'needs-review', searchTitle: searchMetadata.title, searchAuthor: searchMetadata.author }
+      return { status: 'needs-review', searchTitle: searchMetadata.title, searchAuthor }
     }
 
     const selectedResult = results[decision.candidateIndex]
@@ -180,7 +237,7 @@ class AiBookMatchManager {
     return {
       status: result.updated ? 'matched' : 'needs-review',
       searchTitle: searchMetadata.title,
-      searchAuthor: searchMetadata.author,
+      searchAuthor,
       candidateTitle: selectedResult.title || selectedResult.name || null
     }
   }
