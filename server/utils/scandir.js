@@ -45,7 +45,7 @@ module.exports.checkFilepathIsAudioFile = checkFilepathIsAudioFile
  * @param {boolean} [includeNonMediaFiles=false] - Used by the watcher to re-scan when covers/metadata files are added/removed
  * @returns {Record<string,string[]>} map of files grouped into potential libarary item dirs
  */
-function groupFileItemsIntoLibraryItemDirs(mediaType, fileItems, audiobooksOnly, includeNonMediaFiles = false) {
+function groupFileItemsIntoLibraryItemDirs(mediaType, fileItems, audiobooksOnly, includeNonMediaFiles = false, topLevelBookAnchor = false) {
   // Step 1: Filter out non-book-media files in root dir (with depth of 0)
   const itemsFiltered = fileItems.filter((i) => {
     return i.deep > 0 || (mediaType === 'book' && isMediaFile(mediaType, i.extension, audiobooksOnly))
@@ -65,14 +65,13 @@ function groupFileItemsIntoLibraryItemDirs(mediaType, fileItems, audiobooksOnly,
     }
   })
 
-  // Step 3: Group media files into book folders. For audiobook libraries the
-  // first directory below the library folder is the book boundary, so nested
-  // volumes such as A/A1 and A/A2 remain one library item named A.
+  // Step 3: Optionally group book media at the first directory below the
+  // library root. The default preserves the upstream parent-directory grouping.
   const libraryItemGroup = {}
   mediaFileItems.forEach((item) => {
     const dirparts = item.reldirpath.split('/').filter((p) => !!p)
 
-    if (mediaType === 'book' && dirparts.length > 0) {
+    if (mediaType === 'book' && topLevelBookAnchor && dirparts.length > 0) {
       const libraryItemPath = dirparts[0]
       const relativeFilePath = Path.posix.join(...dirparts.slice(1), item.name)
       if (!libraryItemGroup[libraryItemPath]) libraryItemGroup[libraryItemPath] = []
@@ -109,7 +108,7 @@ function groupFileItemsIntoLibraryItemDirs(mediaType, fileItems, audiobooksOnly,
   // Step 4: Add other files to the same book boundary.
   otherFileItems.forEach((item) => {
     const dirparts = item.reldirpath.split('/').filter((p) => !!p)
-    const libraryItemPath = mediaType === 'book' ? dirparts[0] : null
+    const libraryItemPath = mediaType === 'book' && topLevelBookAnchor ? dirparts[0] : null
     if (libraryItemPath && libraryItemGroup[libraryItemPath]) {
       libraryItemGroup[libraryItemPath].push(Path.posix.join(...dirparts.slice(1), item.name))
       return
@@ -153,16 +152,21 @@ module.exports.buildLibraryFile = buildLibraryFile
  * @param {boolean} parseSubtitle
  * @returns {LibraryItemFilenameMetadata}
  */
-function getBookDataFromDir(relPath, parseSubtitle = false) {
+function getBookDataFromDir(relPath, parseSubtitle = false, topLevelBookAnchor = false) {
   const splitDir = relPath.split('/').filter((part) => !!part)
 
-  // A book library item is already grouped at the first directory below the
-  // library root. Use that directory as the title source so nested folders such
-  // as A/A1 never change matching to A1.
-  let folder = splitDir.shift() || ''
-  const parentDirs = splitDir
-  const series = parentDirs.length > 1 ? parentDirs.shift() : null
-  const author = parentDirs.length > 0 ? parentDirs.shift() : null
+  let folder
+  let series
+  let author
+  if (topLevelBookAnchor) {
+    folder = splitDir.shift() || ''
+    series = splitDir.length > 1 ? splitDir.shift() : null
+    author = splitDir.length > 0 ? splitDir.shift() : null
+  } else {
+    folder = splitDir.pop() || ''
+    series = splitDir.length > 1 ? splitDir.pop() : null
+    author = splitDir.length > 0 ? splitDir.pop() : null
+  }
 
   // Extract optional metadata markers from the first-level folder name.
   let asin
@@ -311,7 +315,7 @@ function getPodcastDataFromDir(relPath) {
  * @param {string} relPath
  * @returns {{ mediaMetadata: LibraryItemFilenameMetadata, relPath: string, path: string}}
  */
-function getDataFromMediaDir(libraryMediaType, folderPath, relPath) {
+function getDataFromMediaDir(libraryMediaType, folderPath, relPath, topLevelBookAnchor = false) {
   relPath = filePathToPOSIX(relPath)
   let fullPath = Path.posix.join(folderPath, relPath)
   let mediaMetadata = null
@@ -320,7 +324,7 @@ function getDataFromMediaDir(libraryMediaType, folderPath, relPath) {
     mediaMetadata = getPodcastDataFromDir(relPath)
   } else {
     // book
-    mediaMetadata = getBookDataFromDir(relPath, !!global.ServerSettings.scannerParseSubtitle)
+    mediaMetadata = getBookDataFromDir(relPath, !!global.ServerSettings.scannerParseSubtitle, topLevelBookAnchor)
   }
 
   return {

@@ -616,6 +616,8 @@
   "LabelSettingsPreferMatchedMetadataHelp": "使用快速匹配时，匹配的数据将覆盖项目详细信息。默认情况下，快速匹配将只填充缺少的详细信息。",
   "LabelSettingsSkipMatchingBooksWithASIN": "跳过匹配已有 ASIN 的图书",
   "LabelSettingsSkipMatchingBooksWithISBN": "跳过匹配已有 ISBN 的图书",
+  "LabelSettingsTopLevelBookAnchor": "顶层书籍锚点",
+  "LabelSettingsTopLevelBookAnchorHelp": "开启后使用媒体库根目录下一层文件夹作为书籍边界和书名匹配目录",
   "LabelSettingsSortingIgnorePrefixes": "排序时忽略前缀",
   "LabelSettingsSortingIgnorePrefixesHelp": "例如：前缀为 “The” 的图书标题 “The Book Title” 将按 “Book Title, The” 进行排序",
   "LabelSettingsSquareBookCovers": "使用方形图书封面",

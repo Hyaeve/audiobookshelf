@@ -7,6 +7,7 @@ const Logger = require('../Logger')
  * @property {boolean} disableWatcher
  * @property {boolean} skipMatchingMediaWithAsin
  * @property {boolean} skipMatchingMediaWithIsbn
+ * @property {boolean} topLevelBookAnchor Use the first directory below the library root as the book boundary
  * @property {string} autoScanCronExpression
  * @property {boolean} audiobooksOnly
  * @property {boolean} hideSingleBookSeries Do not show series that only have 1 book
@@ -70,6 +71,7 @@ class Library extends Model {
         autoScanCronExpression: null,
         skipMatchingMediaWithAsin: false,
         skipMatchingMediaWithIsbn: false,
+        topLevelBookAnchor: false,
         audiobooksOnly: false,
         epubsAllowScriptedContent: false,
         hideSingleBookSeries: false,

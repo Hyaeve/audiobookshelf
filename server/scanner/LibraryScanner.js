@@ -311,7 +311,7 @@ class LibraryScanner {
     }
 
     const fileItems = await fileUtils.recurseFiles(folderPath)
-    const libraryItemGrouping = scanUtils.groupFileItemsIntoLibraryItemDirs(library.mediaType, fileItems, library.settings.audiobooksOnly)
+    const libraryItemGrouping = scanUtils.groupFileItemsIntoLibraryItemDirs(library.mediaType, fileItems, library.settings.audiobooksOnly, false, !!library.settings.topLevelBookAnchor)
 
     if (!Object.keys(libraryItemGrouping).length) {
       Logger.error(`Root path has no media folders: ${folderPath}`)
@@ -335,7 +335,7 @@ class LibraryScanner {
         fileObjs = await scanUtils.buildLibraryFile(folderPath, [libraryItemPath])
         isFile = true
       } else {
-        libraryItemData = scanUtils.getDataFromMediaDir(library.mediaType, folderPath, libraryItemPath)
+        libraryItemData = scanUtils.getDataFromMediaDir(library.mediaType, folderPath, libraryItemPath, !!library.settings.topLevelBookAnchor)
         fileObjs = await scanUtils.buildLibraryFile(libraryItemData.path, libraryItemGrouping[libraryItemPath])
       }
 
@@ -409,7 +409,7 @@ class LibraryScanner {
       const folder = library.libraryFolders[0]
 
       const filePathItems = folderGroups[folderId].fileUpdates.map((fileUpdate) => fileUtils.getFilePathItemFromFileUpdate(fileUpdate))
-      const fileUpdateGroup = scanUtils.groupFileItemsIntoLibraryItemDirs(library.mediaType, filePathItems, !!library.settings?.audiobooksOnly, true)
+      const fileUpdateGroup = scanUtils.groupFileItemsIntoLibraryItemDirs(library.mediaType, filePathItems, !!library.settings?.audiobooksOnly, true, !!library.settings?.topLevelBookAnchor)
 
       if (!Object.keys(fileUpdateGroup).length) {
         Logger.info(`[LibraryScanner] No important changes to scan for in folder "${folderId}"`)

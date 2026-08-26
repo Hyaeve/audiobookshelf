@@ -122,6 +122,7 @@ export default {
         settings: {
           coverAspectRatio: this.$constants.BookCoverAspectRatio.SQUARE,
           disableWatcher: false,
+          topLevelBookAnchor: false,
           skipMatchingMediaWithAsin: false,
           skipMatchingMediaWithIsbn: false,
           autoScanCronExpression: null,

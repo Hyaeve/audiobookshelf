@@ -19,6 +19,15 @@
         <p v-if="globalWatcherDisabled" class="text-xs text-warning">*{{ $strings.MessageWatcherIsDisabledGlobally }}</p>
       </div>
       <div v-if="isBookLibrary" class="flex items-center p-2 w-full md:w-1/2">
+        <ui-toggle-switch v-model="topLevelBookAnchor" size="sm" @input="formUpdated" />
+        <ui-tooltip :text="$strings.LabelSettingsTopLevelBookAnchorHelp">
+          <p class="pl-4 text-sm">
+            {{ $strings.LabelSettingsTopLevelBookAnchor }}
+            <span class="material-symbols icon-text text-sm">info</span>
+          </p>
+        </ui-tooltip>
+      </div>
+      <div v-if="isBookLibrary" class="flex items-center p-2 w-full md:w-1/2">
         <ui-toggle-switch v-model="audiobooksOnly" size="sm" @input="formUpdated" />
         <ui-tooltip :text="$strings.LabelSettingsAudiobooksOnlyHelp">
           <p class="pl-4 text-sm">
@@ -106,6 +115,7 @@ export default {
     return {
       useSquareBookCovers: false,
       enableWatcher: false,
+      topLevelBookAnchor: false,
       skipMatchingMediaWithAsin: false,
       skipMatchingMediaWithIsbn: false,
       audiobooksOnly: false,
@@ -164,6 +174,7 @@ export default {
         settings: {
           coverAspectRatio: this.useSquareBookCovers ? this.$constants.BookCoverAspectRatio.SQUARE : this.$constants.BookCoverAspectRatio.STANDARD,
           disableWatcher: !this.enableWatcher,
+          topLevelBookAnchor: !!this.topLevelBookAnchor,
           skipMatchingMediaWithAsin: !!this.skipMatchingMediaWithAsin,
           skipMatchingMediaWithIsbn: !!this.skipMatchingMediaWithIsbn,
           audiobooksOnly: !!this.audiobooksOnly,
@@ -182,6 +193,7 @@ export default {
     init() {
       this.useSquareBookCovers = this.librarySettings.coverAspectRatio === this.$constants.BookCoverAspectRatio.SQUARE
       this.enableWatcher = !this.librarySettings.disableWatcher
+      this.topLevelBookAnchor = !!this.librarySettings.topLevelBookAnchor
       this.skipMatchingMediaWithAsin = !!this.librarySettings.skipMatchingMediaWithAsin
       this.skipMatchingMediaWithIsbn = !!this.librarySettings.skipMatchingMediaWithIsbn
       this.audiobooksOnly = !!this.librarySettings.audiobooksOnly

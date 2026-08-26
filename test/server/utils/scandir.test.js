@@ -43,7 +43,7 @@ describe('scanUtils', async () => {
       })
     }
 
-    const libraryItemGrouping = scanUtils.groupFileItemsIntoLibraryItemDirs('book', fileItems, false)
+    const libraryItemGrouping = scanUtils.groupFileItemsIntoLibraryItemDirs('book', fileItems, false, false, true)
 
     expect(libraryItemGrouping).to.deep.equal({
       'Book1.m4b': 'Book1.m4b',
@@ -63,7 +63,7 @@ describe('scanUtils', async () => {
     })
   })
 
-  it('should group nested audiobook volumes under the first-level book folder', async () => {
+  it('should preserve upstream parent-directory grouping by default', async () => {
     const fileItems = [
       'A/A1/七玄门风云-01.strm',
       'A/A1/七玄门风云-02.strm',
@@ -76,8 +76,17 @@ describe('scanUtils', async () => {
     }))
 
     expect(scanUtils.groupFileItemsIntoLibraryItemDirs('book', fileItems, false)).to.deep.equal({
+      'A/A1': ['七玄门风云-01.strm', '七玄门风云-02.strm'],
+      'A/A2': ['初踏修仙路-01.strm']
+    })
+    expect(scanUtils.groupFileItemsIntoLibraryItemDirs('book', fileItems, false, false, true)).to.deep.equal({
       A: ['A1/七玄门风云-01.strm', 'A1/七玄门风云-02.strm', 'A2/初踏修仙路-01.strm']
     })
+  })
+
+  it('uses the matching folder as the book title source', () => {
+    expect(scanUtils.getDataFromMediaDir('book', '/Read', 'Author/Book').mediaMetadata.title).to.equal('Book')
+    expect(scanUtils.getDataFromMediaDir('book', '/Read', 'Author/Book', true).mediaMetadata.title).to.equal('Author')
   })
 
 

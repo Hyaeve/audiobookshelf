@@ -616,6 +616,8 @@
   "LabelSettingsPreferMatchedMetadataHelp": "Matched data will override item details when using Quick Match. By default Quick Match will only fill in missing details.",
   "LabelSettingsSkipMatchingBooksWithASIN": "Skip matching books that already have an ASIN",
   "LabelSettingsSkipMatchingBooksWithISBN": "Skip matching books that already have an ISBN",
+  "LabelSettingsTopLevelBookAnchor": "Top-level book anchor",
+  "LabelSettingsTopLevelBookAnchorHelp": "Use the first folder below the library root as the book boundary and title source",
   "LabelSettingsSortingIgnorePrefixes": "Ignore prefixes when sorting",
   "LabelSettingsSortingIgnorePrefixesHelp": "i.e. for prefix \"the\" book title \"The Book Title\" would sort as \"Book Title, The\"",
   "LabelSettingsSquareBookCovers": "Use square book covers",
