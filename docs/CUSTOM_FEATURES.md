@@ -77,12 +77,14 @@
 - 选择多本书籍补全时固定使用 1.5 QPS，并在选中书籍之间共享同一个 `throttleState`；跨书累计每 3000 个文件暂停 5 分钟。媒体库级手动补全独立使用 1.5 QPS，并在整个媒体库累计扫描 5000 个文件后暂停 3 分钟。多本书籍会按提交顺序依次进入全局补全队列，不会并发扫描。
 - 手动补全接口立即返回 HTTP 202，实际扫描在后台异步执行；任务 Socket 事件反馈运行进度、当前书名和完成/失败状态。已完成元数据的书籍直接跳过，部分完成的书籍只扫描尚未补全的 STRM 音轨。
 
-### 3. 大量音轨和章节按需渲染
+### 3. 大量音轨、章节和媒体库文件按需渲染
 
 - 音轨展开不再一次创建全部表格行，首次只渲染可视区及少量缓冲行。
 - 详情页章节展开复用音轨表的虚拟窗口策略，不再一次创建全部章节 DOM；首次只渲染可视区和少量缓冲行。
 - 音轨和章节区域滚动时均使用固定行高、上下占位和 `requestAnimationFrame` 节流，只保留窗口范围内的行，维持完整滚动高度并降低大量数据展开时的主线程和 DOM 压力。
 - 章节原有的时间点击播放、展开/收起、编辑入口和章节数量显示均保留；虚拟化只改变渲染方式，不改变章节数据、排序或播放行为。
+- 详情页媒体库文件展开复用同样的虚拟窗口策略，不再一次创建全部文件行；只渲染视口及缓冲区内的文件，并通过上下占位维持完整滚动高度。
+- 文件列表滚动使用 `requestAnimationFrame` 节流，支持完整路径切换、音频文件详情、下载和删除操作；虚拟化只改变 DOM 创建数量，不改变文件排序、关联音频文件或操作行为。
 
 ### 4. 全局单书补全队列（播放 > 手动 > 计划，级内 FIFO）
 
@@ -170,6 +172,7 @@
 - [`client/components/app/ConfigSideNav.vue`](../client/components/app/ConfigSideNav.vue:57)：设置页面用户下方的计划任务入口。
 - [`client/components/tables/TracksTable.vue`](../client/components/tables/TracksTable.vue:18)：大量音轨展开时使用固定行高、可视窗口和上下占位进行虚拟渲染。
 - [`client/components/tables/ChaptersTable.vue`](../client/components/tables/ChaptersTable.vue:13)：详情页大量章节展开时复用音轨表的虚拟窗口渲染，保留章节播放跳转和编辑入口。
+- [`client/components/tables/LibraryFilesTable.vue`](../client/components/tables/LibraryFilesTable.vue:15)：详情页大量媒体库文件展开时使用固定行高、可视窗口、上下占位和 `requestAnimationFrame` 节流，保留文件操作入口。
 - [`client/pages/item/_id/index.vue`](../client/pages/item/_id/index.vue:406)：详情页三点菜单的补全元数据入口。
 - [`client/components/app/ThemeSwitcher.vue`](../client/components/app/ThemeSwitcher.vue:1)：主题按钮、下拉选项、键盘 Escape 关闭、`localStorage` 持久化。
 - [`client/components/app/Appbar.vue`](../client/components/app/Appbar.vue:15)：主题按钮的上游耦合点，位于顶部搜索框右侧工具区。
