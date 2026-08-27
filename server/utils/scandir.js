@@ -45,7 +45,7 @@ function getLeadingSequence(value) {
   match = value.match(/^第\s*(?:(\d+(?:\.\d+)?)|([零〇一二两三四五六七八九十百千万]+))\s*(?:部|卷|季)/)
   if (match) return match[1] ? Number(match[1]) : parseChineseNumber(match[2])
 
-  match = value.match(/^S(\d+)/i)
+  match = value.match(/^[AS](\d+)/i)
   if (match) return Number(match[1])
 
   match = value.match(/^(上卷|中卷|下卷|上部|下部)/)

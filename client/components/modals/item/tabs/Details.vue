@@ -7,7 +7,7 @@
 
     <div class="absolute bottom-0 left-0 w-full py-2 md:py-4 bg-bg" :class="isScrollable ? 'box-shadow-md-up' : 'border-t border-white/5'">
       <div class="flex items-center px-4">
-        <ui-tooltip :disabled="!!quickMatching" :text="$getString('MessageQuickMatchDescription', [libraryProvider])" direction="bottom" class="mr-2 md:mr-4">
+        <ui-tooltip :disabled="!!quickMatching" :text="$getString('MessageQuickMatchDescription', [libraryProviderName])" direction="bottom" class="mr-2 md:mr-4">
           <ui-btn v-if="userIsAdminOrUp" :loading="quickMatching" color="bg-bg" type="button" class="h-full" small @click.stop.prevent="quickMatch">{{ $strings.ButtonQuickMatch }}</ui-btn>
         </ui-tooltip>
 
@@ -77,6 +77,10 @@ export default {
     },
     libraryProvider() {
       return this.$store.getters['libraries/getLibraryProvider'](this.libraryId) || 'google'
+    },
+    libraryProviderName() {
+      const provider = this.$store.state.scanners.bookProviders.find((item) => item.value === this.libraryProvider)
+      return provider?.text || this.libraryProvider
     },
     isLibraryScanning() {
       if (!this.libraryId) return null
@@ -205,6 +209,7 @@ export default {
     }
   },
   mounted() {
+    this.$store.dispatch('scanners/fetchProviders')
     this.setResizeObserver()
   }
 }

@@ -65,9 +65,9 @@ describe('scanUtils', async () => {
 
   it('should preserve upstream parent-directory grouping by default', async () => {
     const fileItems = [
-      'A/A1/七玄门风云-01.strm',
-      'A/A1/七玄门风云-02.strm',
-      'A/A2/初踏修仙路-01.strm'
+      'A/A1/volume-one-01.strm',
+      'A/A1/volume-one-02.strm',
+      'A/A2/volume-two-01.strm'
     ].map((filePath) => ({
       name: Path.basename(filePath),
       reldirpath: Path.dirname(filePath),
@@ -76,11 +76,11 @@ describe('scanUtils', async () => {
     }))
 
     expect(scanUtils.groupFileItemsIntoLibraryItemDirs('book', fileItems, false)).to.deep.equal({
-      'A/A1': ['七玄门风云-01.strm', '七玄门风云-02.strm'],
-      'A/A2': ['初踏修仙路-01.strm']
+      'A/A1': ['volume-one-01.strm', 'volume-one-02.strm'],
+      'A/A2': ['volume-two-01.strm']
     })
     expect(scanUtils.groupFileItemsIntoLibraryItemDirs('book', fileItems, false, false, true)).to.deep.equal({
-      A: ['A2/初踏修仙路-01.strm', 'A1/七玄门风云-01.strm', 'A1/七玄门风云-02.strm']
+      A: ['A1/volume-one-01.strm', 'A1/volume-one-02.strm', 'A2/volume-two-01.strm']
     })
   })
 
@@ -121,6 +121,7 @@ describe('scanUtils', async () => {
       ['第一部', 1],
       ['第一季', 1],
       ['S02', 2],
+      ['A03', 3],
       ['上卷', 1],
       ['中卷', 2],
       ['下部', 3],
