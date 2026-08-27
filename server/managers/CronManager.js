@@ -32,6 +32,28 @@ function getBookMetadataFieldLabels(fields = []) {
   return fields.map((field) => BOOK_METADATA_FIELD_LABELS[field] || field)
 }
 
+const BUILT_IN_PROVIDER_LABELS = {
+  google: 'Google Books',
+  itunes: 'iTunes',
+  openlibrary: 'Open Library',
+  fantlab: 'FantLab',
+  audiobookcovers: 'Audiobook Covers',
+  audible: 'Audible',
+  'audible.ca': 'Audible Canada',
+  'audible.uk': 'Audible UK',
+  'audible.au': 'Audible Australia',
+  'audible.fr': 'Audible France',
+  'audible.de': 'Audible Germany',
+  'audible.jp': 'Audible Japan',
+  'audible.it': 'Audible Italy',
+  'audible.in': 'Audible India',
+  'audible.es': 'Audible Spain'
+}
+
+function getProviderLabel(provider, customProviderNames = new Map()) {
+  return customProviderNames.get(provider) || BUILT_IN_PROVIDER_LABELS[provider] || provider || BUILT_IN_PROVIDER_LABELS.google
+}
+
 class CronManager {
   constructor(podcastManager, playbackSessionManager) {
     /** @type {import('./PodcastManager')} */
@@ -346,9 +368,18 @@ class CronManager {
     try {
       const libraries = await Database.libraryModel.getAllWithFolders()
       const selectedLibraries = libraryIds.map((id) => libraries.find((library) => library.id === id)).filter((library) => library?.mediaType === 'book')
+      let customProviderNames = new Map()
+      try {
+        const customProviders = await Database.customMetadataProviderModel.findAll({ attributes: ['id', 'name'] })
+        customProviderNames = new Map(customProviders.map((provider) => [`custom-${provider.id}`, provider.name]))
+      } catch (error) {
+        Logger.warn(`[CronManager] 无法读取自定义元数据提供商名称：${error.message}`)
+      }
       Logger.info(`[CronManager] 书籍元数据补全${scheduledTask ? '计划任务' : '手动任务'}开始，目标媒体库：${selectedLibraries.map((library) => library.name).join('、') || '无'}`)
       for (let libraryIndex = 0; libraryIndex < selectedLibraries.length; libraryIndex += 1) {
         const library = selectedLibraries[libraryIndex]
+        const provider = library.provider || 'google'
+        const providerLabel = getProviderLabel(provider, customProviderNames)
         let offset = 0
         while (!this.bookMetadataCompletionCancelRequested && Date.now() < deadline) {
           const items = await Database.libraryItemModel.getLibraryItemsIncrement(offset, 50, { libraryId: library.id, mediaType: 'book', isMissing: false, isInvalid: false })
@@ -359,20 +390,20 @@ class CronManager {
             result.processed += 1
             try {
               const matchResult = await Scanner.quickMatchLibraryItem(this.apiRouterCtx, libraryItem, {
-                provider: library.provider || 'google',
+                provider,
                 overrideCover: false,
                 overrideDetails: false,
                 isCancelled: () => this.bookMetadataCompletionCancelRequested || Date.now() >= deadline
               })
               if (matchResult.warning) {
                 result.unmatched += 1
-                Logger.info(`[CronManager] 书籍元数据补全：书籍 "${libraryItem.media?.title || libraryItem.title || libraryItem.id}"，未找到候选，提供商：${library.provider || 'google'}`)
+                Logger.info(`[CronManager] 书籍元数据补全：书籍 "${libraryItem.media?.title || libraryItem.title || libraryItem.id}"，未找到候选，提供商：${providerLabel}`)
               } else if (matchResult.updated) {
                 result.updated += 1
-                Logger.info(`[CronManager] 书籍元数据补全：书籍 "${libraryItem.media?.title || libraryItem.title || libraryItem.id}"，补全字段：${getBookMetadataFieldLabels(matchResult.changedFields).join('、') || '无'}，提供商：${library.provider || 'google'}`)
+                Logger.info(`[CronManager] 书籍元数据补全：书籍 "${libraryItem.media?.title || libraryItem.title || libraryItem.id}"，补全字段：${getBookMetadataFieldLabels(matchResult.changedFields).join('、') || '无'}，提供商：${providerLabel}`)
               } else {
                 result.skipped += 1
-                Logger.info(`[CronManager] 书籍元数据补全：书籍 "${libraryItem.media?.title || libraryItem.title || libraryItem.id}"，无需更新，提供商：${library.provider || 'google'}`)
+                Logger.info(`[CronManager] 书籍元数据补全：书籍 "${libraryItem.media?.title || libraryItem.title || libraryItem.id}"，无需更新，提供商：${providerLabel}`)
               }
             } catch (error) {
               if (error.code === 'TASK_CANCELLED' || this.bookMetadataCompletionCancelRequested || Date.now() >= deadline) break
