@@ -40,7 +40,13 @@
             <label class="block text-sm font-semibold mb-2" for="book-match-url">协议地址</label>
             <input id="book-match-url" v-model="draftAiUrl" type="url" class="w-full bg-primary border border-gray-600 rounded-md px-3 py-2" placeholder="https://api.openai.com/v1" />
             <label class="block text-sm font-semibold mb-2 mt-4" for="book-match-key">API 密钥</label>
-            <input id="book-match-key" v-model="draftAiKey" type="password" autocomplete="new-password" class="w-full bg-primary border border-gray-600 rounded-md px-3 py-2" :placeholder="serverSettings.aiBookMatchApiConfigured ? '已配置，留空保持不变' : 'sk-...'" />
+            <div class="relative">
+              <input id="book-match-key" v-model="draftAiKey" :type="showAiKey ? 'text' : 'password'" autocomplete="new-password" class="w-full bg-primary border border-gray-600 rounded-md px-3 py-2 pr-11" :placeholder="serverSettings.aiBookMatchApiConfigured ? '已配置，留空保持不变' : 'sk-...'" />
+              <button type="button" class="ai-key-visibility-button" :aria-label="showAiKey ? '隐藏 API 密钥' : '显示 API 密钥'" :title="showAiKey ? '隐藏 API 密钥' : '显示 API 密钥'" @click="showAiKey = !showAiKey">
+                <img v-if="!showAiKey" src="/metadata-key-hidden.png" alt="" />
+                <span v-else class="material-symbols">visibility</span>
+              </button>
+            </div>
             <label class="block text-sm font-semibold mb-2 mt-4" for="book-match-model">模型</label>
             <input id="book-match-model" v-model="draftAiModel" type="text" class="w-full bg-primary border border-gray-600 rounded-md px-3 py-2" placeholder="gpt-4o-mini" />
             <label class="block text-sm font-semibold mb-2 mt-4" for="book-match-confidence">自动应用最低置信度</label>
@@ -74,7 +80,7 @@ const LAST_RUN_STORAGE_KEY = 'absScheduledTaskLastRuns'
 
 export default {
   data() {
-    return { showSettings: false, saving: false, selectedTask: null, draftCron: null, draftMaxHours: 1, draftQps: 1, draftBatchSize: 5000, draftLibraryIds: [], draftAiUrl: '', draftAiKey: '', draftAiModel: '', draftAiConfidence: 0.9, running: {}, lastRuns: {} }
+    return { showSettings: false, saving: false, selectedTask: null, showAiKey: false, draftCron: null, draftMaxHours: 1, draftQps: 1, draftBatchSize: 5000, draftLibraryIds: [], draftAiUrl: '', draftAiKey: '', draftAiModel: '', draftAiConfidence: 0.9, running: {}, lastRuns: {} }
   },
   computed: {
     tasks() { return this.$store.state.tasks.tasks || [] },
@@ -136,6 +142,7 @@ export default {
       this.draftAiKey = ''
       this.draftAiModel = this.serverSettings.aiBookMatchModel || ''
       this.draftAiConfidence = Number(this.serverSettings.aiBookMatchConfidence) || 0.9
+      this.showAiKey = false
       this.showSettings = true
     },
     scheduledTaskFinished(task) {
@@ -185,6 +192,9 @@ export default {
 </script>
 
 <style scoped>
+.ai-key-visibility-button { position: absolute; top: 0; right: 0; height: 100%; width: 2.75rem; display: flex; align-items: center; justify-content: center; color: var(--abs-theme-muted); }
+.ai-key-visibility-button:hover { color: var(--abs-theme-text); }
+.ai-key-visibility-button img { width: 1.25rem; height: 1.25rem; object-fit: contain; }
 .book-match-settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.5rem; }
 @media (max-width: 768px) { .book-match-settings-grid { grid-template-columns: 1fr; } }
 .scheduled-task-progress { height: 0.45rem; width: 100%; background: rgba(255, 255, 255, 0.22); border-radius: 999px; overflow: hidden; }
