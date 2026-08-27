@@ -195,6 +195,13 @@ class MiscController {
       }
       settingsUpdate.scheduledLibraryScanMaxHours = maxHours
     }
+    if (settingsUpdate.missingItemsCleanupLibraryIds !== undefined) {
+      if (!Array.isArray(settingsUpdate.missingItemsCleanupLibraryIds)) return res.status(400).send('Missing items cleanup library IDs must be an array')
+      const libraries = await Database.libraryModel.findAll({ attributes: ['id'] })
+      const validIds = new Set(libraries.map((library) => library.id))
+      if (settingsUpdate.missingItemsCleanupLibraryIds.some((id) => typeof id !== 'string' || !validIds.has(id))) return res.status(400).send('Invalid library ID in missing items cleanup settings')
+    }
+    if (settingsUpdate.aiBookMatchGlobal !== undefined && typeof settingsUpdate.aiBookMatchGlobal !== 'boolean') return res.status(400).send('AI book match global setting must be a boolean')
     if (settingsUpdate.scheduledLibraryScanLibraryIds !== undefined) {
       if (!Array.isArray(settingsUpdate.scheduledLibraryScanLibraryIds)) return res.status(400).send('Library scan library IDs must be an array')
       const libraries = await Database.libraryModel.findAll({ attributes: ['id'] })
@@ -253,7 +260,7 @@ class MiscController {
       if (settingsUpdate.strmMetadataCompletionCronExpression !== undefined || settingsUpdate.strmMetadataCompletionLibraryIds !== undefined || settingsUpdate.strmMetadataCompletionMaxHours !== undefined || settingsUpdate.strmMetadataCompletionQps !== undefined || settingsUpdate.strmMetadataCompletionBatchSize !== undefined) {
         this.cronManager.updateStrmMetadataCron()
       }
-      if (settingsUpdate.missingItemsCleanupCronExpression !== undefined) {
+      if (settingsUpdate.missingItemsCleanupCronExpression !== undefined || settingsUpdate.missingItemsCleanupLibraryIds !== undefined) {
         this.cronManager.updateMissingItemsCleanupCron()
       }
       if (settingsUpdate.scheduledLibraryScanCronExpression !== undefined || settingsUpdate.scheduledLibraryScanLibraryIds !== undefined || settingsUpdate.scheduledLibraryScanMaxHours !== undefined) {

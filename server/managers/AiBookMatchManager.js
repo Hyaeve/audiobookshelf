@@ -191,7 +191,7 @@ class AiBookMatchManager {
   }
 
   async matchLibraryItem(apiRouterCtx, libraryItem, library, options = {}) {
-    if (!libraryItem.isBook || this.isAlreadyMatched(libraryItem)) return { status: 'skipped' }
+    if (!libraryItem.isBook || (this.isAlreadyMatched(libraryItem) && options.globalMatch !== true)) return { status: 'skipped' }
     if (options.scheduledTask === true && getMetadataLocks(libraryItem).all) return { status: 'skipped', reason: '已锁定' }
     const settings = Database.serverSettings
     if (!this.isConfigured(settings)) throw new Error('AI book matching is not configured')

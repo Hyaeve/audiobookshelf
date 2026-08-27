@@ -52,7 +52,9 @@ class ServerSettings {
     this.strmMetadataCompletionQps = 1.0
     this.strmMetadataCompletionBatchSize = 5000
     this.missingItemsCleanupCronExpression = null
+    this.missingItemsCleanupLibraryIds = []
     this.aiBookMatchCronExpression = null
+    this.aiBookMatchGlobal = false
     this.aiBookMatchLibraryIds = []
     this.aiBookMatchMaxHours = 1
     this.aiBookMatchApiUrl = null
@@ -144,7 +146,9 @@ class ServerSettings {
     this.strmMetadataCompletionQps = Number(settings.strmMetadataCompletionQps) >= 0.1 ? Number(settings.strmMetadataCompletionQps) : 1.0
     this.strmMetadataCompletionBatchSize = Number(settings.strmMetadataCompletionBatchSize) >= 500 ? Number(settings.strmMetadataCompletionBatchSize) : 5000
     this.missingItemsCleanupCronExpression = settings.missingItemsCleanupCronExpression || null
+    this.missingItemsCleanupLibraryIds = Array.isArray(settings.missingItemsCleanupLibraryIds) ? settings.missingItemsCleanupLibraryIds : []
     this.aiBookMatchCronExpression = settings.aiBookMatchCronExpression || null
+    this.aiBookMatchGlobal = settings.aiBookMatchGlobal === true
     this.aiBookMatchLibraryIds = Array.isArray(settings.aiBookMatchLibraryIds) ? settings.aiBookMatchLibraryIds : []
     this.aiBookMatchMaxHours = Number(settings.aiBookMatchMaxHours) > 0 ? Number(settings.aiBookMatchMaxHours) : 1
     this.aiBookMatchApiUrl = settings.aiBookMatchApiUrl || null
@@ -278,7 +282,9 @@ class ServerSettings {
       strmMetadataCompletionQps: this.strmMetadataCompletionQps,
       strmMetadataCompletionBatchSize: this.strmMetadataCompletionBatchSize,
       missingItemsCleanupCronExpression: this.missingItemsCleanupCronExpression,
+      missingItemsCleanupLibraryIds: [...this.missingItemsCleanupLibraryIds],
       aiBookMatchCronExpression: this.aiBookMatchCronExpression,
+      aiBookMatchGlobal: this.aiBookMatchGlobal,
       aiBookMatchLibraryIds: [...this.aiBookMatchLibraryIds],
       aiBookMatchMaxHours: this.aiBookMatchMaxHours,
       aiBookMatchApiUrl: this.aiBookMatchApiUrl,

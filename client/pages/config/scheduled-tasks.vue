@@ -33,7 +33,8 @@
             </div>
             <label class="block text-sm font-semibold mb-2 mt-4" for="book-match-hours">单次最长执行时间（小时）</label>
             <input id="book-match-hours" v-model.number="draftMaxHours" type="number" min="0.5" step="0.5" class="w-full bg-primary border border-gray-600 rounded-md px-3 py-2" />
-            <p class="text-xs text-gray-400 mt-3">仅处理未匹配图书；已有 ISBN、ASIN 或 AI 成功记录的图书会跳过。</p>
+            <label class="flex items-center mt-4 text-sm font-semibold"><input v-model="draftAiGlobal" type="checkbox" class="mr-2" /><span>全局匹配</span></label>
+            <p class="text-xs text-gray-400 mt-3">{{ draftAiGlobal ? '处理所选媒体库中的全部图书，并覆盖匹配元数据。' : '仅处理未匹配图书；已有 ISBN、ASIN 或 AI 成功记录的图书会跳过。' }}</p>
           </section>
           <section>
             <h3 class="text-base font-semibold mb-4">OpenAI 兼容接口</h3>
@@ -65,12 +66,16 @@
             </template>
             <p v-if="selectedTask.key === 'bookMetadata'" class="text-xs text-gray-400 mt-3">逐本搜索当前书名并仅填充缺失字段；不会覆盖已有标题、作者、系列、封面或其他元数据。</p>
           </div>
+          <div v-else-if="selectedTask && selectedTask.key === 'missing'" class="mt-5">
+            <label class="block text-sm font-semibold mb-2">清理媒体库</label>
+            <div class="max-h-40 overflow-y-auto bg-primary border border-gray-600 rounded-md p-2 space-y-1"><label v-for="library in libraries" :key="library.id" class="flex items-center text-sm py-1"><input v-model="draftLibraryIds" type="checkbox" :value="library.id" class="mr-2" /><span>{{ library.name }}</span></label></div>
+            <p class="mt-3 text-sm text-gray-300">只删除所选媒体库中已标记为丢失的项目，不删除文件系统中的任何文件。</p>
+          </div>
           <div v-else-if="selectedTask && selectedTask.hasMaxHours" class="mt-5">
             <label class="block text-sm font-semibold mb-2">单次最长执行时间（小时）</label><input v-model.number="draftMaxHours" type="number" min="0.5" step="0.5" class="w-full bg-primary border border-gray-600 rounded-md px-3 py-2" />
             <label class="block text-sm font-semibold mb-2 mt-4">扫描 QPS</label><input v-model.number="draftQps" type="number" min="0.1" max="10" step="0.1" class="w-full bg-primary border border-gray-600 rounded-md px-3 py-2" />
             <label class="block text-sm font-semibold mb-2 mt-4">每隔多少个文件暂停 5 分钟</label><input v-model.number="draftBatchSize" type="number" min="500" step="500" class="w-full bg-primary border border-gray-600 rounded-md px-3 py-2" />
           </div>
-          <p v-if="selectedTask && selectedTask.key === 'missing'" class="mt-5 text-sm text-gray-300">只删除数据库中已标记为丢失的项目，不删除文件系统中的任何文件。</p>
         </div>
         <div class="flex justify-end mt-6"><ui-btn color="bg-primary" class="mr-2" @click="showSettings = false">取消</ui-btn><ui-btn color="bg-success" :loading="saving" @click="saveSettings">保存</ui-btn></div>
       </div>
@@ -83,7 +88,7 @@ const LAST_RUN_STORAGE_KEY = 'absScheduledTaskLastRuns'
 
 export default {
   data() {
-    return { showSettings: false, saving: false, selectedTask: null, showAiKey: false, draftCron: null, draftMaxHours: 1, draftQps: 1, draftBatchSize: 5000, draftLibraryIds: [], draftAiUrl: '', draftAiKey: '', draftAiModel: '', draftAiConfidence: 0.9, running: {}, lastRuns: {} }
+    return { showSettings: false, saving: false, selectedTask: null, showAiKey: false, draftCron: null, draftMaxHours: 1, draftQps: 1, draftBatchSize: 5000, draftLibraryIds: [], draftAiGlobal: false, draftAiUrl: '', draftAiKey: '', draftAiModel: '', draftAiConfidence: 0.9, running: {}, lastRuns: {} }
   },
   computed: {
     tasks() { return this.$store.state.tasks.tasks || [] },
@@ -137,10 +142,11 @@ export default {
     async openSettings(task) {
       this.selectedTask = task
       this.draftCron = this.cronFor(task) || null
-      this.draftLibraryIds = task.key === 'scan' ? [...(this.serverSettings.scheduledLibraryScanLibraryIds || [])] : task.key === 'bookMatch' ? [...(this.serverSettings.aiBookMatchLibraryIds || [])] : task.key === 'bookMetadata' ? [...(this.serverSettings.bookMetadataCompletionLibraryIds || [])] : task.key === 'metadata' ? [...(this.serverSettings.strmMetadataCompletionLibraryIds || [])] : []
+      this.draftLibraryIds = task.key === 'scan' ? [...(this.serverSettings.scheduledLibraryScanLibraryIds || [])] : task.key === 'bookMatch' ? [...(this.serverSettings.aiBookMatchLibraryIds || [])] : task.key === 'bookMetadata' ? [...(this.serverSettings.bookMetadataCompletionLibraryIds || [])] : task.key === 'metadata' ? [...(this.serverSettings.strmMetadataCompletionLibraryIds || [])] : task.key === 'missing' ? [...(this.serverSettings.missingItemsCleanupLibraryIds || [])] : []
       this.draftMaxHours = task.key === 'scan' ? Number(this.serverSettings.scheduledLibraryScanMaxHours) || 1 : task.key === 'bookMatch' ? Number(this.serverSettings.aiBookMatchMaxHours) || 1 : task.key === 'bookMetadata' ? Number(this.serverSettings.bookMetadataCompletionMaxHours) || 1 : Number(this.serverSettings.strmMetadataCompletionMaxHours) || 1
       this.draftQps = Number(this.serverSettings.strmMetadataCompletionQps) || 1
       this.draftBatchSize = Number(this.serverSettings.strmMetadataCompletionBatchSize) || 5000
+      this.draftAiGlobal = this.serverSettings.aiBookMatchGlobal === true
       this.draftAiUrl = this.serverSettings.aiBookMatchApiUrl || ''
       this.draftAiKey = ''
       this.draftAiModel = this.serverSettings.aiBookMatchModel || ''
@@ -189,11 +195,11 @@ export default {
         let payload
         if (this.selectedTask.key === 'scan') payload = { scheduledLibraryScanCronExpression: cronExpression, scheduledLibraryScanLibraryIds: this.draftLibraryIds, scheduledLibraryScanMaxHours: this.draftMaxHours }
         else if (this.selectedTask.key === 'bookMatch') {
-          payload = { aiBookMatchCronExpression: cronExpression, aiBookMatchLibraryIds: this.draftLibraryIds, aiBookMatchMaxHours: this.draftMaxHours, aiBookMatchApiUrl: this.draftAiUrl.trim() || null, aiBookMatchModel: this.draftAiModel.trim() || null, aiBookMatchConfidence: this.draftAiConfidence }
+          payload = { aiBookMatchCronExpression: cronExpression, aiBookMatchLibraryIds: this.draftLibraryIds, aiBookMatchGlobal: this.draftAiGlobal, aiBookMatchMaxHours: this.draftMaxHours, aiBookMatchApiUrl: this.draftAiUrl.trim() || null, aiBookMatchModel: this.draftAiModel.trim() || null, aiBookMatchConfidence: this.draftAiConfidence }
           if (this.draftAiKey.trim()) payload.aiBookMatchApiKey = this.draftAiKey.trim()
         } else if (this.selectedTask.key === 'bookMetadata') payload = { bookMetadataCompletionCronExpression: cronExpression, bookMetadataCompletionLibraryIds: this.draftLibraryIds, bookMetadataCompletionMaxHours: this.draftMaxHours }
         else if (this.selectedTask.key === 'metadata') payload = { strmMetadataCompletionCronExpression: cronExpression, strmMetadataCompletionLibraryIds: this.draftLibraryIds, strmMetadataCompletionMaxHours: this.draftMaxHours, strmMetadataCompletionQps: this.draftQps, strmMetadataCompletionBatchSize: this.draftBatchSize }
-        else payload = { missingItemsCleanupCronExpression: cronExpression }
+        else payload = { missingItemsCleanupCronExpression: cronExpression, missingItemsCleanupLibraryIds: this.draftLibraryIds }
         const response = await this.$axios.$patch('/api/settings', payload)
         this.$store.commit('setServerSettings', response.serverSettings)
         this.showSettings = false

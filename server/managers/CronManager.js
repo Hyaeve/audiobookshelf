@@ -268,7 +268,7 @@ class CronManager {
     const libraryIds = Array.isArray(settings.aiBookMatchLibraryIds) ? settings.aiBookMatchLibraryIds : []
     const maxHours = Number(settings.aiBookMatchMaxHours) > 0 ? Number(settings.aiBookMatchMaxHours) : 1
     const deadline = Date.now() + maxHours * 60 * 60 * 1000
-    const task = TaskManager.createAndAddTask('ai-book-match', { text: '书籍匹配' }, null, true, { scheduledTask, progress: 0, libraryIds })
+    const task = TaskManager.createAndAddTask('ai-book-match', { text: '书籍匹配' }, null, true, { scheduledTask, progress: 0, libraryIds, globalMatch: settings.aiBookMatchGlobal })
     const result = { matched: 0, unmatched: 0, needsReview: 0, skipped: 0, cancelled: false }
     const startedAt = Date.now()
     this.aiBookMatchAbortController = new AbortController()
@@ -277,7 +277,7 @@ class CronManager {
       const libraries = await Database.libraryModel.getAllWithFolders()
       const selectedLibraries = libraryIds.map((id) => libraries.find((library) => library.id === id)).filter((library) => library?.mediaType === 'book')
       const selectedLibraryNames = selectedLibraries.map((library) => library.name)
-      Logger.info(`[CronManager] AI书籍匹配${taskTypeText}开始，目标媒体库：${selectedLibraryNames.length ? selectedLibraryNames.join('、') : '无'}`)
+      Logger.info(`[CronManager] AI书籍匹配${taskTypeText}开始，模式：${settings.aiBookMatchGlobal ? '全局匹配' : '仅未匹配'}，目标媒体库：${selectedLibraryNames.length ? selectedLibraryNames.join('、') : '无'}`)
       let processed = 0
       for (const library of selectedLibraries) {
         Logger.info(`[CronManager] AI书籍匹配开始处理媒体库："${library.name}"`)
@@ -286,15 +286,16 @@ class CronManager {
           const items = await Database.libraryItemModel.getLibraryItemsIncrement(offset, 50, { libraryId: library.id, mediaType: 'book', isMissing: false, isInvalid: false })
           if (!items.length) break
           offset += items.length
-          const unmatchedItems = AiBookMatchManager.getUnmatchedCandidates(items)
-          result.skipped += items.length - unmatchedItems.length
-          for (const libraryItem of unmatchedItems) {
+          const matchItems = settings.aiBookMatchGlobal ? items : AiBookMatchManager.getUnmatchedCandidates(items)
+          result.skipped += items.length - matchItems.length
+          for (const libraryItem of matchItems) {
             if (this.aiBookMatchCancelRequested || Date.now() >= deadline) break
             let matchResult
             try {
               matchResult = await AiBookMatchManager.matchLibraryItem(this.apiRouterCtx, libraryItem, library, {
                 signal: this.aiBookMatchAbortController.signal,
                 scheduledTask: true,
+                globalMatch: settings.aiBookMatchGlobal,
                 overrideCover: true,
                 overrideDetails: true
               })
@@ -533,11 +534,12 @@ class CronManager {
     if (this.missingItemsCleanupExecuting) return { removed: 0, skipped: true }
     this.missingItemsCleanupExecuting = true
     this.missingItemsCleanupCancelRequested = false
-    const task = TaskManager.createAndAddTask('missing-items-cleanup', 'Cleaning missing items', null, true, { scheduledTask: true, progress: 0 })
+    const libraryIds = Array.isArray(Database.serverSettings.missingItemsCleanupLibraryIds) ? Database.serverSettings.missingItemsCleanupLibraryIds : []
+    const task = TaskManager.createAndAddTask('missing-items-cleanup', 'Cleaning missing items', null, true, { scheduledTask: true, progress: 0, libraryIds })
     Logger.info(`[CronManager] 清理丢失项目计划任务开始`)
     try {
       if (!this.missingItemsCleanupHandler) throw new Error('Missing items cleanup handler is not initialized')
-      const result = await this.missingItemsCleanupHandler(() => this.missingItemsCleanupCancelRequested)
+      const result = await this.missingItemsCleanupHandler(() => this.missingItemsCleanupCancelRequested, libraryIds)
       task.data.result = result
       Logger.info(`[CronManager] 清理丢失项目计划任务结束：${JSON.stringify(result)}`)
       task.setFinished(null, true)

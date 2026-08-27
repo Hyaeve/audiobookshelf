@@ -139,6 +139,21 @@ describe('AiBookMatchManager', () => {
     assert.strictEqual(result.searchAuthor, '')
   })
 
+  it('skips matched books unless global matching is enabled', async () => {
+    const libraryItem = { isBook: true, media: { title: 'Matched book', isbn: '9780000000000' } }
+    const skipped = await AiBookMatchManager.matchLibraryItem({}, libraryItem, { provider: 'google' })
+    assert.strictEqual(skipped.status, 'skipped')
+
+    sinon.stub(AiBookMatchManager, 'isConfigured').returns(true)
+    sinon.stub(Database, 'serverSettings').value({ aiBookMatchConfidence: 0.9 })
+    sinon.stub(AiBookMatchManager, 'extractSearchMetadata').resolves({ title: 'Matched book', authors: [], narrators: [], author: '' })
+    sinon.stub(BookFinder, 'search').resolves([])
+    sinon.stub(AiBookMatchManager, 'saveAudit').resolves()
+
+    const globalResult = await AiBookMatchManager.matchLibraryItem({}, libraryItem, { provider: 'google' }, { globalMatch: true })
+    assert.strictEqual(globalResult.status, 'unmatched')
+  })
+
   it('rejects an AI decision that selects a candidate outside the provider result list', async () => {
     sinon.stub(axios, 'post').resolves({ data: { choices: [{ message: { content: JSON.stringify({ candidateIndex: 8, confidence: 0.99, reason: 'invalid' }) } }] } })
     await assert.rejects(() => AiBookMatchManager.chooseCandidate({ media: { title: 'Book' } }, [{ title: 'Only candidate' }], {

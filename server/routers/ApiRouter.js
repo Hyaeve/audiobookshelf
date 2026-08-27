@@ -60,7 +60,7 @@ class ApiRouter {
     this.router.disable('x-powered-by')
     this.init()
     if (this.cronManager?.setMissingItemsCleanupHandler) {
-      this.cronManager.setMissingItemsCleanupHandler((isCancelled) => this.runMissingItemsCleanup(isCancelled))
+      this.cronManager.setMissingItemsCleanupHandler((isCancelled, libraryIds) => this.runMissingItemsCleanup(isCancelled, libraryIds))
     }
     this.cronManager?.setApiRouterContext?.(this)
   }
@@ -381,9 +381,11 @@ class ApiRouter {
     this.router.get('/logger-data', MiscController.getLoggerData.bind(this))
   }
 
-  async runMissingItemsCleanup(isCancelled = () => false) {
+  async runMissingItemsCleanup(isCancelled = () => false, libraryIds = []) {
     const startedAt = Date.now()
-    const libraries = await Database.libraryModel.findAll()
+    const selectedLibraryIds = Array.isArray(libraryIds) ? libraryIds : []
+    const allLibraries = await Database.libraryModel.findAll()
+    const libraries = selectedLibraryIds.map((id) => allLibraries.find((library) => library.id === id)).filter(Boolean)
     Logger.info(`[ApiRouter] 清理丢失项目开始：媒体库数量 ${libraries.length}`)
     let removed = 0
     for (const library of libraries) {
@@ -406,7 +408,7 @@ class ApiRouter {
       }
       await Database.resetLibraryIssuesFilterData(library.id)
     }
-    const result = { removed, cancelled: false }
+    const result = { removed, cancelled: false, libraryIds: selectedLibraryIds }
     Logger.info(`[ApiRouter] 清理丢失项目完成：${JSON.stringify(result)}`)
     return result
   }
