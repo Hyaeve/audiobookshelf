@@ -273,6 +273,12 @@ class CronManager {
     const startedAt = Date.now()
     this.aiBookMatchAbortController = new AbortController()
     const taskTypeText = scheduledTask ? '计划任务' : '手动任务'
+    const matchStatusText = {
+      matched: '匹配成功',
+      unmatched: '未找到匹配',
+      'needs-review': '待复核',
+      skipped: '已跳过'
+    }
     try {
       const libraries = await Database.libraryModel.getAllWithFolders()
       const selectedLibraries = libraryIds.map((id) => libraries.find((library) => library.id === id)).filter((library) => library?.mediaType === 'book')
@@ -312,7 +318,7 @@ class CronManager {
             else if (matchResult.status === 'unmatched') result.unmatched += 1
             else if (matchResult.status === 'needs-review') result.needsReview += 1
             else result.skipped += 1
-            Logger.info(`[CronManager] AI书籍匹配：媒体库 "${library.name}"，原名称 "${libraryItem.media?.title || libraryItem.title || '未命名'}"，搜索标题 "${matchResult.searchTitle || '-'}"，搜索作者 "${matchResult.searchAuthor || '-'}"，结果：${matchResult.status}${matchResult.candidateTitle ? `，匹配为 "${matchResult.candidateTitle}"` : ''}${matchResult.reason ? `，原因：${matchResult.reason}` : ''}`)
+            Logger.info(`[CronManager] AI书籍匹配：媒体库 "${library.name}"，原名称 "${libraryItem.media?.title || libraryItem.title || '未命名'}"，搜索标题 "${matchResult.searchTitle || '-'}"，搜索作者 "${matchResult.searchAuthor || '-'}"，结果：${matchStatusText[matchResult.status] || matchResult.status}${matchResult.candidateTitle ? `，匹配为 "${matchResult.candidateTitle}"` : ''}${matchResult.reason ? `，原因：${matchResult.reason}` : ''}`)
             processed += 1
             TaskManager.updateTaskProgress(task, selectedLibraries.length ? Math.min(99, ((selectedLibraries.indexOf(library) + 1) / selectedLibraries.length) * 100) : 100, { currentLibrary: library.name, processed, ...result })
           }
