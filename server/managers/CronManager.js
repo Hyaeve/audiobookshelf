@@ -136,7 +136,7 @@ class CronManager {
   }
 
   /**
-   * Start or stop the scheduled STRM metadata completion task.
+   * Start or stop the scheduled media preload task.
    */
   updateStrmMetadataCron() {
     const settings = Database.serverSettings
@@ -147,13 +147,13 @@ class CronManager {
     }
     if (!expression || this.strmMetadataCron) return
     if (!cron.validate(expression)) {
-      Logger.error(`[CronManager] Invalid STRM metadata completion cron expression "${expression}"`)
+      Logger.error(`[CronManager] 媒体预读 cron 表达式无效："${expression}"`)
       return
     }
 
     const task = cron.schedule(expression, async () => {
       if (this.strmMetadataCron.executing) {
-        Logger.warn('[CronManager] STRM metadata completion is already executing')
+        Logger.warn('[CronManager] 媒体预读正在执行中')
         return
       }
       this.strmMetadataCron.executing = true

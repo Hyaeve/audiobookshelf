@@ -700,12 +700,12 @@ class MiscController {
     try {
       const taskPromise = this.cronManager.runStrmMetadataCompletion()
       taskPromise.catch((error) => {
-        Logger.error('[MiscController] Manual STRM metadata completion failed', error)
+        Logger.error('[MiscController] 手动媒体预读失败', error)
       })
       return res.status(202).json({ startedAt: Date.now() })
     } catch (error) {
-      Logger.error('[MiscController] Manual STRM metadata completion failed to start', error)
-      return res.status(500).send('STRM metadata completion failed')
+      Logger.error('[MiscController] 手动媒体预读启动失败', error)
+      return res.status(500).send('媒体预读启动失败')
     }
   }
 

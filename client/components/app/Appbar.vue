@@ -279,7 +279,7 @@ export default {
               this.cancelSelectionMode()
             })
             .catch((error) => {
-              console.error('Batch metadata completion failed', error)
+              console.error('Batch media preload failed', error)
               this.$toast.error(this.$strings.ToastLibraryMetadataCompletionFailed)
             })
             .finally(() => this.$store.commit('setProcessingBatch', false))

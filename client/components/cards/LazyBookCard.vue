@@ -776,7 +776,7 @@ export default {
           this.$toast.success(this.$strings.ToastLibraryMetadataCompletionStarted)
         })
         .catch((error) => {
-          console.error('Failed to complete item metadata', error)
+          console.error('Media preload failed for item', error)
           this.$toast.error(this.$strings.ToastLibraryMetadataCompletionFailed)
         })
         .finally(() => {

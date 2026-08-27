@@ -139,7 +139,7 @@ export default {
         .$post(`/api/libraries/${this.library.id}/complete-metadata`)
         .then(() => this.$toast.success(this.$strings.ToastLibraryMetadataCompletionStarted))
         .catch((error) => {
-          console.error('Failed to complete library metadata', error)
+          console.error('Media preload failed for library', error)
           this.$toast.error(this.$strings.ToastLibraryMetadataCompletionFailed)
         })
     },

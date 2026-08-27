@@ -71,7 +71,7 @@
       </div>
       <div class="flex items-center">
         <span>{{ durationPretty }}</span>
-        <span v-if="strmMetadataIncomplete" class="material-symbols text-base ml-1 text-yellow-300" role="img" aria-label="STRM 元数据待完成" title="STRM 元数据待完成">hourglass_top</span>
+        <span v-if="strmMetadataIncomplete" class="material-symbols text-base ml-1 text-yellow-300" role="img" aria-label="媒体预读待完成" title="媒体预读待完成">hourglass_top</span>
       </div>
     </div>
     <div role="paragraph" class="flex py-0.5">

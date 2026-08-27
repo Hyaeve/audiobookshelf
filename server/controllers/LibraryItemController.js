@@ -816,7 +816,7 @@ class LibraryItemController {
    */
   async batchCompleteMetadata(req, res) {
     if (!req.user.isAdminOrUp) {
-      Logger.warn(`Non-admin user "${req.user.username}" attempted batch STRM metadata completion`)
+      Logger.warn(`非管理员用户 "${req.user.username}" 尝试批量媒体预读`)
       return res.sendStatus(403)
     }
 
@@ -845,7 +845,7 @@ class LibraryItemController {
    */
   async completeMetadata(req, res) {
     if (!req.user.isAdminOrUp) {
-      Logger.warn(`Non-admin user "${req.user.username}" attempted STRM metadata completion`)
+      Logger.warn(`非管理员用户 "${req.user.username}" 尝试媒体预读`)
       return res.sendStatus(403)
     }
     if (req.libraryItem.mediaType !== 'book') {

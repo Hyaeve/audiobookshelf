@@ -89,7 +89,7 @@ export default {
       return [
         { key: 'scan', title: '媒体库扫描', description: '扫描选定媒体库', hasMaxHours: true },
         { key: 'bookMatch', title: '书籍匹配', description: 'AI 辅助匹配未匹配书籍', hasMaxHours: true },
-        { key: 'metadata', title: '补全元数据', description: '仅补全缺少有声书总时长的书籍', hasMaxHours: true },
+        { key: 'metadata', title: '媒体预读', description: '仅预读缺少有声书总时长的书籍', hasMaxHours: true },
         { key: 'missing', title: '清理丢失项目', description: '删除扫描后标记为丢失的项目数据库记录，不删除文件系统文件', hasMaxHours: false }
       ]
     }

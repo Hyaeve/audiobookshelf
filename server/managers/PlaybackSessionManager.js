@@ -108,7 +108,7 @@ class PlaybackSessionManager {
     // Do not delay the first playback response while an incomplete STRM book is scanned.
     if (!episodeId && libraryItem.mediaType === 'book') {
       void this.completeStrmBookAfterPlayback(libraryItem.id).catch((error) => {
-        Logger.warn(`[PlaybackSessionManager] Failed to start STRM metadata completion for book "${libraryItem.id}": ${error.message}`)
+        Logger.warn(`[PlaybackSessionManager] 媒体预读启动失败：书籍 "${libraryItem.id}"，原因：${error.message}`)
       })
     }
   }
@@ -486,7 +486,7 @@ class PlaybackSessionManager {
 
     return new Promise((resolve, reject) => {
       this.strmCompletionQueues[priority].push({ libraryItemId, execute, resolve, reject })
-      Logger.debug(`[PlaybackSessionManager] Queued ${priority} STRM metadata completion for book "${libraryItemId}"`)
+      Logger.debug(`[PlaybackSessionManager] 媒体预读已进入 ${priority} 队列：书籍 "${libraryItemId}"`)
       void this.processStrmCompletionQueue()
     })
   }
@@ -502,7 +502,7 @@ class PlaybackSessionManager {
         if (!priority) break
 
         const job = this.strmCompletionQueues[priority].shift()
-        Logger.debug(`[PlaybackSessionManager] Starting ${priority} STRM metadata completion for book "${job.libraryItemId}"`)
+        Logger.debug(`[PlaybackSessionManager] 开始执行 ${priority} 媒体预读：书籍 "${job.libraryItemId}"`)
         try {
           job.resolve(await job.execute())
         } catch (error) {
@@ -589,16 +589,16 @@ class PlaybackSessionManager {
         if (!allStrmFiles.length || this.isCompleteStrmBookMetadata(libraryItem)) return false
 
         const strmFiles = allStrmFiles.filter((audioFile) => !this.isCompleteStrmAudioFile(audioFile))
-        Logger.info(`[PlaybackSessionManager] STRM元数据补全开始：书籍 "${libraryItem.media.title || '未命名'}"，待补全音轨：${strmFiles.length}`)
+        Logger.info(`[PlaybackSessionManager] 媒体预读开始：书籍 "${libraryItem.media.title || '未命名'}"，待预读音轨：${strmFiles.length}`)
         const result = await this.completeStrmBook(libraryItem, strmFiles, {
           qps: 2.0,
           throttleState: { scannedTracks: 0, requestIntervalMs: 1000 / 2.0 }
         })
-        Logger.info(`[PlaybackSessionManager] STRM元数据补全完成：书籍 "${libraryItem.media.title || '未命名'}"，结果：${result ? '已更新' : '未更新'}`)
+        Logger.info(`[PlaybackSessionManager] 媒体预读完成：书籍 "${libraryItem.media.title || '未命名'}"，结果：${result ? '已更新' : '未更新'}`)
         await new Promise((resolve) => setTimeout(resolve, 3 * 60 * 1000))
         return result
       } catch (error) {
-        Logger.warn(`[PlaybackSessionManager] STRM metadata completion failed for book "${libraryItemId}": ${error.message}`)
+        Logger.warn(`[PlaybackSessionManager] 媒体预读失败：书籍 "${libraryItemId}"，原因：${error.message}`)
         return false
       } finally {
         this.strmCompletionQueuedIds.delete(libraryItemId)
@@ -726,12 +726,12 @@ class PlaybackSessionManager {
       await completeAudioFile(audioFile)
       await persistProgress()
       if (options.throttleState?.deadline && Date.now() >= options.throttleState.deadline) {
-        Logger.info(`[PlaybackSessionManager] STRM metadata completion time limit reached after ${options.throttleState.scannedTracks} tracks`)
+        Logger.info(`[PlaybackSessionManager] 媒体预读达到时间限制，已处理 ${options.throttleState.scannedTracks} 条音轨`)
         break
       }
       if (options.throttleState?.batchSize && options.throttleState.scannedTracks % options.throttleState.batchSize === 0) {
         const pauseMinutes = Number(options.throttleState.pauseMinutes) > 0 ? Number(options.throttleState.pauseMinutes) : 5
-        Logger.info(`[PlaybackSessionManager] STRM metadata completion pausing for ${pauseMinutes} minutes after ${options.throttleState.scannedTracks} tracks`)
+        Logger.info(`[PlaybackSessionManager] 媒体预读已处理 ${options.throttleState.scannedTracks} 条音轨，暂停 ${pauseMinutes} 分钟`)
         await wait(pauseMinutes * 60 * 1000)
       }
     }
@@ -774,7 +774,7 @@ class PlaybackSessionManager {
 
       const items = await Database.libraryItemModel.findAll({ where: { libraryId } })
       const task = TaskManager.createAndAddTask('strm-metadata-completion', {
-        text: `Completing STRM metadata in "${library.name}" library`,
+        text: `媒体预读：${library.name}`,
         key: 'MessageTaskCompletingStrmMetadata',
         subs: [library.name]
       }, null, true, {
@@ -819,7 +819,7 @@ class PlaybackSessionManager {
           return task.data.result
         })
         .catch((error) => {
-          Logger.error(`[PlaybackSessionManager] STRM library metadata completion failed for library "${libraryId}"`, error)
+          Logger.error(`[PlaybackSessionManager] 媒体库媒体预读失败：媒体库 "${libraryId}"`, error)
           task.setFailed({ text: 'Failed', key: 'MessageTaskFailed' })
           throw error
         })
@@ -840,7 +840,7 @@ class PlaybackSessionManager {
       }
     }))
       .catch((error) => {
-        Logger.warn(`[PlaybackSessionManager] STRM metadata completion failed for item "${libraryItemId}": ${error.message}`)
+        Logger.warn(`[PlaybackSessionManager] 媒体预读失败：项目 "${libraryItemId}"，原因：${error.message}`)
         return false
       })
       .finally(() => this.strmItemCompletionTasks.delete(libraryItemId))
@@ -860,7 +860,7 @@ class PlaybackSessionManager {
       const startedAt = Date.now()
       const deadline = startedAt + Math.max(0.5, Number(maxHours) || 1) * 60 * 60 * 1000
       task = TaskManager.createAndAddTask('strm-metadata-completion', {
-        text: 'Completing STRM metadata',
+        text: '媒体预读',
         key: 'MessageTaskCompletingStrmMetadata',
         subs: ['']
       }, null, true, { scheduledTask: true, totalBooks: 0, updatedBooks: 0, totalTracks: 0, scannedTracks: 0, progress: 0 })
@@ -898,14 +898,14 @@ class PlaybackSessionManager {
         isCancelled: () => cancellation.requested || Date.now() >= deadline,
         onStarted: (expandedItem, strmFiles) => {
           task.data.totalTracks += strmFiles.length
-          Logger.info(`[PlaybackSessionManager] 计划补全元数据开始：媒体库：${getLibraryName(expandedItem.libraryId)}，书籍："${expandedItem.media.title || expandedItem.id}"，待补全音轨：${strmFiles.length}`)
+          Logger.info(`[PlaybackSessionManager] 媒体预读开始：媒体库：${getLibraryName(expandedItem.libraryId)}，书籍："${expandedItem.media.title || expandedItem.id}"，待预读音轨：${strmFiles.length}`)
           updateProgress(expandedItem.media.title || expandedItem.title || expandedItem.id)
         },
         onCompleted: (expandedItem, strmFiles, result) => {
-          Logger.info(`[PlaybackSessionManager] 计划补全元数据完成：媒体库：${getLibraryName(expandedItem.libraryId)}，书籍："${expandedItem.media.title || expandedItem.id}"，结果：${result ? '已更新' : '未更新'}`)
+          Logger.info(`[PlaybackSessionManager] 媒体预读完成：媒体库：${getLibraryName(expandedItem.libraryId)}，书籍："${expandedItem.media.title || expandedItem.id}"，结果：${result ? '已更新' : '未更新'}`)
         },
         onFailed: (expandedItem, strmFiles, error) => {
-          Logger.warn(`[PlaybackSessionManager] 计划补全元数据失败：媒体库：${getLibraryName(expandedItem.libraryId)}，书籍："${expandedItem.media.title || expandedItem.id}"，原因：${error.message}`)
+          Logger.warn(`[PlaybackSessionManager] 媒体预读失败：媒体库：${getLibraryName(expandedItem.libraryId)}，书籍："${expandedItem.media.title || expandedItem.id}"，原因：${error.message}`)
         }
       }))
       const results = await Promise.all(jobs)
@@ -913,7 +913,7 @@ class PlaybackSessionManager {
 
       const finishedAt = Date.now()
       const cancelled = this.strmScheduledCompletionCancelRequested
-      Logger.info(`[PlaybackSessionManager] 计划补全元数据任务结束，时间 ${new Date(finishedAt).toISOString()}，处理书籍：${items.length}，更新书籍：${updated}，已取消：${cancelled}`)
+      Logger.info(`[PlaybackSessionManager] 媒体预读任务结束，时间 ${new Date(finishedAt).toISOString()}，处理书籍：${items.length}，更新书籍：${updated}，已取消：${cancelled}`)
       task.data.result = { books: items.length, updated, cancelled }
       task.setFinished(null, true)
       TaskManager.taskFinished(task)
@@ -927,10 +927,10 @@ class PlaybackSessionManager {
       }
     })()
       .catch((error) => {
-        Logger.error(`[PlaybackSessionManager] Scheduled STRM metadata completion failed`, error)
+        Logger.error(`[PlaybackSessionManager] 计划媒体预读失败`, error)
         if (task && !task.isFinished) {
           task.setFailed({
-            text: error.message || 'STRM metadata completion failed',
+            text: error.message || '媒体预读失败',
             key: 'MessageTaskCompletingStrmMetadataFailed'
           })
           TaskManager.taskFinished(task)
@@ -973,7 +973,7 @@ class PlaybackSessionManager {
       return { books: items.length, updated: results.filter(Boolean).length }
     })
       .catch((error) => {
-        Logger.warn(`[PlaybackSessionManager] Batch STRM metadata completion failed: ${error.message}`)
+        Logger.warn(`[PlaybackSessionManager] 批量媒体预读失败：${error.message}`)
         throw error
       })
       .finally(() => this.strmBatchCompletionTasks.delete(taskKey))
