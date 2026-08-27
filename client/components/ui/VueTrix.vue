@@ -1,6 +1,5 @@
 <template>
   <div>
-    <div class="trix-toolbar-wrapper">
     <trix-toolbar :id="toolbarId">
       <div v-show="!disabledEditor" class="trix-button-row">
         <span class="trix-button-group trix-button-group--text-tools" data-trix-button-group="text-tools">
@@ -32,9 +31,10 @@
         </div>
       </div>
     </trix-toolbar>
-    <slot name="toolbar-end" />
+    <div class="trix-editor-wrapper">
+      <trix-editor :toolbar="toolbarId" :contenteditable="!disabledEditor" :class="['trix-content']" ref="trix" :input="computedId" :placeholder="placeholder" @trix-change="handleContentChange" @trix-initialize="handleInitialize" @trix-focus="processTrixFocus" @trix-blur="processTrixBlur" @trix-attachment-add="handleAttachmentAdd" />
+      <div class="trix-editor-overlay"><slot name="editor-overlay" /></div>
     </div>
-    <trix-editor :toolbar="toolbarId" :contenteditable="!disabledEditor" :class="['trix-content']" ref="trix" :input="computedId" :placeholder="placeholder" @trix-change="handleContentChange" @trix-initialize="handleInitialize" @trix-focus="processTrixFocus" @trix-blur="processTrixBlur" @trix-attachment-add="handleAttachmentAdd" />
     <input type="hidden" :name="inputName" :id="computedId" :value="editorContent" />
   </div>
 </template>
@@ -347,8 +347,14 @@ export default {
 </script>
 
 <style scoped>
-.trix-toolbar-wrapper {
+.trix-editor-wrapper {
   position: relative;
+}
+.trix-editor-overlay {
+  position: absolute;
+  top: 0.25rem;
+  right: 0.25rem;
+  z-index: 2;
 }
 </style>
 

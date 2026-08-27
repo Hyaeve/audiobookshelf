@@ -32,8 +32,8 @@
 
       <div class="mt-2">
         <ui-rich-text-editor ref="descriptionInput" v-model="details.description" :label="$strings.LabelDescription" @input="handleInputChange">
-          <template #toolbar-end>
-            <widgets-metadata-lock-button class="description-toolbar-lock" :locked="isFieldLocked('description')" @toggle="toggleFieldLock('description')" />
+          <template #overlay>
+            <widgets-metadata-lock-button class="description-input-lock" :locked="isFieldLocked('description')" @toggle="toggleFieldLock('description')" />
           </template>
         </ui-rich-text-editor>
       </div>
@@ -348,20 +348,14 @@ export default {
 .metadata-field :deep([role='list']) {
   padding-right: 2.75rem;
 }
-.description-toolbar-lock {
-  position: absolute;
-  top: 0;
-  right: 0;
-  height: 1.6em;
-  width: 2.6em;
-  min-width: 2.6em;
-  margin-bottom: 10px;
-  border: 1px solid rgb(75, 85, 99);
-  border-radius: 3px;
-  z-index: 2;
+.description-input-lock {
+  width: 1.75rem;
+  min-width: 1.75rem;
+  height: 1.75rem;
 }
 :deep(trix-editor) {
   resize: vertical;
   overflow: auto;
+  padding-right: 2.75rem;
 }
 </style>

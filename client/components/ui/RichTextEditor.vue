@@ -4,7 +4,7 @@
       {{ label }}
     </p>
     <ui-vue-trix ref="input" v-model="content" :disabled-editor="disabled" @trix-file-accept="trixFileAccept">
-      <template #toolbar-end><slot name="toolbar-end" /></template>
+      <template #editor-overlay><slot name="overlay" /></template>
     </ui-vue-trix>
   </div>
 </template>
