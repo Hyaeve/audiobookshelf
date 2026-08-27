@@ -5,6 +5,7 @@ const Logger = require('../Logger')
 const libraryFilters = require('../utils/queries/libraryFilters')
 const { filePathToPOSIX, getFileTimestampsWithIno } = require('../utils/fileUtils')
 const LibraryFile = require('../objects/files/LibraryFile')
+const { getMetadataLocks } = require('../utils/metadataLocks')
 const Book = require('./Book')
 const Podcast = require('./Podcast')
 
@@ -983,6 +984,7 @@ class LibraryItem extends Model {
       id: this.id,
       ino: this.ino,
       oldLibraryItemId: this.extraData?.oldLibraryItemId || null,
+      metadataLocks: getMetadataLocks(this),
       libraryId: this.libraryId,
       folderId: this.libraryFolderId,
       path: this.path,
@@ -1018,6 +1020,7 @@ class LibraryItem extends Model {
       id: this.id,
       ino: this.ino,
       oldLibraryItemId: this.extraData?.oldLibraryItemId || null,
+      metadataLocks: getMetadataLocks(this),
       libraryId: this.libraryId,
       folderId: this.libraryFolderId,
       path: this.path,

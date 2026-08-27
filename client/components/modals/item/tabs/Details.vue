@@ -1,7 +1,7 @@
 <template>
   <div class="w-full h-full relative">
     <div id="formWrapper" class="w-full overflow-y-auto">
-      <widgets-book-details-edit v-if="mediaType == 'book'" ref="itemDetailsEdit" :library-item="libraryItem" @submit="saveAndClose" />
+      <widgets-book-details-edit v-if="mediaType == 'book'" ref="itemDetailsEdit" :library-item="libraryItem" @submit="saveAndClose" @locks-change="metadataLocksChanged" />
       <widgets-podcast-details-edit v-else ref="itemDetailsEdit" :library-item="libraryItem" @submit="saveAndClose" />
     </div>
 
@@ -39,7 +39,8 @@ export default {
       resettingProgress: false,
       isScrollable: false,
       rescanning: false,
-      quickMatching: false
+      quickMatching: false,
+      pendingMetadataLocks: null
     }
   },
   computed: {
@@ -88,6 +89,17 @@ export default {
     }
   },
   methods: {
+    metadataLocksChanged(metadataLocks) {
+      this.pendingMetadataLocks = metadataLocks
+    },
+    metadataLocksHaveChanges() {
+      if (!this.pendingMetadataLocks) return false
+      const current = this.libraryItem.metadataLocks || { all: false, fields: [] }
+      if (current.all !== this.pendingMetadataLocks.all) return true
+      const currentFields = [...(current.fields || [])].sort()
+      const pendingFields = [...(this.pendingMetadataLocks.fields || [])].sort()
+      return currentFields.length !== pendingFields.length || currentFields.some((field, index) => field !== pendingFields[index])
+    },
     quickMatch() {
       if (this.quickMatching) return
       if (!this.$refs.itemDetailsEdit) return
@@ -157,27 +169,38 @@ export default {
         return null
       }
       var updatedDetails = this.$refs.itemDetailsEdit.getDetails()
-      if (!updatedDetails.hasChanges) {
+      const locksChanged = this.metadataLocksHaveChanges()
+      if (!updatedDetails.hasChanges && !locksChanged) {
         this.$toast.info(this.$strings.MessageNoUpdatesWereNecessary)
         return false
       }
-      return this.updateDetails(updatedDetails)
+      return this.updateDetails(updatedDetails, locksChanged)
     },
-    async updateDetails(updatedDetails) {
+    async updateDetails(updatedDetails, locksChanged) {
       this.isProcessing = true
-      var updateResult = await this.$axios.$patch(`/api/items/${this.libraryItemId}/media`, updatedDetails.updatePayload).catch((error) => {
-        console.error('Failed to update', error)
-        return false
-      })
-      this.isProcessing = false
-      if (updateResult) {
-        if (updateResult.updated) {
-          this.$toast.success(this.$strings.ToastItemDetailsUpdateSuccess)
-          return true
-        } else {
-          this.$toast.info(this.$strings.MessageNoUpdatesWereNecessary)
+      let mediaUpdated = false
+      let locksUpdated = false
+      try {
+        if (updatedDetails.hasChanges) {
+          const updateResult = await this.$axios.$patch(`/api/items/${this.libraryItemId}/media`, updatedDetails.updatePayload)
+          mediaUpdated = !!updateResult?.updated
         }
+        if (locksChanged) {
+          await this.$axios.$patch(`/api/items/${this.libraryItemId}/metadata-locks`, this.pendingMetadataLocks)
+          locksUpdated = true
+        }
+      } catch (error) {
+        console.error('Failed to update item details or metadata locks', error)
+        this.$toast.error(this.$strings.ToastFailedToUpdate)
+        this.isProcessing = false
+        return false
       }
+      this.isProcessing = false
+      if (mediaUpdated || locksUpdated) {
+        this.$toast.success(this.$strings.ToastItemDetailsUpdateSuccess)
+        return true
+      }
+      this.$toast.info(this.$strings.MessageNoUpdatesWereNecessary)
       return false
     },
     checkIsScrollable() {

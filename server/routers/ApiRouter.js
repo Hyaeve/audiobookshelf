@@ -108,6 +108,7 @@ class ApiRouter {
     this.router.post('/items/batch/update', LibraryItemController.batchUpdate.bind(this))
     this.router.post('/items/batch/get', LibraryItemController.batchGet.bind(this))
     this.router.post('/items/batch/quickmatch', LibraryItemController.batchQuickMatch.bind(this))
+    this.router.post('/items/batch/metadata-locks', LibraryItemController.batchUpdateMetadataLocks.bind(this))
     this.router.post('/items/batch/complete-metadata', LibraryItemController.batchCompleteMetadata.bind(this))
     this.router.post('/items/batch/scan', LibraryItemController.batchScan.bind(this))
 
@@ -115,6 +116,7 @@ class ApiRouter {
     this.router.delete('/items/:id', LibraryItemController.middleware.bind(this), LibraryItemController.delete.bind(this))
     this.router.get('/items/:id/download', LibraryItemController.middleware.bind(this), LibraryItemController.download.bind(this))
     this.router.patch('/items/:id/media', LibraryItemController.middleware.bind(this), LibraryItemController.updateMedia.bind(this))
+    this.router.patch('/items/:id/metadata-locks', LibraryItemController.middleware.bind(this), LibraryItemController.updateMetadataLocks.bind(this))
     this.router.get('/items/:id/cover', LibraryItemController.getCover.bind(this))
     this.router.post('/items/:id/cover', LibraryItemController.middleware.bind(this), LibraryItemController.uploadCover.bind(this))
     this.router.patch('/items/:id/cover', LibraryItemController.middleware.bind(this), LibraryItemController.updateCover.bind(this))

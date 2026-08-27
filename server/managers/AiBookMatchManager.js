@@ -2,6 +2,7 @@ const axios = require('axios')
 const Logger = require('../Logger')
 const Database = require('../Database')
 const BookFinder = require('../finders/BookFinder')
+const { getMetadataLocks } = require('../utils/metadataLocks')
 const Scanner = require('../scanner/Scanner')
 
 const AUDIT_KEY = 'aiBookMatch'
@@ -191,6 +192,7 @@ class AiBookMatchManager {
 
   async matchLibraryItem(apiRouterCtx, libraryItem, library, options = {}) {
     if (!libraryItem.isBook || this.isAlreadyMatched(libraryItem)) return { status: 'skipped' }
+    if (options.scheduledTask === true && getMetadataLocks(libraryItem).all) return { status: 'skipped', reason: '已锁定' }
     const settings = Database.serverSettings
     if (!this.isConfigured(settings)) throw new Error('AI book matching is not configured')
 
@@ -230,7 +232,8 @@ class AiBookMatchManager {
     }
 
     const selectedResult = results[decision.candidateIndex]
-    const result = await Scanner.applyBookMatch(apiRouterCtx, libraryItem, selectedResult)
+    if (options.signal?.aborted) throw new Error('AI matching cancelled')
+    const result = await Scanner.applyBookMatch(apiRouterCtx, libraryItem, selectedResult, options)
     await this.saveAudit(libraryItem, {
       status: result.updated ? 'matched-ai' : 'needs-review', source: 'ai', model: settings.aiBookMatchModel, confidence: decision.confidence, updatedAt: Date.now(), candidate: candidates[decision.candidateIndex], reason: decision.reason
     })

@@ -576,6 +576,11 @@ export default {
             func: 'completeMetadata',
             text: this.$strings.ButtonCompleteMetadata
           })
+          items.push({
+            func: 'setMetadataLock',
+            data: !this._libraryItem.metadataLocks?.all,
+            text: this._libraryItem.metadataLocks?.all ? this.$strings.ButtonUnlockMetadata : this.$strings.ButtonLockMetadata
+          })
         }
       }
       if (this.series && this.bookMount) {
@@ -765,6 +770,27 @@ export default {
     },
     editPodcast() {
       this.$emit('editPodcast', this.libraryItem)
+    },
+    setMetadataLock(locked) {
+      if (this.processing) return
+      const axios = this.$axios || this.$nuxt.$axios
+      this.processing = true
+      axios
+        .$patch(`/api/items/${this.libraryItemId}/metadata-locks`, {
+          all: locked,
+          fields: [...(this._libraryItem.metadataLocks?.fields || [])]
+        })
+        .then((result) => {
+          this.libraryItem = result.libraryItem
+          this.$toast.success(this.$strings.ToastMetadataLockUpdated)
+        })
+        .catch((error) => {
+          console.error('Metadata lock update failed', error)
+          this.$toast.error(this.$strings.ToastFailedToUpdate)
+        })
+        .finally(() => {
+          this.processing = false
+        })
     },
     completeMetadata() {
       if (this.processing) return

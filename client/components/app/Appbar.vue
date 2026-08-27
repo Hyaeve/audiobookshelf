@@ -187,6 +187,8 @@ export default {
           text: this.$strings.ButtonCompleteMetadata,
           action: 'complete-metadata'
         })
+        options.push({ text: this.$strings.ButtonLockMetadata, action: 'lock-metadata' })
+        options.push({ text: this.$strings.ButtonUnlockMetadata, action: 'unlock-metadata' })
       }
 
       // The limit of 50 is introduced because of the URL length. Each id has 36 chars, so 36 * 40 = 1440
@@ -236,6 +238,10 @@ export default {
         this.batchRescan()
       } else if (action === 'complete-metadata') {
         this.batchCompleteMetadata()
+      } else if (action === 'lock-metadata') {
+        this.batchSetMetadataLock(true)
+      } else if (action === 'unlock-metadata') {
+        this.batchSetMetadataLock(false)
       } else if (action === 'download') {
         this.batchDownload()
       }
@@ -258,6 +264,30 @@ export default {
                 const errorMsg = error.response.data || 'Failed to batch re-scan'
                 this.$toast.error(errorMsg)
               })
+          }
+        },
+        type: 'yesNo'
+      }
+      this.$store.commit('globals/setConfirmPrompt', payload)
+    },
+    batchSetMetadataLock(locked) {
+      const payload = {
+        message: locked ? this.$strings.MessageConfirmLockMetadata : this.$strings.MessageConfirmUnlockMetadata,
+        callback: async (confirmed) => {
+          if (!confirmed) return
+          this.$store.commit('setProcessingBatch', true)
+          try {
+            await this.$axios.$post('/api/items/batch/metadata-locks', {
+              libraryItemIds: this.selectedMediaItems.map((item) => item.id),
+              locked
+            })
+            this.$toast.success(this.$strings.ToastMetadataLockUpdated)
+            this.$store.commit('globals/resetSelectedMediaItems')
+          } catch (error) {
+            console.error('Batch metadata lock update failed', error)
+            this.$toast.error(this.$strings.ToastFailedToUpdate)
+          } finally {
+            this.$store.commit('setProcessingBatch', false)
           }
         },
         type: 'yesNo'

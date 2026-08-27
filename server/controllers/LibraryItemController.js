@@ -10,6 +10,7 @@ const Database = require('../Database')
 const zipHelpers = require('../utils/zipHelpers')
 const { reqSupportsWebp, clampPositiveInt } = require('../utils/index')
 const { isStrmPath, proxyStrm } = require('../utils/strmUtils')
+const { METADATA_LOCK_FIELDS, getMetadataLocks, setMetadataLocks } = require('../utils/metadataLocks')
 const { ScanResult, AudioMimeType } = require('../utils/constants')
 const { getAudioMimeTypeFromExtname, encodeUriPath } = require('../utils/fileUtils')
 const LibraryItemScanner = require('../scanner/LibraryItemScanner')
@@ -284,6 +285,41 @@ class LibraryItemController {
       updated: hasUpdates,
       libraryItem: req.libraryItem.toOldJSON()
     })
+  }
+
+  /**
+   * PATCH: /api/items/:id/metadata-locks
+   */
+  async updateMetadataLocks(req, res) {
+    if (!req.user.canUpdate) return res.sendStatus(403)
+    if (!req.libraryItem.isBook) return res.status(400).send('Metadata locks are only supported for books')
+    const { all, fields } = req.body || {}
+    if (typeof all !== 'boolean' || !Array.isArray(fields) || fields.some((field) => !METADATA_LOCK_FIELDS.includes(field))) {
+      return res.status(400).send('Invalid metadata locks payload')
+    }
+    const metadataLocks = setMetadataLocks(req.libraryItem, { all, fields })
+    await req.libraryItem.save()
+    SocketAuthority.libraryItemEmitter('item_updated', req.libraryItem)
+    return res.json({ metadataLocks, libraryItem: req.libraryItem.toOldJSONExpanded() })
+  }
+
+  /**
+   * POST: /api/items/batch/metadata-locks
+   */
+  async batchUpdateMetadataLocks(req, res) {
+    if (!req.user.canUpdate) return res.sendStatus(403)
+    const { libraryItemIds, locked } = req.body || {}
+    if (!Array.isArray(libraryItemIds) || !libraryItemIds.length || typeof locked !== 'boolean') return res.status(400).send('Invalid metadata locks payload')
+    const libraryItems = await Database.libraryItemModel.findAllExpandedWhere({ id: [...new Set(libraryItemIds)] })
+    if (libraryItems.length !== new Set(libraryItemIds).size || libraryItems.some((item) => !item.isBook)) return res.status(400).send('Metadata locks are only supported for books')
+    if (!ensureUserCanAccessLibraryItemsForBatch(req, res, libraryItems)) return
+    for (const libraryItem of libraryItems) {
+      const currentLocks = getMetadataLocks(libraryItem)
+      setMetadataLocks(libraryItem, { all: locked, fields: currentLocks.fields })
+      await libraryItem.save()
+      SocketAuthority.libraryItemEmitter('item_updated', libraryItem)
+    }
+    return res.json({ updated: libraryItems.length, locked })
   }
 
   /**

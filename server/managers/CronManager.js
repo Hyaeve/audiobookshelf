@@ -291,7 +291,10 @@ class CronManager {
             if (this.aiBookMatchCancelRequested || Date.now() >= deadline) break
             let matchResult
             try {
-              matchResult = await AiBookMatchManager.matchLibraryItem(this.apiRouterCtx, libraryItem, library, { signal: this.aiBookMatchAbortController.signal })
+              matchResult = await AiBookMatchManager.matchLibraryItem(this.apiRouterCtx, libraryItem, library, {
+                signal: this.aiBookMatchAbortController.signal,
+                scheduledTask: true
+              })
             } catch (error) {
               if (this.aiBookMatchCancelRequested || error.code === 'ERR_CANCELED' || error.name === 'CanceledError') {
                 matchResult = { status: 'skipped', reason: '已停止' }
@@ -391,11 +394,15 @@ class CronManager {
             try {
               const matchResult = await Scanner.quickMatchLibraryItem(this.apiRouterCtx, libraryItem, {
                 provider,
+                scheduledTask: true,
                 overrideCover: false,
                 overrideDetails: false,
                 isCancelled: () => this.bookMetadataCompletionCancelRequested || Date.now() >= deadline
               })
-              if (matchResult.warning) {
+              if (matchResult.locked) {
+                result.skipped += 1
+                Logger.info(`[CronManager] 书籍元数据补全：书籍 "${libraryItem.media?.title || libraryItem.title || libraryItem.id}"，已锁定，跳过，提供商：${providerLabel}`)
+              } else if (matchResult.warning) {
                 result.unmatched += 1
                 Logger.info(`[CronManager] 书籍元数据补全：书籍 "${libraryItem.media?.title || libraryItem.title || libraryItem.id}"，未找到候选，提供商：${providerLabel}`)
               } else if (matchResult.updated) {

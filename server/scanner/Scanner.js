@@ -12,6 +12,7 @@ const LibraryScan = require('./LibraryScan')
 const LibraryScanner = require('./LibraryScanner')
 const CoverManager = require('../managers/CoverManager')
 const TaskManager = require('../managers/TaskManager')
+const { getMetadataLocks, isMetadataFieldLocked } = require('../utils/metadataLocks')
 
 function waitForBookSearch(searchPromise, isCancelled) {
   if (typeof isCancelled !== 'function') return searchPromise
@@ -70,6 +71,7 @@ class Scanner {
     let hasUpdated = false
 
     if (libraryItem.isBook) {
+      if (options.scheduledTask === true && getMetadataLocks(libraryItem).all) return { skipped: true, locked: true }
       const searchISBN = options.isbn || libraryItem.media.isbn
       const searchASIN = options.asin || libraryItem.media.asin
 
@@ -84,6 +86,7 @@ class Scanner {
           warning: `No ${provider} match found`
         }
       }
+      if (options.scheduledTask === true && getMetadataLocks(libraryItem).all) return { skipped: true, locked: true }
       return this.applyBookMatch(apiRouterCtx, libraryItem, results[0], options)
     } else if (libraryItem.isPodcast) {
       // Podcast quick match
@@ -156,7 +159,8 @@ class Scanner {
   async applyBookMatch(apiRouterCtx, libraryItem, matchData, options = {}) {
     let hasUpdated = false
     const changedFields = []
-    if (matchData.cover && (!libraryItem.media.coverPath || options.overrideCover)) {
+    const isScheduled = options.scheduledTask === true
+    if (matchData.cover && (!libraryItem.media.coverPath || options.overrideCover) && (!isScheduled || !isMetadataFieldLocked(libraryItem, 'coverPath'))) {
       Logger.debug(`[Scanner] Updating cover "${matchData.cover}"`)
       const coverResult = await CoverManager.downloadCoverFromUrlNew(matchData.cover, libraryItem.id, libraryItem.isFile ? null : libraryItem.path)
       if (coverResult.error) {
@@ -248,10 +252,11 @@ class Scanner {
   async quickMatchBookBuildUpdatePayload(apiRouterCtx, libraryItem, matchData, options) {
     // Update media metadata if not set OR overrideDetails flag
     const detailKeysToUpdate = ['title', 'subtitle', 'description', 'narrator', 'publisher', 'publishedYear', 'genres', 'tags', 'language', 'explicit', 'abridged', 'asin', 'isbn']
+    const isScheduled = options.scheduledTask === true
     const updatePayload = {}
 
     for (const key in matchData) {
-      if (matchData[key] && detailKeysToUpdate.includes(key)) {
+      if (matchData[key] && detailKeysToUpdate.includes(key) && (!isScheduled || !isMetadataFieldLocked(libraryItem, key === 'narrator' ? 'narrators' : key))) {
         if (key === 'narrator') {
           if (!libraryItem.media.narrators?.length || options.overrideDetails) {
             updatePayload.narrators = matchData[key]
@@ -292,7 +297,7 @@ class Scanner {
 
     // Add or set author if not set
     let hasAuthorUpdates = false
-    if (matchData.author && (!libraryItem.media.authorName || options.overrideDetails)) {
+    if (matchData.author && (!libraryItem.media.authorName || options.overrideDetails) && (!isScheduled || !isMetadataFieldLocked(libraryItem, 'authors'))) {
       if (!Array.isArray(matchData.author)) {
         matchData.author = matchData.author
           .split(',')
@@ -345,7 +350,7 @@ class Scanner {
 
     // Add or set series if not set
     let hasSeriesUpdates = false
-    if (matchData.series && (!libraryItem.media.seriesName || options.overrideDetails)) {
+    if (matchData.series && (!libraryItem.media.seriesName || options.overrideDetails) && (!isScheduled || !isMetadataFieldLocked(libraryItem, 'series'))) {
       if (!Array.isArray(matchData.series)) matchData.series = [{ series: matchData.series, sequence: matchData.sequence }]
       const seriesIdsRemoved = []
       for (const seriesMatchItem of matchData.series) {

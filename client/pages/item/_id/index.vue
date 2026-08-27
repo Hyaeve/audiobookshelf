@@ -415,6 +415,10 @@ export default {
           text: this.$strings.ButtonCompleteMetadata,
           action: 'complete-metadata'
         })
+        items.push({
+          text: this.libraryItem.metadataLocks?.all ? this.$strings.ButtonUnlockMetadata : this.$strings.ButtonLockMetadata,
+          action: this.libraryItem.metadataLocks?.all ? 'unlock-metadata' : 'lock-metadata'
+        })
       }
 
       if (this.ebookFile && this.$store.state.libraries.ereaderDevices?.length) {
@@ -783,6 +787,18 @@ export default {
       }
       this.$store.commit('globals/setConfirmPrompt', payload)
     },
+    async setMetadataLock(locked) {
+      try {
+        await this.$axios.$patch(`/api/items/${this.libraryItemId}/metadata-locks`, {
+          all: locked,
+          fields: [...(this.libraryItem.metadataLocks?.fields || [])]
+        })
+        this.$toast.success(this.$strings.ToastMetadataLockUpdated)
+      } catch (error) {
+        console.error('Metadata lock update failed', error)
+        this.$toast.error(this.$strings.ToastFailedToUpdate)
+      }
+    },
     contextMenuAction({ action, data }) {
       if (action === 'collections') {
         this.$store.commit('setSelectedLibraryItem', this.libraryItem)
@@ -800,6 +816,10 @@ export default {
         this.matchLibraryItem()
       } else if (action === 'complete-metadata') {
         this.completeMetadata()
+      } else if (action === 'lock-metadata') {
+        this.setMetadataLock(true)
+      } else if (action === 'unlock-metadata') {
+        this.setMetadataLock(false)
       } else if (action === 'delete') {
         this.deleteLibraryItem()
       } else if (action === 'sendToDevice') {
