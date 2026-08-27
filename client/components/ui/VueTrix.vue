@@ -18,6 +18,7 @@
           <button type="button" class="trix-button trix-button--icon trix-button--icon-undo" data-trix-action="undo" data-trix-key="z" :title="$strings.LabelUndo" tabindex="-1">{{ $strings.LabelUndo }}</button>
           <button type="button" class="trix-button trix-button--icon trix-button--icon-redo" data-trix-action="redo" data-trix-key="shift+z" :title="$strings.LabelRedo" tabindex="-1">{{ $strings.LabelRedo }}</button>
         </span>
+        <slot name="toolbar-end" />
       </div>
       <div class="trix-dialogs" data-trix-dialogs>
         <div class="trix-dialog trix-dialog--link" data-trix-dialog="href" data-trix-dialog-attribute="href">

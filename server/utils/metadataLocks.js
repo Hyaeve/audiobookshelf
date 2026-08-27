@@ -12,8 +12,6 @@ const METADATA_LOCK_FIELDS = [
   'asin',
   'genres',
   'tags',
-  'explicit',
-  'abridged',
   'coverPath'
 ]
 

@@ -30,9 +30,12 @@
         </div>
       </div>
 
-      <div class="metadata-field mt-2">
-        <ui-rich-text-editor ref="descriptionInput" v-model="details.description" :label="$strings.LabelDescription" @input="handleInputChange" />
-        <widgets-metadata-lock-button :locked="isFieldLocked('description')" @toggle="toggleFieldLock('description')" />
+      <div class="mt-2">
+        <ui-rich-text-editor ref="descriptionInput" v-model="details.description" :label="$strings.LabelDescription" @input="handleInputChange">
+          <template #toolbar-end>
+            <widgets-metadata-lock-button class="description-toolbar-lock" :locked="isFieldLocked('description')" @toggle="toggleFieldLock('description')" />
+          </template>
+        </ui-rich-text-editor>
       </div>
 
       <div class="flex flex-wrap mt-2 -mx-1">
@@ -70,22 +73,14 @@
           <ui-text-input-with-label ref="languageInput" v-model="details.language" :label="$strings.LabelLanguage" trim-whitespace @input="handleInputChange" />
           <widgets-metadata-lock-button :locked="isFieldLocked('language')" @toggle="toggleFieldLock('language')" />
         </div>
-        <div class="grow px-1 pt-6 mt-2 md:mt-0">
-          <div class="flex justify-center">
-            <ui-checkbox v-model="details.explicit" :label="$strings.LabelExplicit" checkbox-bg="primary" border-color="gray-600" label-class="pl-2 text-base font-semibold" @input="handleInputChange" />
-            <widgets-metadata-lock-button :locked="isFieldLocked('explicit')" @toggle="toggleFieldLock('explicit')" />
-          </div>
+        <div class="grow px-1 pt-6 mt-2 md:mt-0 flex items-end justify-center pb-1">
+          <ui-checkbox v-model="details.explicit" :label="$strings.LabelExplicit" checkbox-bg="primary" border-color="gray-600" label-class="pl-2 text-base font-semibold" @input="handleInputChange" />
         </div>
-        <div class="grow px-1 pt-6 mt-2 md:mt-0">
-          <div class="flex justify-center">
-            <ui-checkbox v-model="details.abridged" :label="$strings.LabelAbridged" checkbox-bg="primary" border-color="gray-600" label-class="pl-2 text-base font-semibold" @input="handleInputChange" />
-            <widgets-metadata-lock-button :locked="isFieldLocked('abridged')" @toggle="toggleFieldLock('abridged')" />
-          </div>
+        <div class="grow px-1 pt-6 md:mt-0 flex items-end justify-center pb-1">
+          <ui-checkbox v-model="details.abridged" :label="$strings.LabelAbridged" checkbox-bg="primary" border-color="gray-600" label-class="pl-2 text-base font-semibold" @input="handleInputChange" />
         </div>
-        <div class="grow px-1 pt-6 mt-2 md:mt-0">
-          <div class="flex justify-center">
-            <ui-checkbox v-model="metadataLocks.all" label="锁定" checkbox-bg="primary" border-color="gray-600" label-class="pl-2 text-base font-semibold" @input="handleLockChange" />
-          </div>
+        <div class="grow px-1 pt-6 md:mt-0 flex items-end justify-center pb-1">
+          <ui-checkbox v-model="metadataLocks.all" label="锁定" checkbox-bg="primary" border-color="gray-600" label-class="pl-2 text-base font-semibold" @input="handleLockChange" />
         </div>
       </div>
     </form>
@@ -349,5 +344,14 @@ export default {
 .metadata-field :deep(textarea),
 .metadata-field :deep([role='list']) {
   padding-right: 2.75rem;
+}
+.description-toolbar-lock {
+  height: 1.7rem;
+  width: 2.6rem;
+  min-width: 2.6rem;
+  margin-left: 1.5vw;
+  margin-bottom: 10px;
+  border: 1px solid rgb(75, 85, 99);
+  border-radius: 3px;
 }
 </style>
