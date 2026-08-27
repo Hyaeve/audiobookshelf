@@ -8,7 +8,7 @@ const prober = require('./prober')
 const { filePathToPOSIX, isSameOrSubPath, getAudioMimeTypeFromExtname } = require('./fileUtils')
 
 const STRM_SCAN_MAX_BYTES = 512 * 1024 * 1024
-const AUDIOBOOKSHELF_USER_AGENT = 'AudioBookShelf (+https://audiobookshelf.org)'
+const AUDIOBOOKSHELF_USER_AGENT = 'AudioBookShelf'
 const strmUrlCache = new Map()
 
 function isPrivateStrmHost(targetUrl) {
@@ -145,6 +145,10 @@ async function probeStrmTargetMedia(filePath, allowedLocalRoots = []) {
   return probeData
 }
 
+function getClientUserAgent(req) {
+  return req.get?.('user-agent') || req.headers?.['user-agent'] || AUDIOBOOKSHELF_USER_AGENT
+}
+
 function getTargetExtension(target) {
   try {
     return Path.extname(new URL(target).pathname)
@@ -168,7 +172,7 @@ async function proxyStrm(req, res, filePath, allowedLocalRoots = []) {
     return res.sendFile(target.value)
   }
 
-  const headers = { 'User-Agent': AUDIOBOOKSHELF_USER_AGENT }
+  const headers = { 'User-Agent': getClientUserAgent(req) }
   if (req.headers.range) headers.Range = req.headers.range
   if (req.headers['if-range']) headers['If-Range'] = req.headers['if-range']
   try {
@@ -190,4 +194,4 @@ async function proxyStrm(req, res, filePath, allowedLocalRoots = []) {
   }
 }
 
-module.exports = { isStrmPath, isPrivateStrmHost, resolveStrmUrl, resolveStrmTarget, probeStrmTargetMedia, proxyStrm }
+module.exports = { AUDIOBOOKSHELF_USER_AGENT, isStrmPath, isPrivateStrmHost, resolveStrmUrl, resolveStrmTarget, probeStrmTargetMedia, getClientUserAgent, proxyStrm }

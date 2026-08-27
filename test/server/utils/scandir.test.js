@@ -178,6 +178,14 @@ describe('scanUtils', async () => {
     expect(isPrivateStrmHost('https://8.8.8.8/audio.m4a')).to.equal(false)
   })
 
+  it('should preserve client User-Agent for playback proxy requests and use AudioBookShelf for server fallback', () => {
+    const { getClientUserAgent, AUDIOBOOKSHELF_USER_AGENT } = require('../../../server/utils/strmUtils')
+    expect(getClientUserAgent({ get: () => 'Emby/4.8.0' })).to.equal('Emby/4.8.0')
+    expect(getClientUserAgent({ headers: { 'user-agent': 'Jellyfin/10.9' } })).to.equal('Jellyfin/10.9')
+    expect(getClientUserAgent({ headers: {} })).to.equal(AUDIOBOOKSHELF_USER_AGENT)
+    expect(AUDIOBOOKSHELF_USER_AGENT).to.equal('AudioBookShelf')
+  })
+
   it('should resolve local STRM targets without probing the target during scanning', async () => {
     const tempDir = await fs.mkdtemp(Path.join(os.tmpdir(), 'audiobookshelf-strm-'))
     const strmPath = Path.join(tempDir, 'chapter.strm')
