@@ -47,6 +47,7 @@ class ServerSettings {
 
     // Custom maintenance schedules
     this.strmMetadataCompletionCronExpression = null
+    this.strmMetadataCompletionLibraryIds = []
     this.strmMetadataCompletionMaxHours = 1
     this.strmMetadataCompletionQps = 1.0
     this.strmMetadataCompletionBatchSize = 5000
@@ -138,6 +139,7 @@ class ServerSettings {
     this.homeBookshelfView = settings.homeBookshelfView || BookshelfView.STANDARD
     this.bookshelfView = settings.bookshelfView || BookshelfView.STANDARD
     this.strmMetadataCompletionCronExpression = settings.strmMetadataCompletionCronExpression || null
+    this.strmMetadataCompletionLibraryIds = Array.isArray(settings.strmMetadataCompletionLibraryIds) ? settings.strmMetadataCompletionLibraryIds : []
     this.strmMetadataCompletionMaxHours = Number(settings.strmMetadataCompletionMaxHours) > 0 ? Number(settings.strmMetadataCompletionMaxHours) : 1
     this.strmMetadataCompletionQps = Number(settings.strmMetadataCompletionQps) >= 0.1 ? Number(settings.strmMetadataCompletionQps) : 1.0
     this.strmMetadataCompletionBatchSize = Number(settings.strmMetadataCompletionBatchSize) >= 500 ? Number(settings.strmMetadataCompletionBatchSize) : 5000
@@ -271,6 +273,7 @@ class ServerSettings {
       bookshelfView: this.bookshelfView,
       podcastEpisodeSchedule: this.podcastEpisodeSchedule,
       strmMetadataCompletionCronExpression: this.strmMetadataCompletionCronExpression,
+      strmMetadataCompletionLibraryIds: [...this.strmMetadataCompletionLibraryIds],
       strmMetadataCompletionMaxHours: this.strmMetadataCompletionMaxHours,
       strmMetadataCompletionQps: this.strmMetadataCompletionQps,
       strmMetadataCompletionBatchSize: this.strmMetadataCompletionBatchSize,

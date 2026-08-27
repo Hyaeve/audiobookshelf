@@ -55,10 +55,14 @@
         <div v-else>
           <label class="block text-sm font-semibold mb-2" for="scheduled-task-cron">Cron 表达式</label>
           <input id="scheduled-task-cron" v-model="draftCron" type="text" class="w-full bg-primary border border-gray-600 rounded-md px-3 py-2" placeholder="例如：0 3 * * *" />
-          <div v-if="selectedTask && (selectedTask.key === 'scan' || selectedTask.key === 'bookMetadata')" class="mt-5">
-            <label class="block text-sm font-semibold mb-2">{{ selectedTask.key === 'scan' ? '扫描媒体库' : '补全媒体库' }}</label>
+          <div v-if="selectedTask && (selectedTask.key === 'scan' || selectedTask.key === 'bookMetadata' || selectedTask.key === 'metadata')" class="mt-5">
+            <label class="block text-sm font-semibold mb-2">{{ selectedTask.key === 'scan' ? '扫描媒体库' : selectedTask.key === 'bookMetadata' ? '补全媒体库' : '预读媒体库' }}</label>
             <div class="max-h-40 overflow-y-auto bg-primary border border-gray-600 rounded-md p-2 space-y-1"><label v-for="library in selectedTask.key === 'scan' ? libraries : bookLibraries" :key="library.id" class="flex items-center text-sm py-1"><input v-model="draftLibraryIds" type="checkbox" :value="library.id" class="mr-2" /><span>{{ library.name }}</span></label></div>
             <label class="block text-sm font-semibold mb-2 mt-4">单次最长执行时间（小时）</label><input v-model.number="draftMaxHours" type="number" min="0.5" step="0.5" class="w-full bg-primary border border-gray-600 rounded-md px-3 py-2" />
+            <template v-if="selectedTask.key === 'metadata'">
+              <label class="block text-sm font-semibold mb-2 mt-4">扫描 QPS</label><input v-model.number="draftQps" type="number" min="0.1" max="10" step="0.1" class="w-full bg-primary border border-gray-600 rounded-md px-3 py-2" />
+              <label class="block text-sm font-semibold mb-2 mt-4">每隔多少个文件暂停 5 分钟</label><input v-model.number="draftBatchSize" type="number" min="500" step="500" class="w-full bg-primary border border-gray-600 rounded-md px-3 py-2" />
+            </template>
             <p v-if="selectedTask.key === 'bookMetadata'" class="text-xs text-gray-400 mt-3">逐本搜索当前书名并仅填充缺失字段；不会覆盖已有标题、作者、系列、封面或其他元数据。</p>
           </div>
           <div v-else-if="selectedTask && selectedTask.hasMaxHours" class="mt-5">
@@ -133,7 +137,7 @@ export default {
     async openSettings(task) {
       this.selectedTask = task
       this.draftCron = this.cronFor(task) || null
-      this.draftLibraryIds = task.key === 'scan' ? [...(this.serverSettings.scheduledLibraryScanLibraryIds || [])] : task.key === 'bookMatch' ? [...(this.serverSettings.aiBookMatchLibraryIds || [])] : task.key === 'bookMetadata' ? [...(this.serverSettings.bookMetadataCompletionLibraryIds || [])] : []
+      this.draftLibraryIds = task.key === 'scan' ? [...(this.serverSettings.scheduledLibraryScanLibraryIds || [])] : task.key === 'bookMatch' ? [...(this.serverSettings.aiBookMatchLibraryIds || [])] : task.key === 'bookMetadata' ? [...(this.serverSettings.bookMetadataCompletionLibraryIds || [])] : task.key === 'metadata' ? [...(this.serverSettings.strmMetadataCompletionLibraryIds || [])] : []
       this.draftMaxHours = task.key === 'scan' ? Number(this.serverSettings.scheduledLibraryScanMaxHours) || 1 : task.key === 'bookMatch' ? Number(this.serverSettings.aiBookMatchMaxHours) || 1 : task.key === 'bookMetadata' ? Number(this.serverSettings.bookMetadataCompletionMaxHours) || 1 : Number(this.serverSettings.strmMetadataCompletionMaxHours) || 1
       this.draftQps = Number(this.serverSettings.strmMetadataCompletionQps) || 1
       this.draftBatchSize = Number(this.serverSettings.strmMetadataCompletionBatchSize) || 5000
@@ -188,7 +192,7 @@ export default {
           payload = { aiBookMatchCronExpression: cronExpression, aiBookMatchLibraryIds: this.draftLibraryIds, aiBookMatchMaxHours: this.draftMaxHours, aiBookMatchApiUrl: this.draftAiUrl.trim() || null, aiBookMatchModel: this.draftAiModel.trim() || null, aiBookMatchConfidence: this.draftAiConfidence }
           if (this.draftAiKey.trim()) payload.aiBookMatchApiKey = this.draftAiKey.trim()
         } else if (this.selectedTask.key === 'bookMetadata') payload = { bookMetadataCompletionCronExpression: cronExpression, bookMetadataCompletionLibraryIds: this.draftLibraryIds, bookMetadataCompletionMaxHours: this.draftMaxHours }
-        else if (this.selectedTask.key === 'metadata') payload = { strmMetadataCompletionCronExpression: cronExpression, strmMetadataCompletionMaxHours: this.draftMaxHours, strmMetadataCompletionQps: this.draftQps, strmMetadataCompletionBatchSize: this.draftBatchSize }
+        else if (this.selectedTask.key === 'metadata') payload = { strmMetadataCompletionCronExpression: cronExpression, strmMetadataCompletionLibraryIds: this.draftLibraryIds, strmMetadataCompletionMaxHours: this.draftMaxHours, strmMetadataCompletionQps: this.draftQps, strmMetadataCompletionBatchSize: this.draftBatchSize }
         else payload = { missingItemsCleanupCronExpression: cronExpression }
         const response = await this.$axios.$patch('/api/settings', payload)
         this.$store.commit('setServerSettings', response.serverSettings)

@@ -135,7 +135,7 @@
 - 三项任务接口立即返回 HTTP 202，任务 Socket 事件负责反馈运行状态和完成结果。页面按任务 action 查找未完成任务，手动执行和 cron 执行均显示运行状态与停止按钮；全局布局收到 `task_finished` 后先写入任务 store，再通过 `$eventBus` 转发完成事件，计划任务页优先读取 `task.data.result` 中的服务端摘要并按完成时间去重，同步浏览器本地记录，书籍匹配横条显示“上次执行：时间，耗时 时长，匹配了 N 本图书”（清理任务额外显示清理了 N 项）。
 - 媒体库扫描（`scheduled-library-scan`）支持选择要扫描的媒体库（多选，不选则不扫描任何库）和单次最长执行时间（最小 0.5 小时、步长 0.5 小时，服务端校验）；执行时按选定顺序串行扫描，同时只扫描一个媒体库，受截止时间限制，超时或停止后立即结束并只在完成数中统计真正扫描完的库；停止入口为 `/api/scheduled-library-scan/stop`。配置字段为 `scheduledLibraryScanCronExpression`、`scheduledLibraryScanLibraryIds`、`scheduledLibraryScanMaxHours`，保存在服务端设置中（[`ServerSettings.js`](../server/objects/settings/ServerSettings.js:133)）。日志正文使用媒体库名称，不重复输出日志系统已经提供的时间戳。
 - 媒体预读跳过已完成的 STRM 书籍；计划任务只处理媒体信息不完整的书籍，部分完成的书籍仅将缺失信息的 STRM 音轨交给真实目标探测和扫描流程。计划任务进入全局预读队列的优先级低于播放触发和手动预读；停止计划任务时，尚未开始的排队书籍会在轮到时跳过，当前音轨探测完成后协作式退出。
-- 媒体预读支持 cron 表达式和单次最长执行时间，时间限制使用可直接输入的数字步进框，最小 0.5 小时、步长 0.5 小时；服务端校验 cron 和步长。计划任务 QPS 设置字段为 `strmMetadataCompletionQps`，默认 1.0，范围 0.1 至 10.0、步长 0.1。计划任务批量暂停设置字段为 `strmMetadataCompletionBatchSize`，默认 5000、最小 500、步长 500；达到配置阈值后暂停 5 分钟，并受单次小时数截止时间限制。
+- 媒体预读支持 cron 表达式、图书媒体库多选和单次最长执行时间，未选择媒体库时不处理任何书籍；时间限制使用可直接输入的数字步进框，最小 0.5 小时、步长 0.5 小时；服务端校验 cron、媒体库 ID 和步长。媒体库选择设置字段为 `strmMetadataCompletionLibraryIds`。计划任务 QPS 设置字段为 `strmMetadataCompletionQps`，默认 1.0，范围 0.1 至 10.0、步长 0.1。计划任务批量暂停设置字段为 `strmMetadataCompletionBatchSize`，默认 5000、最小 500、步长 500；达到配置阈值后暂停 5 分钟，并受单次小时数截止时间限制。
 - 清理丢失项目支持独立 cron 表达式和立即执行；只清理扫描后标记 `isMissing` 的项目，不处理仅标记 `isInvalid` 的项目。
 - 清理丢失项目复用项目删除的数据库关联清理流程，删除播放进度、播放列表关联、RSS、缓存、metadata 数据和项目记录，但不删除文件系统文件；完成后刷新问题统计并发送项目移除事件。任务结果在 `task.data.result.removed` 返回实际清理数量，页面第二行显示“清理了 N 项”，即使 N 为 `0` 也明确显示 `0`。
 - 三项计划任务均有运行中防重入保护和协作式取消：停止入口分别为 `/api/scheduled-library-scan/stop`、`/api/strm-metadata-completion/stop` 与 `/api/missing-items-cleanup/stop`。STRM 任务在当前探测完成后于下一首音轨或下一本书边界退出，批量暂停等待可被轮询取消；清理任务在每个媒体库和项目边界检查取消状态，已完成删除的数量保留在结果中；扫描任务在每库边界检查取消并设置库级取消标记（[`LibraryScanner.setCancelLibraryScan`](../server/scanner/LibraryScanner.js:41)）。配置保存在服务端设置中，cron 变更后立即重建对应定时任务。
@@ -176,7 +176,7 @@
 - [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:891)：多本手动媒体预读（manual 优先级、1.5 QPS、跨书共享每 3000 文件暂停 5 分钟）。
 - [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:705)：媒体库级手动媒体预读（manual 优先级、1.5 QPS、累计 5000 文件暂停 3 分钟）。
 - [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:798)：计划任务媒体预读（scheduled 优先级、读取 QPS/批量设置、按时限运行）。
-- [`server/objects/settings/ServerSettings.js`](../server/objects/settings/ServerSettings.js:128)：计划任务设置字段默认值：cron 默认 `null`（不开启）、`strmMetadataCompletionQps` 默认 1.0、`strmMetadataCompletionBatchSize` 默认 5000。
+- [`server/objects/settings/ServerSettings.js`](../server/objects/settings/ServerSettings.js:128)：计划任务设置字段默认值：cron 默认 `null`（不开启）、`strmMetadataCompletionLibraryIds` 默认空数组（不处理任何媒体库）、`strmMetadataCompletionQps` 默认 1.0、`strmMetadataCompletionBatchSize` 默认 5000。
 - [`server/objects/settings/ServerSettings.js`](../server/objects/settings/ServerSettings.js:133)：媒体库扫描设置字段：`scheduledLibraryScanCronExpression`（默认 null）、`scheduledLibraryScanLibraryIds`（默认空数组）、`scheduledLibraryScanMaxHours`（默认 1）。
 - [`server/controllers/MiscController.js`](../server/controllers/MiscController.js:141)：cron 表达式 trim + 空转 `null` + 合法性校验；QPS、批量、时间步长、媒体库 ID 校验。
 - [`server/controllers/MiscController.js`](../server/controllers/MiscController.js:656)：运行/停止 API 和管理员权限校验（`runMissingItemsCleanup`、`stopMissingItemsCleanup`、`runStrmMetadataCompletion`、`stopStrmMetadataCompletion`、`runScheduledLibraryScan`、`stopScheduledLibraryScan`）。
@@ -189,10 +189,10 @@
 
 ### 前端计划任务与主题
 
-- [`client/pages/config/scheduled-tasks.vue`](../client/pages/config/scheduled-tasks.vue:2)：计划任务页面四条任务横条，第二项为书籍匹配；标题使用 `:header-text`（无原生 title 悬浮提示）；cron 空值规范化为 `null`。书籍匹配设置使用左右双栏并隐藏已保存密钥。
-- [`server/managers/AiBookMatchManager.js`](../server/managers/AiBookMatchManager.js:1)：AI 候选白名单、OpenAI 协议调用、严格结果校验、“仅标题/描述和扫描基础信息”的未匹配筛选（封面不参与判断）及 `extraData.aiBookMatch` 审计持久化。
-- [`server/managers/CronManager.js`](../server/managers/CronManager.js:231)：AI 书籍匹配按 50 本分页读取后先批量过滤，只有未匹配候选进入逐本 AI 流程；已匹配项直接计入 `skipped`。运行中通过 `AbortController` 取消 AI 请求，停止后不再写入失败审计；启动和结束日志使用媒体库名称，多个媒体库和书籍均按顺序串行处理。
-- [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:867)：STRM 计划媒体预读建立媒体库 ID 到名称的映射，开始、完成和失败日志均输出媒体库名称，不输出媒体库 ID；计划媒体预读仍通过全局队列逐书调度。
+- [`client/pages/config/scheduled-tasks.vue`](../client/pages/config/scheduled-tasks.vue:2)：计划任务页面四条任务横条，第二项为书籍匹配；标题使用 `:header-text`（无原生 title 悬浮提示）；cron 空值规范化为 `null`。书籍匹配设置使用左右双栏，管理员打开设置时按需读取已保存密钥。
+- [`server/managers/AiBookMatchManager.js`](../server/managers/AiBookMatchManager.js:1)：AI 候选白名单、OpenAI 协议调用、严格结果校验、“仅标题/描述和扫描基础信息”的未匹配筛选（封面不参与判断）及 `extraData.aiBookMatch` 审计持久化；计划任务确认匹配后以覆盖封面和详情模式应用候选结果，同时继续遵守元数据锁。
+- [`server/managers/CronManager.js`](../server/managers/CronManager.js:231)：AI 书籍匹配按 50 本分页读取后先批量过滤，只有未匹配候选进入逐本 AI 流程；已匹配项直接计入 `skipped`。确认匹配后使用覆盖封面和详情模式写入。运行中通过 `AbortController` 取消 AI 请求，停止后不再写入失败审计；启动和结束日志使用媒体库名称，多个媒体库和书籍均按顺序串行处理。
+- [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:867)：STRM 计划媒体预读按 `strmMetadataCompletionLibraryIds` 筛选图书媒体库，建立媒体库 ID 到名称的映射，开始、完成和失败日志均输出媒体库名称，不输出媒体库 ID；计划媒体预读仍通过全局队列逐书调度。
 - [`server/scanner/Scanner.js`](../server/scanner/Scanner.js:130)：`applyBookMatch` 是普通快速匹配与 AI 匹配共用的候选应用入口。
 - [`server/managers/AiBookMatchManager.js`](../server/managers/AiBookMatchManager.js:84)：书名号本地书名提取、AI 作者/演播者提取、仅标题搜索回退和停止信号检查。
 - [`client/components/app/SettingsContent.vue`](../client/components/app/SettingsContent.vue:18)：只声明 `headerText`/`description`/`note` props，未声明 `title`。

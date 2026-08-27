@@ -849,7 +849,7 @@ class PlaybackSessionManager {
     return task
   }
 
-  async completeScheduledStrmMetadata(maxHours = 1) {
+  async completeScheduledStrmMetadata(maxHours = 1, libraryIds = []) {
     if (this.strmScheduledCompletionTask) return this.strmScheduledCompletionTask
 
     const cancellation = { requested: false }
@@ -864,13 +864,15 @@ class PlaybackSessionManager {
         key: 'MessageTaskCompletingStrmMetadata',
         subs: ['']
       }, null, true, { scheduledTask: true, totalBooks: 0, updatedBooks: 0, totalTracks: 0, scannedTracks: 0, progress: 0 })
-      const items = await Database.libraryItemModel.findAllExpandedWhere({
-        mediaType: 'book'
-      })
+      const selectedLibraryIds = Array.isArray(libraryIds) ? libraryIds : []
+      const items = selectedLibraryIds.length
+        ? await Database.libraryItemModel.findAllExpandedWhere({ mediaType: 'book', libraryId: selectedLibraryIds })
+        : []
       const libraries = await Database.libraryModel.getAllWithFolders()
       const libraryNames = new Map(libraries.map((library) => [library.id, library.name]))
       const getLibraryName = (libraryId) => libraryNames.get(libraryId) || libraryId || '未知媒体库'
       task.data.totalBooks = items.length
+      task.data.libraryIds = selectedLibraryIds
       let currentTitle = ''
       const updateProgress = (title = currentTitle) => {
         const totalTracks = Math.max(1, task.data.totalTracks || 1)

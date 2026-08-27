@@ -168,6 +168,12 @@ class MiscController {
       }
       settingsUpdate.strmMetadataCompletionMaxHours = maxHours
     }
+    if (settingsUpdate.strmMetadataCompletionLibraryIds !== undefined) {
+      if (!Array.isArray(settingsUpdate.strmMetadataCompletionLibraryIds)) return res.status(400).send('Metadata completion library IDs must be an array')
+      const libraries = await Database.libraryModel.findAll({ attributes: ['id', 'mediaType'] })
+      const validIds = new Set(libraries.filter((library) => library.mediaType === 'book').map((library) => library.id))
+      if (settingsUpdate.strmMetadataCompletionLibraryIds.some((id) => typeof id !== 'string' || !validIds.has(id))) return res.status(400).send('Invalid book library ID in metadata completion settings')
+    }
     if (settingsUpdate.strmMetadataCompletionQps !== undefined) {
       const qps = Number(settingsUpdate.strmMetadataCompletionQps)
       if (!Number.isFinite(qps) || qps < 0.1 || qps > 10 || Math.round(qps * 10) !== qps * 10) {
@@ -244,7 +250,7 @@ class MiscController {
       if (settingsUpdate.backupSchedule !== undefined) {
         this.backupManager.updateCronSchedule()
       }
-      if (settingsUpdate.strmMetadataCompletionCronExpression !== undefined || settingsUpdate.strmMetadataCompletionMaxHours !== undefined || settingsUpdate.strmMetadataCompletionQps !== undefined || settingsUpdate.strmMetadataCompletionBatchSize !== undefined) {
+      if (settingsUpdate.strmMetadataCompletionCronExpression !== undefined || settingsUpdate.strmMetadataCompletionLibraryIds !== undefined || settingsUpdate.strmMetadataCompletionMaxHours !== undefined || settingsUpdate.strmMetadataCompletionQps !== undefined || settingsUpdate.strmMetadataCompletionBatchSize !== undefined) {
         this.cronManager.updateStrmMetadataCron()
       }
       if (settingsUpdate.missingItemsCleanupCronExpression !== undefined) {

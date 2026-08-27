@@ -208,7 +208,8 @@ class CronManager {
       }
       this.strmMetadataCron.executing = true
       try {
-        await this.playbackSessionManager.completeScheduledStrmMetadata(settings.strmMetadataCompletionMaxHours)
+        const currentSettings = Database.serverSettings
+        await this.playbackSessionManager.completeScheduledStrmMetadata(currentSettings.strmMetadataCompletionMaxHours, currentSettings.strmMetadataCompletionLibraryIds)
       } finally {
         this.strmMetadataCron.executing = false
       }
@@ -217,7 +218,7 @@ class CronManager {
   }
 
   async runStrmMetadataCompletion() {
-    return this.playbackSessionManager.completeScheduledStrmMetadata(Database.serverSettings.strmMetadataCompletionMaxHours)
+    return this.playbackSessionManager.completeScheduledStrmMetadata(Database.serverSettings.strmMetadataCompletionMaxHours, Database.serverSettings.strmMetadataCompletionLibraryIds)
   }
 
   cancelStrmMetadataCompletion() {
@@ -293,7 +294,9 @@ class CronManager {
             try {
               matchResult = await AiBookMatchManager.matchLibraryItem(this.apiRouterCtx, libraryItem, library, {
                 signal: this.aiBookMatchAbortController.signal,
-                scheduledTask: true
+                scheduledTask: true,
+                overrideCover: true,
+                overrideDetails: true
               })
             } catch (error) {
               if (this.aiBookMatchCancelRequested || error.code === 'ERR_CANCELED' || error.name === 'CanceledError') {
