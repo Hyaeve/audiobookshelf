@@ -123,6 +123,20 @@ class MiscController {
   }
 
   /**
+   * GET: /api/ai-book-match/settings
+   * Get sensitive AI book matching settings for administrators.
+   *
+   * @param {RequestWithUser} req
+   * @param {Response} res
+   */
+  getAiBookMatchSettings(req, res) {
+    if (!req.user.isAdminOrUp) return res.sendStatus(403)
+    return res.json({
+      aiBookMatchApiKey: Database.serverSettings.aiBookMatchApiKey || ''
+    })
+  }
+
+  /**
    * PATCH: /api/settings
    * Update server settings
    *
