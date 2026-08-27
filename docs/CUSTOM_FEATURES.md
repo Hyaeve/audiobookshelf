@@ -186,7 +186,7 @@
 - [`client/components/tables/TracksTable.vue`](../client/components/tables/TracksTable.vue:18)：大量音轨展开时使用固定行高、可视窗口和上下占位进行虚拟渲染。
 - [`client/components/tables/ChaptersTable.vue`](../client/components/tables/ChaptersTable.vue:13)：详情页大量章节展开时复用音轨表的虚拟窗口渲染，保留章节播放跳转和编辑入口。
 - [`client/components/tables/LibraryFilesTable.vue`](../client/components/tables/LibraryFilesTable.vue:15)：详情页媒体库文件使用普通文档流完整渲染，移除虚拟窗口和内部滚动容器，避免动态替换表格行引起持续自动滚动；保留长路径单行截断、稳定文件键和文件操作入口。
-- [`client/pages/item/_id/index.vue`](../client/pages/item/_id/index.vue:406)：详情页三点菜单的补全元数据入口。
+- [`client/pages/item/_id/index.vue`](../client/pages/item/_id/index.vue:406)：详情页三点菜单在下载项下增加书籍“匹配”入口，复用媒体库书籍菜单的编辑窗口并直接打开 Match 标签。
 - [`client/components/app/ThemeSwitcher.vue`](../client/components/app/ThemeSwitcher.vue:1)：主题按钮、下拉选项、键盘 Escape 关闭、`localStorage` 持久化。
 - [`client/components/app/Appbar.vue`](../client/components/app/Appbar.vue:15)：主题按钮的上游耦合点，位于顶部搜索框右侧工具区。
 - [`client/assets/themes.css`](../client/assets/themes.css:1)：经典、暗色和浩瀚星空主题的 CSS 变量及覆盖规则。
@@ -236,6 +236,7 @@
    - 展开包含上千章节或媒体库文件的书籍，确认首屏仅渲染可视区及缓冲行，快速上下滑动时不会跳到顶部或底部，文件路径过长时保持单行截断。
    - 在计划任务页面验证手动执行、cron 校验、0.5 小时步长和管理员权限；确认 QPS 输入范围为 0.1 至 10.0、步长 0.1，默认 1.0，批量阈值默认 5000 且步长 500；已有总时长的书被跳过，任务按设置休息并在时限到达后停止。
    - 验证媒体库扫描横条排在第一位、不设置 cron 时显示“未启用计划执行”、默认不开启；选择多个媒体库后按选定顺序串行执行且同时只扫描一个库；第二行显示上次执行时间和耗时；超时或停止后正确结束，只在完成数中统计真正扫描完的库。
+   - 验证书籍详情页三点菜单中“匹配”位于“下载”下方，点击后打开与媒体库书籍三点菜单相同的 Match 编辑功能。
    - 验证书籍匹配手动执行完成后，横条立即更新上次执行时间、耗时和匹配数量；选择多个媒体库时日志显示媒体库名称而非 ID，并按选择顺序逐个处理，每个媒体库内逐本串行匹配。
    - 验证媒体库扫描和 STRM 元数据补全的开始、完成、失败日志均显示媒体库名称而非 ID；展开媒体库文件列表后持续上下滑动，不发生自动跳顶、跳底或自动连续滚动。
    - 验证三个 cron 字段保存空字符串或纯空格后变为 `null`（不开启），页面不再出现原生“计划任务”悬浮提示框。

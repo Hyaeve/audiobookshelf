@@ -403,6 +403,13 @@ export default {
         })
       }
 
+      if (this.userCanUpdate && this.isBook) {
+        items.push({
+          text: this.$strings.HeaderMatch,
+          action: 'match'
+        })
+      }
+
       if (this.userIsAdminOrUp && this.isBook) {
         items.push({
           text: this.$strings.ButtonCompleteMetadata,
@@ -717,6 +724,10 @@ export default {
     downloadLibraryItem() {
       this.$downloadFile(this.downloadUrl)
     },
+    matchLibraryItem() {
+      this.$store.commit('setBookshelfBookIds', [])
+      this.$store.commit('showEditModalOnTab', { libraryItem: this.libraryItem, tab: 'match' })
+    },
     deleteLibraryItem() {
       const payload = {
         message: this.$strings.MessageConfirmDeleteLibraryItem,
@@ -785,6 +796,8 @@ export default {
         this.clickRSSFeed()
       } else if (action === 'download') {
         this.downloadLibraryItem()
+      } else if (action === 'match') {
+        this.matchLibraryItem()
       } else if (action === 'complete-metadata') {
         this.completeMetadata()
       } else if (action === 'delete') {
