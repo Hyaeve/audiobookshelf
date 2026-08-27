@@ -108,6 +108,7 @@ describe('addCoverAndMetadataToFile', () => {
     copyStub = input.copyStub
     fsRemoveStub = input.fsRemoveStub
   })
+  afterEach(() => sinon.restore())
 
   it('should add cover image and metadata to audio file', async () => {
     // Act
@@ -136,8 +137,6 @@ describe('addCoverAndMetadataToFile', () => {
     expect(fsRemoveStub.calledOnce).to.be.true
     expect(fsRemoveStub.firstCall.args[0]).to.equal('/path/to/audio/file.tmp.mp3')
 
-    // Restore the stub
-    sinon.restore()
   })
 
   it('should handle missing cover image', async () => {
@@ -169,8 +168,6 @@ describe('addCoverAndMetadataToFile', () => {
     expect(fsRemoveStub.calledOnce).to.be.true
     expect(fsRemoveStub.firstCall.args[0]).to.equal('/path/to/audio/file.tmp.mp3')
 
-    // Restore the stub
-    sinon.restore()
   })
 
   it('should handle error during ffmpeg execution', async () => {
@@ -208,8 +205,6 @@ describe('addCoverAndMetadataToFile', () => {
     expect(copyStub.called).to.be.false
     expect(fsRemoveStub.called).to.be.false
 
-    // Restore the stub
-    sinon.restore()
   })
 
   it('should handle m4b embedding', async () => {
@@ -243,7 +238,5 @@ describe('addCoverAndMetadataToFile', () => {
     expect(fsRemoveStub.calledOnce).to.be.true
     expect(fsRemoveStub.firstCall.args[0]).to.equal('/path/to/audio/file.tmp.m4b')
 
-    // Restore the stub
-    sinon.restore()
   })
 })
