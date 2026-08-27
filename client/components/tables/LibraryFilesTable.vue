@@ -12,7 +12,7 @@
       </div>
     </div>
     <transition name="slide">
-      <div ref="filesViewport" class="files-viewport w-full max-h-[70vh] overflow-y-auto" v-show="showFiles" @scroll.passive="loadMoreFiles">
+      <div ref="filesViewport" class="files-viewport w-full max-h-[70vh] overflow-auto" :class="{ 'show-full-path': showFullPath }" v-show="showFiles" @scroll.passive="loadMoreFiles">
         <div class="files-virtual-canvas" :style="{ height: totalVirtualHeight + 'px' }">
           <table class="text-sm tracksTable files-virtual-table" :style="{ height: totalVirtualHeight + 'px' }">
             <tr class="files-header-row">
@@ -22,7 +22,7 @@
               <th v-if="hasActionColumn" class="text-center w-16"></th>
             </tr>
             <template v-for="entry in visibleFiles">
-              <tables-library-files-table-row :key="entry.file.ino || entry.file.metadata.path" :style="{ top: (entry.index + 1) * rowHeight + 'px' }" :libraryItemId="libraryItemId" :showFullPath="showFullPath" :file="entry.file" :inModal="inModal" @showMore="showMore" />
+              <tables-library-files-table-row :key="`${entry.file.ino || entry.file.metadata.path}-${showFullPath ? 'full' : 'relative'}`" :style="{ top: (entry.index + 1) * rowHeight + 'px' }" :library-item-id="libraryItemId" :show-full-path="showFullPath" :file="entry.file" :in-modal="inModal" @showMore="showMore" />
             </template>
           </table>
         </div>
@@ -101,6 +101,7 @@ export default {
     toggleFullPath() {
       this.showFullPath = !this.showFullPath
       localStorage.setItem('showFullPath', this.showFullPath ? 1 : 0)
+      this.$nextTick(this.updateVirtualWindow)
     },
     clickBar() {
       this.showFiles = !this.showFiles
@@ -162,6 +163,17 @@ export default {
   width: 100%;
   table-layout: fixed;
   border-collapse: collapse;
+}
+
+.show-full-path .files-virtual-table {
+  width: max-content;
+  min-width: 100%;
+  table-layout: auto;
+}
+
+.show-full-path .files-virtual-table :deep(tr) {
+  min-width: 100%;
+  width: max-content;
 }
 
 .files-virtual-table :deep(tr:not(.files-header-row)) {

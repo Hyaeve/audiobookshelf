@@ -1,7 +1,7 @@
 <template>
   <tr>
-    <td class="px-4 max-w-0">
-      <p class="truncate" :title="showFullPath ? file.metadata.path : file.metadata.relPath">{{ showFullPath ? file.metadata.path : file.metadata.relPath }}</p>
+    <td class="px-4" :class="showFullPath ? 'whitespace-nowrap' : 'max-w-0'">
+      <p :class="{ truncate: !showFullPath }" :title="displayPath">{{ displayPath }}</p>
     </td>
     <td>
       {{ $bytesPretty(file.metadata.size) }}
@@ -43,6 +43,9 @@ export default {
     },
     userIsAdmin() {
       return this.$store.getters['user/getIsAdminOrUp']
+    },
+    displayPath() {
+      return this.showFullPath ? this.file.metadata?.path || this.file.metadata?.relPath || '' : this.file.metadata?.relPath || this.file.metadata?.filename || ''
     },
     downloadUrl() {
       return `${process.env.serverUrl}/api/items/${this.libraryItemId}/file/${this.file.ino}/download?token=${this.userToken}`
