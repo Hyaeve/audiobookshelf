@@ -4,6 +4,7 @@ const Logger = require('../Logger')
 const Database = require('../Database')
 const LibraryScanner = require('../scanner/LibraryScanner')
 const AiBookMatchManager = require('./AiBookMatchManager')
+const Scanner = require('../scanner/Scanner')
 
 const ShareManager = require('./ShareManager')
 const TaskManager = require('./TaskManager')
@@ -21,7 +22,10 @@ class CronManager {
     this.missingItemsCleanupCron = null
     this.scheduledLibraryScanCron = null
     this.aiBookMatchCron = null
+    this.bookMetadataCompletionCron = null
     this.aiBookMatchExecuting = false
+    this.bookMetadataCompletionExecuting = false
+    this.bookMetadataCompletionCancelRequested = false
     this.aiBookMatchCancelRequested = false
     this.aiBookMatchAbortController = null
     this.scheduledLibraryScanExecuting = false
@@ -47,6 +51,7 @@ class CronManager {
     this.updateMissingItemsCleanupCron()
     this.updateScheduledLibraryScanCron()
     this.updateAiBookMatchCron()
+    this.updateBookMetadataCompletionCron()
     await this.initPodcastCrons()
   }
 
@@ -286,6 +291,85 @@ class CronManager {
     if (!this.aiBookMatchExecuting) return false
     this.aiBookMatchCancelRequested = true
     if (this.aiBookMatchAbortController) this.aiBookMatchAbortController.abort()
+    return true
+  }
+
+  updateBookMetadataCompletionCron() {
+    const expression = Database.serverSettings.bookMetadataCompletionCronExpression
+    if (this.bookMetadataCompletionCron && (!expression || this.bookMetadataCompletionCron.expression !== expression)) {
+      this.bookMetadataCompletionCron.task.stop()
+      this.bookMetadataCompletionCron = null
+    }
+    if (!expression || this.bookMetadataCompletionCron) return
+    if (!cron.validate(expression)) {
+      Logger.error(`[CronManager] Invalid book metadata completion cron expression "${expression}"`)
+      return
+    }
+    const task = cron.schedule(expression, () => this.runBookMetadataCompletion(true))
+    this.bookMetadataCompletionCron = { expression, task }
+  }
+
+  async runBookMetadataCompletion(scheduledTask = false) {
+    if (this.bookMetadataCompletionExecuting) return { skipped: true }
+    this.bookMetadataCompletionExecuting = true
+    this.bookMetadataCompletionCancelRequested = false
+    const settings = Database.serverSettings
+    const libraryIds = Array.isArray(settings.bookMetadataCompletionLibraryIds) ? settings.bookMetadataCompletionLibraryIds : []
+    const maxHours = Number(settings.bookMetadataCompletionMaxHours) > 0 ? Number(settings.bookMetadataCompletionMaxHours) : 1
+    const deadline = Date.now() + maxHours * 60 * 60 * 1000
+    const task = TaskManager.createAndAddTask('book-metadata-completion', { text: '补全书籍元数据' }, null, true, { scheduledTask, progress: 0, libraryIds })
+    const result = { processed: 0, updated: 0, unmatched: 0, skipped: 0, cancelled: false }
+    const startedAt = Date.now()
+    try {
+      const libraries = await Database.libraryModel.getAllWithFolders()
+      const selectedLibraries = libraryIds.map((id) => libraries.find((library) => library.id === id)).filter((library) => library?.mediaType === 'book')
+      Logger.info(`[CronManager] 书籍元数据补全${scheduledTask ? '计划任务' : '手动任务'}开始，目标媒体库：${selectedLibraries.map((library) => library.name).join('、') || '无'}`)
+      for (let libraryIndex = 0; libraryIndex < selectedLibraries.length; libraryIndex += 1) {
+        const library = selectedLibraries[libraryIndex]
+        let offset = 0
+        while (!this.bookMetadataCompletionCancelRequested && Date.now() < deadline) {
+          const items = await Database.libraryItemModel.getLibraryItemsIncrement(offset, 50, { libraryId: library.id, mediaType: 'book', isMissing: false, isInvalid: false })
+          if (!items.length) break
+          offset += items.length
+          for (const libraryItem of items) {
+            if (this.bookMetadataCompletionCancelRequested || Date.now() >= deadline) break
+            result.processed += 1
+            try {
+              const matchResult = await Scanner.quickMatchLibraryItem(this.apiRouterCtx, libraryItem, { overrideCover: false, overrideDetails: false })
+              if (matchResult.warning) result.unmatched += 1
+              else if (matchResult.updated) result.updated += 1
+              else result.skipped += 1
+            } catch (error) {
+              result.skipped += 1
+              Logger.warn(`[CronManager] Book metadata completion failed for "${libraryItem.id}": ${error.message}`)
+            }
+            TaskManager.updateTaskProgress(task, selectedLibraries.length ? Math.min(99, ((libraryIndex + 1) / selectedLibraries.length) * 100) : 100, { currentLibrary: library.name, ...result })
+          }
+          if (items.length < 50) break
+        }
+      }
+      result.cancelled = this.bookMetadataCompletionCancelRequested || Date.now() >= deadline
+      const finishedAt = Date.now()
+      const summary = { startedAt, finishedAt, durationMs: finishedAt - startedAt, ...result }
+      task.data.result = summary
+      task.setFinished(null, true)
+      Database.serverSettings.bookMetadataCompletionLastRun = summary
+      await Database.updateServerSettings()
+      Logger.info(`[CronManager] 书籍元数据补全结束：${JSON.stringify(summary)}`)
+      return summary
+    } catch (error) {
+      task.setFailed({ text: error.message || 'Book metadata completion failed' })
+      throw error
+    } finally {
+      TaskManager.taskFinished(task)
+      this.bookMetadataCompletionExecuting = false
+      this.bookMetadataCompletionCancelRequested = false
+    }
+  }
+
+  cancelBookMetadataCompletion() {
+    if (!this.bookMetadataCompletionExecuting) return false
+    this.bookMetadataCompletionCancelRequested = true
     return true
   }
 

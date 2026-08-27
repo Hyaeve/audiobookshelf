@@ -360,6 +360,8 @@ class ApiRouter {
     this.router.post('/scheduled-library-scan/stop', MiscController.stopScheduledLibraryScan.bind(this))
     this.router.post('/ai-book-match/run', MiscController.runAiBookMatch.bind(this))
     this.router.post('/ai-book-match/stop', MiscController.stopAiBookMatch.bind(this))
+    this.router.post('/book-metadata-completion/run', MiscController.runBookMetadataCompletion.bind(this))
+    this.router.post('/book-metadata-completion/stop', MiscController.stopBookMetadataCompletion.bind(this))
     this.router.patch('/settings', MiscController.updateServerSettings.bind(this))
     this.router.patch('/sorting-prefixes', MiscController.updateSortingPrefixes.bind(this))
     this.router.post('/authorize', MiscController.authorize.bind(this))

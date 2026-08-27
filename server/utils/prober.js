@@ -288,14 +288,15 @@ function parseProbeData(data, verbose = false) {
  * Run ffprobe on audio filepath
  * @param {string} filepath
  * @param {boolean} [verbose=false]
+ * @param {{userAgent?: string}} [options]
  * @returns {import('../scanner/MediaProbeData')|{error:string}}
  */
-function probe(filepath, verbose = false) {
+function probe(filepath, verbose = false, options = {}) {
   if (process.env.FFPROBE_PATH) {
     ffprobe.FFPROBE_PATH = process.env.FFPROBE_PATH
   }
 
-  return parseProbeResult(ffprobe(filepath), verbose)
+  return parseProbeResult(ffprobe(filepath, options), verbose)
 }
 
 function probeBuffer(buffer, verbose = false) {

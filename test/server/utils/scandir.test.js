@@ -80,7 +80,7 @@ describe('scanUtils', async () => {
       'A/A2': ['初踏修仙路-01.strm']
     })
     expect(scanUtils.groupFileItemsIntoLibraryItemDirs('book', fileItems, false, false, true)).to.deep.equal({
-      A: ['A1/七玄门风云-01.strm', 'A1/七玄门风云-02.strm', 'A2/初踏修仙路-01.strm']
+      A: ['A2/初踏修仙路-01.strm', 'A1/七玄门风云-01.strm', 'A1/七玄门风云-02.strm']
     })
   })
 
@@ -99,12 +99,67 @@ describe('scanUtils', async () => {
 
     expect(scanUtils.groupFileItemsIntoLibraryItemDirs('book', fileItems, false, false, true)).to.deep.equal({
       '哈利·波特（系列）': [
-        '哈利·波特与阿兹卡班的囚徒/10.strm',
-        '哈利·波特与阿兹卡班的囚徒/106《哈利·波特》第三部 第2集 猫头鹰传书2.strm',
         '哈利·波特与魔法石/2.strm',
-        '哈利·波特与魔法石/7《哈利·波特》第一部 第6集 猫头鹰传书6.strm'
+        '哈利·波特与魔法石/7《哈利·波特》第一部 第6集 猫头鹰传书6.strm',
+        '哈利·波特与阿兹卡班的囚徒/10.strm',
+        '哈利·波特与阿兹卡班的囚徒/106《哈利·波特》第三部 第2集 猫头鹰传书2.strm'
       ]
     })
+  })
+
+  it('recognizes the supported leading volume sequence formats', () => {
+    const cases = [
+      ['1.avi', 1],
+      ['01.mp3', 1],
+      ['2.5.jpg', 2.5],
+      ['3 标题', 3],
+      ['Vol 1', 1],
+      ['Volume 02', 2],
+      ['Book 3.5', 3.5],
+      ['第 1 部', 1],
+      ['第1卷', 1],
+      ['第一部', 1],
+      ['第一季', 1],
+      ['S02', 2],
+      ['上卷', 1],
+      ['中卷', 2],
+      ['下部', 3],
+      ['卷 2', 2],
+      ['部三', 3],
+      ['季 4', 4]
+    ]
+
+    cases.forEach(([value, sequence]) => {
+      expect(scanUtils.getLeadingSequence(value), value).to.equal(sequence)
+    })
+    expect(scanUtils.getLeadingSequence('哈利·波特与魔法石')).to.equal(null)
+    expect(scanUtils.getLeadingSequence('第十部')).to.equal(10)
+  })
+
+  it('sorts all filenames globally when anchored folders have no sequence', () => {
+    const fileItems = [
+      '系列/第二本书/106.strm',
+      '系列/第一本书/7.strm',
+      '系列/第三本书/10.strm'
+    ].map((filePath) => ({
+      name: Path.basename(filePath),
+      reldirpath: Path.dirname(filePath),
+      extension: Path.extname(filePath),
+      deep: filePath.split('/').length - 1
+    }))
+
+    expect(scanUtils.groupFileItemsIntoLibraryItemDirs('book', fileItems, false, false, true).系列).to.deep.equal(['第一本书/7.strm', '第三本书/10.strm', '第二本书/106.strm'])
+  })
+
+  it('sorts by folder sequence when every anchored folder has a recognized sequence', () => {
+    const fileItems = ['系列/第十部/1.strm', '系列/第二部/20.strm', '系列/第一部/100.strm'].map((filePath) => ({
+      name: Path.basename(filePath),
+      reldirpath: Path.dirname(filePath),
+      extension: Path.extname(filePath),
+      deep: filePath.split('/').length - 1
+    }))
+
+    expect(scanUtils.groupFileItemsIntoLibraryItemDirs('book', fileItems, false, false, true).系列).to.deep.equal(['第一部/100.strm', '第二部/20.strm', '第十部/1.strm'])
   })
 
   it('uses the matching folder as the book title source', () => {

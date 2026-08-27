@@ -8,9 +8,9 @@ const spawn = require('child_process').spawn
 const probeArgs = ['-hide_banner', '-loglevel', 'fatal', '-show_error', '-show_format', '-show_streams', '-show_programs', '-show_chapters', '-show_private_data', '-print_format', 'json']
 
 module.exports = (function () {
-  function runProbe(input, isBuffer = false) {
+  function runProbe(input, isBuffer = false, inputArgs = []) {
     return new Promise((resolve, reject) => {
-      const proc = spawn(module.exports.FFPROBE_PATH || 'ffprobe', [...probeArgs, isBuffer ? 'pipe:0' : input])
+      const proc = spawn(module.exports.FFPROBE_PATH || 'ffprobe', [...probeArgs, ...inputArgs, isBuffer ? 'pipe:0' : input])
       const probeData = []
       const probeErrors = []
 
@@ -42,8 +42,9 @@ module.exports = (function () {
     })
   }
 
-  function doProbe(file) {
-    return runProbe(file)
+  function doProbe(file, options = {}) {
+    const inputArgs = options.userAgent ? ['-user_agent', options.userAgent] : []
+    return runProbe(file, false, inputArgs)
   }
 
   doProbe.probeBuffer = (buffer) => runProbe(buffer, true)

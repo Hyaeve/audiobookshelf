@@ -17,7 +17,7 @@
 
 播放阶段的真实目标访问规则：
 
-- 服务端根据用户恢复进度只代理当前播放章节的 `.strm` 目标，不预取固定数量的其他章节；远程请求透传 Range，本地目标直接读取容器内文件。
+- 服务端根据用户恢复进度只代理当前播放章节的 `.strm` 目标，不预取固定数量的其他章节；远程请求使用 `User-Agent: AudioBookShelf (+https://audiobookshelf.org)` 并透传 Range，本地目标直接读取容器内文件。
 - 如果书籍存在缺少真实时长、编码或声道信息的 STRM 音轨，播放响应返回后会在后台执行整本书媒体预读：本地目标使用真实路径，远程目标使用内存 Buffer 通过 `ffprobe` 标准输入探测，不阻塞首个播放响应。
 - 所有 STRM 媒体预读入口共用一个全局书籍队列，同时最多预读一本书。队列按“播放触发 > 手动执行 > 计划任务”优先级选择下一本书；同一优先级内按请求进入队列的先后顺序处理。当前正在预读的书不会被抢占，完成后才重新选择高优先级队列。播放触发的后台预读每本书固定使用 2.0 QPS，完成后暂停 3 分钟；手动预读和计划任务使用各自定义的限速策略。已有完整音轨信息的目标不会重复请求。
 - 已完成媒体预读的 STRM 书籍在播放预读、单本手动、多本手动、媒体库手动和计划任务入口中都会直接跳过；部分完成的书籍只预读缺失时长、编码或声道信息的 STRM 音轨。
@@ -29,7 +29,7 @@
 - 当所有 STRM 音轨和书籍聚合元数据均完整时，后续播放不会再次执行完整扫描；如果仅聚合章节或总时长缺失，则只从已保存音轨重建，不访问目标。
 - 本地目标默认必须位于当前媒体所属库配置的库目录内，并且必须是普通文件，防止 `.strm` 被利用为任意文件读取入口。
 - 如果 `.strm` 指向媒体库目录之外但仍属于同一网盘挂载，例如媒体库是 `/NetDisk/115-Strm`、目标是 `/NetDisk/CloudNAS/...`，程序会自动将固定容器根目录 `/NetDisk` 纳入允许范围；该目录必须在容器内真实挂载，并且 `.strm` 中的路径必须使用容器内路径。
-- 当前播放章节的代理失败不会阻断扫描任务；单个完整扫描目标失败会保留占位数据并记录具体原因。
+- 当前播放章节的代理失败不会阻断扫描任务；单个完整扫描目标失败会保留占位数据并记录具体原因。媒体预读通过 FFprobe 的 `-user_agent` 参数同样固定使用 `AudioBookShelf (+https://audiobookshelf.org)`，不会显示为 Emby 或透传客户端名称。
 - `.strm` 指针解析结果按文件的 `mtimeMs` 缓存，文件更新后会自动重新读取。
 
 ## 扫描机制
@@ -51,6 +51,15 @@
 - `/Read/有声读物/A/A1` 和 `/Read/有声读物/A/A2` 不会拆成两本书；它们的媒体文件都归入 `A`，扫描时保留 `A1/...`、`A2/...` 的相对路径。
 - 该规则适用于书籍媒体库；播客继续使用原有的播客分组逻辑。
 - 扫描只读取文件系统目录和文件元数据，不读取 `.strm` 指针内容，也不访问指针目标。
+
+序列识别与排序规则如下，按以下六类信息依次判断，不能把不同层级的数字直接混排：
+
+1. **卷目录/分卷序号**：读取书籍目录下第一层卷目录名（如 `A1`、`A2`、`Vol. 1`、`第2卷`），提取卷序并自然排序；这是全书的一级序列。
+2. **碟片/光盘序号**：在同一卷内识别目录名或文件名中的 `CD`、`Disc`、`Disk` 等碟号；碟号完整且连续时优先使用它。
+3. **章节/曲目序号**：识别文件名中的章节号、曲目号或连续数字区间，数字按数值而非字符串比较。
+4. **媒体标签序号**：读取音频标签中的 disc number、track number 等序号；文件名和标签同时存在时，采用信息更完整、连续性更好的来源。
+5. **层级目录顺序**：对无法可靠提取序号或序号相同的文件，按相对路径的目录层级和自然排序稳定排列，不能因不同卷中都存在 `01` 就跨卷合并。
+6. **文件名自然排序兜底**：前述信息均缺失或完全相同时，按完整相对文件名自然排序，确保结果稳定可复现。
 
 章节排序规则如下：
 
@@ -97,12 +106,13 @@
 - 手动入口以 `manual` 优先级入队：单本 [`completeStrmItem`](../server/managers/PlaybackSessionManager.js:776) 固定 2.0 QPS、每 3000 文件暂停 5 分钟；多本 [`completeStrmItems`](../server/managers/PlaybackSessionManager.js:891) 固定 1.5 QPS 并共享 `throttleState`；媒体库级 [`completeStrmLibrary`](../server/managers/PlaybackSessionManager.js:705) 固定 1.5 QPS、累计 5000 文件暂停 3 分钟。手动入口通过 `strmManualEnqueueChain` 串行准备作业，避免并发重复提交。
 - 计划任务以 `scheduled` 优先级入队，见 [`completeScheduledStrmMetadata`](../server/managers/PlaybackSessionManager.js:798)。
 
-### 5. 计划任务：媒体库扫描、书籍匹配、媒体预读与清理丢失项目
+### 5. 计划任务：媒体库扫描、书籍匹配、元数据补全、媒体预读与清理丢失项目
 
 - 设置页面的用户下方新增“计划任务”入口，页面适配项目现有主题变量。
 - 计划任务和相关操作的用户可见名称统一为“媒体预读”，内部 API action `strm-metadata-completion` 保持不变以兼容既有调用。
 - 书籍、媒体库、批量和计划任务相关的操作选项、任务标题、提示消息及日志均使用“媒体预读”名称，内部 API action `strm-metadata-completion` 保持不变以兼容既有调用。
 - 本地新增的第二项“书籍匹配”横条使用 `ai-book-match` 任务动作。它支持 cron、图书媒体库多选和 0.5 小时步长的时间限制；设置窗口为左右双栏，左侧是任务参数，右侧是 OpenAI 兼容接口地址、API 密钥、模型和自动应用最低置信度。横条第二行在手动或计划任务完成后均显示上次执行时间、耗时和成功匹配的图书数量。
+- 本地新增的“补全元数据”横条使用 `book-metadata-completion` 任务动作，支持 cron、图书媒体库多选和 0.5 小时步长的时间限制。该任务与 AI 书籍匹配严格分离：按当前书籍标题逐本请求普通 [`BookFinder.search()`](../server/finders/BookFinder.js:329)，找到候选后调用 [`Scanner.quickMatchLibraryItem()`](../server/scanner/Scanner.js:37)；始终关闭覆盖封面和覆盖详情，只补充缺失字段。AI 书籍匹配仍只处理 [`getUnmatchedCandidates()`](../server/managers/AiBookMatchManager.js:18) 判定为未完成匹配的书籍，对已匹配书籍不执行 AI 请求、provider 搜索或写入。
 - [`AiBookMatchManager`](../server/managers/AiBookMatchManager.js:9) 先把入库书籍的 `media.title`（该字段就是原始文件夹名）发送给 OpenAI 兼容接口 `/chat/completions`，提取书名、作者和演播者；作者与演播者去重合并后分别作为既有 [`BookFinder.search`](../server/finders/BookFinder.js:329) 的标题和作者参数，再获取最多 8 个候选。随后 AI 只能返回本次候选数组中的序号、0 至 1 置信度和理由；服务端拒绝越界序号、非法 JSON 与非法置信度，禁止 AI 自由生成并直接写入元数据。
 - 达到 `aiBookMatchConfidence` 阈值后，任务调用 [`Scanner.applyBookMatch`](../server/scanner/Scanner.js:130)，与原快速匹配共用封面、作者、系列、元数据文件和 Socket 更新流程。
 - 书名号场景先由本地从 `《》`、`「」` 或 `『』` 提取并固定书名，AI 主要补充作者和演播者；无书名号时由 AI 提取书名、作者和演播者。提取结果分别作为书名和作者信息参与搜索与候选判断。
@@ -117,6 +127,7 @@
 - 每次失败、低置信度或成功判断都持久化到已有 `LibraryItem.extraData.aiBookMatch`，记录 `status`、`source`、`model`、`confidence`、`candidate`、`updatedAt`、`reason` 等审计信息，不新增数据库表或列。AI 提取失败会记录具体原因并标记待复核；没有 provider 候选的 `unmatched` 会保留实际搜索标题和作者，便于后续排查。
 - 四类计划任务都会写入可读的执行日志：媒体库扫描记录目标媒体库和扫描开始/完成；书籍匹配记录媒体库、原名称、AI 提取后的搜索标题和作者、匹配结果及候选书名；媒体预读记录书名、待预读音轨数和成功/失败结果；清理丢失项目记录媒体库名称和被清理项目名称。日志正文不重复写时间，也不使用媒体库 ID，时间由日志系统自动标注。书籍匹配选择多个媒体库时按设置顺序逐个处理，单个媒体库内按书籍顺序逐本处理，不并行执行；媒体预读通过媒体库 ID 到名称的映射输出媒体库名称。
 - 配置字段为 `aiBookMatchCronExpression`、`aiBookMatchLibraryIds`、`aiBookMatchMaxHours`、`aiBookMatchApiUrl`、`aiBookMatchApiKey`、`aiBookMatchModel` 和 `aiBookMatchConfidence`。密钥只保存在服务端设置，`toJSONForBrowser` 会删除密钥并仅返回 `aiBookMatchApiConfigured`；页面留空密钥时不覆盖已保存值。最后一次执行摘要持久化在 `aiBookMatchLastRun`，因此即使 cron 在浏览器未打开时运行，下次进入页面仍能显示上次执行时间、耗时和匹配数量。
+- 补全元数据配置字段为 `bookMetadataCompletionCronExpression`、`bookMetadataCompletionLibraryIds`、`bookMetadataCompletionMaxHours` 和 `bookMetadataCompletionLastRun`，运行/停止接口为 `/api/book-metadata-completion/run` 与 `/api/book-metadata-completion/stop`。任务结果包含处理数、更新数、未找到候选数和跳过数。
 - 页面提供“媒体库扫描”“媒体预读”“清理丢失项目”等紧凑横条，媒体库扫描排在第一位；每条依次显示大字功能标题、已运行后的上次运行摘要和小字描述，右侧显示立即执行、运行中的普通停止图标与竖三点图标。停止图标不使用背景填充、高亮或额外描边框，点击热区仍保持足够大小；停止按钮调用对应停止 API，服务端协作式取消后才结束任务。
 - 三条横条均支持 cron 表达式；不设置 cron 表达式即为不开启，默认不开启。保存时空字符串与纯空格会被规范化为 `null`（前端 [`saveSettings`](../client/pages/config/scheduled-tasks.vue:263) 与服务端 [`updateServerSettings`](../server/controllers/MiscController.js:141) 双重处理），服务端同时校验 cron 合法性，cron 变更后立即重建对应定时任务（[`updateStrmMetadataCron`](../server/managers/CronManager.js:135)、[`updateMissingItemsCleanupCron`](../server/managers/CronManager.js:175)、[`updateScheduledLibraryScanCron`](../server/managers/CronManager.js:190)，表达式为空时停止并清空定时任务）。
 - 三项任务接口立即返回 HTTP 202，任务 Socket 事件负责反馈运行状态和完成结果。页面按任务 action 查找未完成任务，手动执行和 cron 执行均显示运行状态与停止按钮；全局布局收到 `task_finished` 后先写入任务 store，再通过 `$eventBus` 转发完成事件，计划任务页优先读取 `task.data.result` 中的服务端摘要并按完成时间去重，同步浏览器本地记录，书籍匹配横条显示“上次执行：时间，耗时 时长，匹配了 N 本图书”（清理任务额外显示清理了 N 项）。
@@ -243,7 +254,7 @@
    - 验证媒体库扫描和媒体预读的开始、完成、失败日志均显示媒体库名称而非 ID；展开媒体库文件列表后持续上下滑动，不发生自动跳顶、跳底或自动连续滚动。
    - 验证三个 cron 字段保存空字符串或纯空格后变为 `null`（不开启），页面不再出现原生“计划任务”悬浮提示框。
    - 验证“顶层书籍锚点”默认关闭：`作者/A1`、`作者/A2` 按原项目父级目录逻辑识别为两本书；开启后验证 `A/A1`、`A/A2` 被聚合为同一本书 `A`，且按卷目录顺序排列。完整扫描和 watcher 增量扫描结果应一致。
-   - 播放时验证只访问当前章节目标，章节切换和恢复进度不会额外预取其他章节。
+   - 播放时验证只访问当前章节目标，章节切换和恢复进度不会额外预取其他章节；远程服务端看到的请求标头 User-Agent 应为 `AudioBookShelf (+https://audiobookshelf.org)`，媒体预读和播放代理均不应显示为 Emby。
    - 播放响应返回后验证后台按请求顺序逐本以 2.0 QPS 执行完整扫描，每本完成后暂停 3 分钟；成功后数据库中的 STRM 音轨时长、音轨元数据、章节和总时长均被补全；重复播放不会重复请求已完整书籍。
    - 分别验证详情页单本补全使用 2.0 QPS 且每 3000 文件暂停 5 分钟，选择多本补全使用 1.5 QPS 且跨书累计每 3000 文件暂停 5 分钟；媒体库三点菜单补全使用 1.5 QPS 且累计每 5000 文件暂停 3 分钟，并能在任务通知中显示当前书名和进度。
    - 验证全局单书队列互斥与优先级：播放补全执行中发起手动补全会排队，手动补全执行中发起计划任务会排队；同一优先级内先请求的先执行；当前书完成后才切换到更高优先级队列。

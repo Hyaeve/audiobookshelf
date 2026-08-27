@@ -50,10 +50,11 @@
         <div v-else>
           <label class="block text-sm font-semibold mb-2" for="scheduled-task-cron">Cron 表达式</label>
           <input id="scheduled-task-cron" v-model="draftCron" type="text" class="w-full bg-primary border border-gray-600 rounded-md px-3 py-2" placeholder="例如：0 3 * * *" />
-          <div v-if="selectedTask && selectedTask.key === 'scan'" class="mt-5">
-            <label class="block text-sm font-semibold mb-2">扫描媒体库</label>
-            <div class="max-h-40 overflow-y-auto bg-primary border border-gray-600 rounded-md p-2 space-y-1"><label v-for="library in libraries" :key="library.id" class="flex items-center text-sm py-1"><input v-model="draftLibraryIds" type="checkbox" :value="library.id" class="mr-2" /><span>{{ library.name }}</span></label></div>
+          <div v-if="selectedTask && (selectedTask.key === 'scan' || selectedTask.key === 'bookMetadata')" class="mt-5">
+            <label class="block text-sm font-semibold mb-2">{{ selectedTask.key === 'scan' ? '扫描媒体库' : '补全媒体库' }}</label>
+            <div class="max-h-40 overflow-y-auto bg-primary border border-gray-600 rounded-md p-2 space-y-1"><label v-for="library in selectedTask.key === 'scan' ? libraries : bookLibraries" :key="library.id" class="flex items-center text-sm py-1"><input v-model="draftLibraryIds" type="checkbox" :value="library.id" class="mr-2" /><span>{{ library.name }}</span></label></div>
             <label class="block text-sm font-semibold mb-2 mt-4">单次最长执行时间（小时）</label><input v-model.number="draftMaxHours" type="number" min="0.5" step="0.5" class="w-full bg-primary border border-gray-600 rounded-md px-3 py-2" />
+            <p v-if="selectedTask.key === 'bookMetadata'" class="text-xs text-gray-400 mt-3">逐本搜索当前书名并仅填充缺失字段；不会覆盖已有标题、作者、系列、封面或其他元数据。</p>
           </div>
           <div v-else-if="selectedTask && selectedTask.hasMaxHours" class="mt-5">
             <label class="block text-sm font-semibold mb-2">单次最长执行时间（小时）</label><input v-model.number="draftMaxHours" type="number" min="0.5" step="0.5" class="w-full bg-primary border border-gray-600 rounded-md px-3 py-2" />
@@ -89,6 +90,7 @@ export default {
       return [
         { key: 'scan', title: '媒体库扫描', description: '扫描选定媒体库', hasMaxHours: true },
         { key: 'bookMatch', title: '书籍匹配', description: 'AI 辅助匹配未匹配书籍', hasMaxHours: true },
+        { key: 'bookMetadata', title: '补全元数据', description: '根据当前书名搜索并仅补充缺失的书籍元数据', hasMaxHours: true },
         { key: 'metadata', title: '媒体预读', description: '仅预读缺少有声书总时长的书籍', hasMaxHours: true },
         { key: 'missing', title: '清理丢失项目', description: '删除扫描后标记为丢失的项目数据库记录，不删除文件系统文件', hasMaxHours: false }
       ]
@@ -97,6 +99,7 @@ export default {
   mounted() {
     try { this.lastRuns = JSON.parse(localStorage.getItem(LAST_RUN_STORAGE_KEY) || '{}') } catch (error) { this.lastRuns = {} }
     if (!this.lastRuns.bookMatch && this.serverSettings.aiBookMatchLastRun) this.$set(this.lastRuns, 'bookMatch', { ...this.serverSettings.aiBookMatchLastRun })
+    if (!this.lastRuns.bookMetadata && this.serverSettings.bookMetadataCompletionLastRun) this.$set(this.lastRuns, 'bookMetadata', { ...this.serverSettings.bookMetadataCompletionLastRun })
     this.$eventBus.$on('task-finished', this.scheduledTaskFinished)
   },
   beforeDestroy() { this.$eventBus.$off('task-finished', this.scheduledTaskFinished) },
@@ -106,11 +109,11 @@ export default {
     }
   },
   methods: {
-    actionFor(task) { return { scan: 'scheduled-library-scan', bookMatch: 'ai-book-match', metadata: 'strm-metadata-completion', missing: 'missing-items-cleanup' }[task.key] },
+    actionFor(task) { return { scan: 'scheduled-library-scan', bookMatch: 'ai-book-match', bookMetadata: 'book-metadata-completion', metadata: 'strm-metadata-completion', missing: 'missing-items-cleanup' }[task.key] },
     scheduledTask(task) { return this.tasks.find((item) => item.action === this.actionFor(task) && !item.isFinished) },
     isTaskRunning(task) { return !!this.scheduledTask(task) || !!this.running[task.key] },
     taskProgress(task) { return Number(this.scheduledTask(task)?.data?.progress) || 0 },
-    cronFor(task) { return { scan: this.serverSettings.scheduledLibraryScanCronExpression, bookMatch: this.serverSettings.aiBookMatchCronExpression, metadata: this.serverSettings.strmMetadataCompletionCronExpression, missing: this.serverSettings.missingItemsCleanupCronExpression }[task.key] },
+    cronFor(task) { return { scan: this.serverSettings.scheduledLibraryScanCronExpression, bookMatch: this.serverSettings.aiBookMatchCronExpression, bookMetadata: this.serverSettings.bookMetadataCompletionCronExpression, metadata: this.serverSettings.strmMetadataCompletionCronExpression, missing: this.serverSettings.missingItemsCleanupCronExpression }[task.key] },
     lastRunText(task) {
       const lastRun = this.lastRuns[task.key]
       if (!lastRun) return ''
@@ -119,13 +122,14 @@ export default {
       const durationMinutes = Math.max(1, Math.ceil(Number(lastRun.durationMs) / 60000))
       if (task.key === 'missing') return `上次执行：${timeText}，耗时 ${durationMinutes} 分钟，清理了 ${Number(lastRun.removed) || 0} 项`
       if (task.key === 'bookMatch') return `上次执行：${timeText}，耗时 ${durationMinutes} 分钟，匹配了 ${Number(lastRun.matched) || 0} 本图书`
+      if (task.key === 'bookMetadata') return `上次执行：${timeText}，耗时 ${durationMinutes} 分钟，更新了 ${Number(lastRun.updated) || 0} 本图书`
       return `上次执行：${timeText}，耗时 ${durationMinutes} 分钟`
     },
     openSettings(task) {
       this.selectedTask = task
       this.draftCron = this.cronFor(task) || null
-      this.draftLibraryIds = task.key === 'scan' ? [...(this.serverSettings.scheduledLibraryScanLibraryIds || [])] : task.key === 'bookMatch' ? [...(this.serverSettings.aiBookMatchLibraryIds || [])] : []
-      this.draftMaxHours = task.key === 'scan' ? Number(this.serverSettings.scheduledLibraryScanMaxHours) || 1 : task.key === 'bookMatch' ? Number(this.serverSettings.aiBookMatchMaxHours) || 1 : Number(this.serverSettings.strmMetadataCompletionMaxHours) || 1
+      this.draftLibraryIds = task.key === 'scan' ? [...(this.serverSettings.scheduledLibraryScanLibraryIds || [])] : task.key === 'bookMatch' ? [...(this.serverSettings.aiBookMatchLibraryIds || [])] : task.key === 'bookMetadata' ? [...(this.serverSettings.bookMetadataCompletionLibraryIds || [])] : []
+      this.draftMaxHours = task.key === 'scan' ? Number(this.serverSettings.scheduledLibraryScanMaxHours) || 1 : task.key === 'bookMatch' ? Number(this.serverSettings.aiBookMatchMaxHours) || 1 : task.key === 'bookMetadata' ? Number(this.serverSettings.bookMetadataCompletionMaxHours) || 1 : Number(this.serverSettings.strmMetadataCompletionMaxHours) || 1
       this.draftQps = Number(this.serverSettings.strmMetadataCompletionQps) || 1
       this.draftBatchSize = Number(this.serverSettings.strmMetadataCompletionBatchSize) || 5000
       this.draftAiUrl = this.serverSettings.aiBookMatchApiUrl || ''
@@ -135,7 +139,7 @@ export default {
       this.showSettings = true
     },
     scheduledTaskFinished(task) {
-      const key = { 'scheduled-library-scan': 'scan', 'ai-book-match': 'bookMatch', 'strm-metadata-completion': 'metadata', 'missing-items-cleanup': 'missing' }[task.action]
+      const key = { 'scheduled-library-scan': 'scan', 'ai-book-match': 'bookMatch', 'book-metadata-completion': 'bookMetadata', 'strm-metadata-completion': 'metadata', 'missing-items-cleanup': 'missing' }[task.action]
       if (!key) return
       const taskResult = task.data?.result || {}
       const startedAt = Number(taskResult.startedAt) || Number(task.startedAt) || Date.now()
@@ -144,9 +148,10 @@ export default {
         this.$set(this.running, key, false)
         return
       }
-      const summary = { startedAt, finishedAt, durationMs: Number(taskResult.durationMs) || Math.max(0, finishedAt - startedAt), removed: Number(taskResult.removed) || 0, matched: Number(taskResult.matched) || 0 }
+      const summary = { startedAt, finishedAt, durationMs: Number(taskResult.durationMs) || Math.max(0, finishedAt - startedAt), removed: Number(taskResult.removed) || 0, matched: Number(taskResult.matched) || 0, updated: Number(taskResult.updated) || 0 }
       this.$set(this.lastRuns, key, summary)
       if (key === 'bookMatch') this.$store.commit('setServerSettings', { ...this.serverSettings, aiBookMatchLastRun: summary })
+      if (key === 'bookMetadata') this.$store.commit('setServerSettings', { ...this.serverSettings, bookMetadataCompletionLastRun: summary })
       this.$set(this.running, key, false)
       localStorage.setItem(LAST_RUN_STORAGE_KEY, JSON.stringify(this.lastRuns))
     },
@@ -167,7 +172,8 @@ export default {
         else if (this.selectedTask.key === 'bookMatch') {
           payload = { aiBookMatchCronExpression: cronExpression, aiBookMatchLibraryIds: this.draftLibraryIds, aiBookMatchMaxHours: this.draftMaxHours, aiBookMatchApiUrl: this.draftAiUrl.trim() || null, aiBookMatchModel: this.draftAiModel.trim() || null, aiBookMatchConfidence: this.draftAiConfidence }
           if (this.draftAiKey.trim()) payload.aiBookMatchApiKey = this.draftAiKey.trim()
-        } else if (this.selectedTask.key === 'metadata') payload = { strmMetadataCompletionCronExpression: cronExpression, strmMetadataCompletionMaxHours: this.draftMaxHours, strmMetadataCompletionQps: this.draftQps, strmMetadataCompletionBatchSize: this.draftBatchSize }
+        } else if (this.selectedTask.key === 'bookMetadata') payload = { bookMetadataCompletionCronExpression: cronExpression, bookMetadataCompletionLibraryIds: this.draftLibraryIds, bookMetadataCompletionMaxHours: this.draftMaxHours }
+        else if (this.selectedTask.key === 'metadata') payload = { strmMetadataCompletionCronExpression: cronExpression, strmMetadataCompletionMaxHours: this.draftMaxHours, strmMetadataCompletionQps: this.draftQps, strmMetadataCompletionBatchSize: this.draftBatchSize }
         else payload = { missingItemsCleanupCronExpression: cronExpression }
         const response = await this.$axios.$patch('/api/settings', payload)
         this.$store.commit('setServerSettings', response.serverSettings)

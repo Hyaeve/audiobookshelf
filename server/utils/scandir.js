@@ -2,6 +2,60 @@ const Path = require('path')
 const { filePathToPOSIX } = require('./fileUtils')
 
 const naturalPathCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
+
+const chineseDigitValues = { 零: 0, 〇: 0, 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 }
+const chineseUnitValues = { 十: 10, 百: 100, 千: 1000, 万: 10000 }
+
+function parseChineseNumber(value) {
+  if (!value) return null
+  if ([...value].every((char) => chineseDigitValues[char] !== undefined)) {
+    return Number([...value].map((char) => chineseDigitValues[char]).join(''))
+  }
+  let total = 0
+  let section = 0
+  let digit = 0
+  for (const char of value) {
+    if (chineseDigitValues[char] !== undefined) {
+      digit = chineseDigitValues[char]
+    } else if (chineseUnitValues[char]) {
+      const unit = chineseUnitValues[char]
+      if (unit === 10000) {
+        section = (section + digit) * unit
+        total += section
+        section = 0
+      } else {
+        section += (digit || 1) * unit
+      }
+      digit = 0
+    } else {
+      return null
+    }
+  }
+  return total + section + digit
+}
+
+function getLeadingSequence(value) {
+  if (!value) return null
+  let match = value.match(/^(\d+(?:\.\d+)?)/)
+  if (match) return Number(match[1])
+
+  match = value.match(/^(?:Vol|Volume|Book)\s*(\d+(?:\.\d+)?)/i)
+  if (match) return Number(match[1])
+
+  match = value.match(/^第\s*(?:(\d+(?:\.\d+)?)|([零〇一二两三四五六七八九十百千万]+))\s*(?:部|卷|季)/)
+  if (match) return match[1] ? Number(match[1]) : parseChineseNumber(match[2])
+
+  match = value.match(/^S(\d+)/i)
+  if (match) return Number(match[1])
+
+  match = value.match(/^(上卷|中卷|下卷|上部|下部)/)
+  if (match) return { 上卷: 1, 上部: 1, 中卷: 2, 下卷: 3, 下部: 3 }[match[1]]
+
+  match = value.match(/^(?:卷|部|季)\s*(?:(\d+(?:\.\d+)?)|([零〇一二两三四五六七八九十百千万]+))/)
+  if (match) return match[1] ? Number(match[1]) : parseChineseNumber(match[2])
+  return null
+}
+module.exports.getLeadingSequence = getLeadingSequence
 const globals = require('./globals')
 const LibraryFile = require('../objects/files/LibraryFile')
 const parseNameString = require('./parsers/parseNameString')
@@ -126,18 +180,32 @@ function groupFileItemsIntoLibraryItemDirs(mediaType, fileItems, audiobooksOnly,
     }
   })
 
-  // A top-level anchored book can contain several nested book folders. Keep
-  // their files deterministic: compare the nested folder first and fall back
-  // to the filename when no numeric sequence can be inferred from the folder.
+  // A top-level anchored book can contain several A1-level book folders. If
+  // every A1 folder starts with an explicit sequence, sort folders by that
+  // sequence. Otherwise ignore the folder names and sort globally by filename.
   if (mediaType === 'book' && topLevelBookAnchor) {
     Object.keys(libraryItemGroup).forEach((libraryItemPath) => {
       const files = libraryItemGroup[libraryItemPath]
-      // Only reorder the common anchored layout where every entry is one file
-      // below an A1-level directory. More complex layouts keep the scanner's
-      // established traversal order for covers and auxiliary files.
-      if (Array.isArray(files) && files.length && files.every((file) => file.split('/').filter(Boolean).length === 2)) {
-        files.sort((a, b) => naturalPathCollator.compare(a, b))
-      }
+      if (!Array.isArray(files) || !files.length || !files.every((file) => file.split('/').filter(Boolean).length === 2)) return
+
+      const folderSequences = new Map()
+      files.forEach((file) => {
+        const folder = file.split('/')[0]
+        if (!folderSequences.has(folder)) folderSequences.set(folder, getLeadingSequence(folder))
+      })
+      const useFolderSequences = [...folderSequences.values()].every((sequence) => sequence !== null)
+      files.sort((a, b) => {
+        const [folderA, filenameA] = a.split('/')
+        const [folderB, filenameB] = b.split('/')
+        if (useFolderSequences) {
+          const sequenceDifference = folderSequences.get(folderA) - folderSequences.get(folderB)
+          if (sequenceDifference) return sequenceDifference
+          const folderDifference = naturalPathCollator.compare(folderA, folderB)
+          if (folderDifference) return folderDifference
+        }
+        const filenameDifference = naturalPathCollator.compare(filenameA, filenameB)
+        return filenameDifference || naturalPathCollator.compare(a, b)
+      })
     })
   }
   return libraryItemGroup

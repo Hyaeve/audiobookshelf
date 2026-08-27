@@ -55,6 +55,10 @@ class ServerSettings {
     this.aiBookMatchLibraryIds = []
     this.aiBookMatchMaxHours = 1
     this.aiBookMatchApiUrl = null
+    this.bookMetadataCompletionCronExpression = null
+    this.bookMetadataCompletionLibraryIds = []
+    this.bookMetadataCompletionMaxHours = 1
+    this.bookMetadataCompletionLastRun = null
     this.aiBookMatchApiKey = null
     this.aiBookMatchModel = null
     this.aiBookMatchConfidence = 0.9
@@ -146,6 +150,10 @@ class ServerSettings {
     this.aiBookMatchModel = settings.aiBookMatchModel || null
     this.aiBookMatchConfidence = Number(settings.aiBookMatchConfidence) >= 0.5 && Number(settings.aiBookMatchConfidence) <= 1 ? Number(settings.aiBookMatchConfidence) : 0.9
     this.aiBookMatchLastRun = settings.aiBookMatchLastRun && typeof settings.aiBookMatchLastRun === 'object' ? settings.aiBookMatchLastRun : null
+    this.bookMetadataCompletionCronExpression = settings.bookMetadataCompletionCronExpression || null
+    this.bookMetadataCompletionLibraryIds = Array.isArray(settings.bookMetadataCompletionLibraryIds) ? settings.bookMetadataCompletionLibraryIds : []
+    this.bookMetadataCompletionMaxHours = Number(settings.bookMetadataCompletionMaxHours) > 0 ? Number(settings.bookMetadataCompletionMaxHours) : 1
+    this.bookMetadataCompletionLastRun = settings.bookMetadataCompletionLastRun && typeof settings.bookMetadataCompletionLastRun === 'object' ? settings.bookMetadataCompletionLastRun : null
     this.scheduledLibraryScanCronExpression = settings.scheduledLibraryScanCronExpression || null
     this.scheduledLibraryScanLibraryIds = Array.isArray(settings.scheduledLibraryScanLibraryIds) ? settings.scheduledLibraryScanLibraryIds : []
     this.scheduledLibraryScanMaxHours = Number(settings.scheduledLibraryScanMaxHours) > 0 ? Number(settings.scheduledLibraryScanMaxHours) : 1
@@ -275,6 +283,10 @@ class ServerSettings {
       aiBookMatchModel: this.aiBookMatchModel,
       aiBookMatchConfidence: this.aiBookMatchConfidence,
       aiBookMatchLastRun: this.aiBookMatchLastRun ? { ...this.aiBookMatchLastRun } : null,
+      bookMetadataCompletionCronExpression: this.bookMetadataCompletionCronExpression,
+      bookMetadataCompletionLibraryIds: [...this.bookMetadataCompletionLibraryIds],
+      bookMetadataCompletionMaxHours: this.bookMetadataCompletionMaxHours,
+      bookMetadataCompletionLastRun: this.bookMetadataCompletionLastRun ? { ...this.bookMetadataCompletionLastRun } : null,
       scheduledLibraryScanCronExpression: this.scheduledLibraryScanCronExpression,
       scheduledLibraryScanLibraryIds: [...this.scheduledLibraryScanLibraryIds],
       scheduledLibraryScanMaxHours: this.scheduledLibraryScanMaxHours,

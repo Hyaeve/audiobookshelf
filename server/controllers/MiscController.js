@@ -138,7 +138,7 @@ class MiscController {
     if (!isObject(settingsUpdate)) {
       return res.status(400).send('Invalid settings update object')
     }
-    const cronSettingKeys = ['strmMetadataCompletionCronExpression', 'missingItemsCleanupCronExpression', 'scheduledLibraryScanCronExpression', 'aiBookMatchCronExpression']
+    const cronSettingKeys = ['strmMetadataCompletionCronExpression', 'missingItemsCleanupCronExpression', 'scheduledLibraryScanCronExpression', 'aiBookMatchCronExpression', 'bookMetadataCompletionCronExpression']
     for (const key of cronSettingKeys) {
       if (settingsUpdate[key] === undefined) continue
       const expression = typeof settingsUpdate[key] === 'string' ? settingsUpdate[key].trim() : settingsUpdate[key]
@@ -199,6 +199,17 @@ class MiscController {
       const validIds = new Set(libraries.filter((library) => library.mediaType === 'book').map((library) => library.id))
       if (settingsUpdate.aiBookMatchLibraryIds.some((id) => typeof id !== 'string' || !validIds.has(id))) return res.status(400).send('Invalid book library ID in AI book match settings')
     }
+    if (settingsUpdate.bookMetadataCompletionMaxHours !== undefined) {
+      const maxHours = Number(settingsUpdate.bookMetadataCompletionMaxHours)
+      if (!Number.isFinite(maxHours) || maxHours < 0.5 || Math.round(maxHours * 2) !== maxHours * 2) return res.status(400).send('Book metadata completion time limit must use 0.5 hour increments')
+      settingsUpdate.bookMetadataCompletionMaxHours = maxHours
+    }
+    if (settingsUpdate.bookMetadataCompletionLibraryIds !== undefined) {
+      if (!Array.isArray(settingsUpdate.bookMetadataCompletionLibraryIds)) return res.status(400).send('Book metadata completion library IDs must be an array')
+      const libraries = await Database.libraryModel.findAll({ attributes: ['id', 'mediaType'] })
+      const validIds = new Set(libraries.filter((library) => library.mediaType === 'book').map((library) => library.id))
+      if (settingsUpdate.bookMetadataCompletionLibraryIds.some((id) => typeof id !== 'string' || !validIds.has(id))) return res.status(400).send('Invalid book library ID in metadata completion settings')
+    }
     for (const key of ['aiBookMatchApiUrl', 'aiBookMatchApiKey', 'aiBookMatchModel']) {
       if (settingsUpdate[key] !== undefined && settingsUpdate[key] !== null && typeof settingsUpdate[key] !== 'string') return res.status(400).send(`Invalid ${key}`)
       if (typeof settingsUpdate[key] === 'string') settingsUpdate[key] = settingsUpdate[key].trim() || null
@@ -230,6 +241,9 @@ class MiscController {
       }
       if (settingsUpdate.aiBookMatchCronExpression !== undefined || settingsUpdate.aiBookMatchLibraryIds !== undefined || settingsUpdate.aiBookMatchMaxHours !== undefined) {
         this.cronManager.updateAiBookMatchCron()
+      }
+      if (settingsUpdate.bookMetadataCompletionCronExpression !== undefined || settingsUpdate.bookMetadataCompletionLibraryIds !== undefined || settingsUpdate.bookMetadataCompletionMaxHours !== undefined) {
+        this.cronManager.updateBookMetadataCompletionCron()
       }
     }
     return res.json({
@@ -746,6 +760,23 @@ class MiscController {
   async stopAiBookMatch(req, res) {
     if (!req.user.isAdminOrUp) return res.sendStatus(403)
     return res.json({ stopped: this.cronManager.cancelAiBookMatch() })
+  }
+
+  async runBookMetadataCompletion(req, res) {
+    if (!req.user.isAdminOrUp) return res.sendStatus(403)
+    try {
+      const taskPromise = this.cronManager.runBookMetadataCompletion(false)
+      taskPromise.catch((error) => Logger.error('[MiscController] Book metadata completion failed', error))
+      return res.status(202).json({ startedAt: Date.now() })
+    } catch (error) {
+      Logger.error('[MiscController] Book metadata completion failed to start', error)
+      return res.status(500).send('Book metadata completion failed')
+    }
+  }
+
+  async stopBookMetadataCompletion(req, res) {
+    if (!req.user.isAdminOrUp) return res.sendStatus(403)
+    return res.json({ stopped: this.cronManager.cancelBookMetadataCompletion() })
   }
 
   validateCronExpression(req, res) {

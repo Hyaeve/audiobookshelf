@@ -8,6 +8,7 @@ const prober = require('./prober')
 const { filePathToPOSIX, isSameOrSubPath, getAudioMimeTypeFromExtname } = require('./fileUtils')
 
 const STRM_SCAN_MAX_BYTES = 512 * 1024 * 1024
+const AUDIOBOOKSHELF_USER_AGENT = 'AudioBookShelf (+https://audiobookshelf.org)'
 const strmUrlCache = new Map()
 
 function isPrivateStrmHost(targetUrl) {
@@ -137,7 +138,7 @@ async function probeStrmTargetMedia(filePath, allowedLocalRoots = []) {
   // Let ffprobe open the remote URL directly. Downloading the whole remote file
   // into a buffer is unreliable for large cloud-drive audio files and can cause
   // ffprobe stdin EPIPE before metadata has been parsed.
-  const probeData = await prober.probe(target.value)
+  const probeData = await prober.probe(target.value, false, { userAgent: AUDIOBOOKSHELF_USER_AGENT })
   if (probeData?.error) {
     throw new Error(`Unable to probe remote STRM media at "${target.value}": ${probeData.error}`)
   }
@@ -167,7 +168,7 @@ async function proxyStrm(req, res, filePath, allowedLocalRoots = []) {
     return res.sendFile(target.value)
   }
 
-  const headers = { 'User-Agent': req.get?.('user-agent') || 'audiobookshelf (+https://audiobookshelf.org)' }
+  const headers = { 'User-Agent': AUDIOBOOKSHELF_USER_AGENT }
   if (req.headers.range) headers.Range = req.headers.range
   if (req.headers['if-range']) headers['If-Range'] = req.headers['if-range']
   try {
