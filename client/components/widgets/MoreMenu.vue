@@ -11,7 +11,7 @@
           </div>
         </div>
       </template>
-      <div v-else :key="index" class="flex items-center px-2 py-1.5 hover:bg-white/5 text-white text-xs cursor-pointer" @mouseover="mouseoverItem(index)" @mouseleave="mouseleaveItem(index)" @click.stop="clickAction(item.func)">
+      <div v-else :key="index" class="flex items-center px-2 py-1.5 hover:bg-white/5 text-white text-xs cursor-pointer" @mouseover="mouseoverItem(index)" @mouseleave="mouseleaveItem(index)" @click.stop="clickAction(item.func, item.data)">
         <p>{{ item.text }}</p>
       </div>
     </template>

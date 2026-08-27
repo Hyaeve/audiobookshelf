@@ -338,11 +338,16 @@ export default {
 <style scoped>
 .metadata-field {
   position: relative;
-  padding-right: 2.25rem;
 }
-.metadata-lock-button {
+.metadata-field > .metadata-lock-button {
   position: absolute;
-  right: 0;
+  right: 0.25rem;
   bottom: 0.25rem;
+  z-index: 2;
+}
+.metadata-field :deep(input),
+.metadata-field :deep(textarea),
+.metadata-field :deep([role='list']) {
+  padding-right: 2.75rem;
 }
 </style>
