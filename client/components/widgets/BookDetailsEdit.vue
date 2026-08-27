@@ -358,4 +358,14 @@ export default {
   overflow: auto;
   padding-right: 2.75rem;
 }
+:deep(trix-editor::-webkit-scrollbar-corner) {
+  background-color: rgb(35, 35, 35);
+}
+:deep(trix-editor::-webkit-resizer) {
+  background-color: transparent;
+  background-image: linear-gradient(135deg, transparent 0 56%, rgb(156, 163, 175) 57% 62%, transparent 63% 70%, rgb(156, 163, 175) 71% 76%, transparent 77% 100%);
+  background-repeat: no-repeat;
+  background-position: right bottom;
+  background-size: 12px 12px;
+}
 </style>
