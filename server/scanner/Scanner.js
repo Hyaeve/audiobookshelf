@@ -13,6 +13,26 @@ const LibraryScanner = require('./LibraryScanner')
 const CoverManager = require('../managers/CoverManager')
 const TaskManager = require('../managers/TaskManager')
 
+function waitForBookSearch(searchPromise, isCancelled) {
+  if (typeof isCancelled !== 'function') return searchPromise
+  return new Promise((resolve, reject) => {
+    const timer = setInterval(() => {
+      if (!isCancelled()) return
+      clearInterval(timer)
+      const error = new Error('Book metadata search cancelled')
+      error.code = 'TASK_CANCELLED'
+      reject(error)
+    }, 100)
+    searchPromise.then((result) => {
+      clearInterval(timer)
+      resolve(result)
+    }, (error) => {
+      clearInterval(timer)
+      reject(error)
+    })
+  })
+}
+
 /**
  * @typedef QuickMatchOptions
  * @property {string} [provider]
@@ -22,6 +42,7 @@ const TaskManager = require('../managers/TaskManager')
  * @property {string} [asin] - This override is currently unused in Abs clients
  * @property {boolean} [overrideCover]
  * @property {boolean} [overrideDetails]
+ * @property {() => boolean} [isCancelled]
  */
 
 class Scanner {
@@ -52,7 +73,12 @@ class Scanner {
       const searchISBN = options.isbn || libraryItem.media.isbn
       const searchASIN = options.asin || libraryItem.media.asin
 
-      const results = await BookFinder.search(libraryItem, provider, searchTitle, searchAuthor, searchISBN, searchASIN, { maxFuzzySearches: 2 })
+      const results = await waitForBookSearch(BookFinder.search(libraryItem, provider, searchTitle, searchAuthor, searchISBN, searchASIN, { maxFuzzySearches: 2 }), options.isCancelled)
+      if (options.isCancelled?.()) {
+        const error = new Error('Book metadata search cancelled')
+        error.code = 'TASK_CANCELLED'
+        throw error
+      }
       if (!results.length) {
         return {
           warning: `No ${provider} match found`
@@ -129,6 +155,7 @@ class Scanner {
    */
   async applyBookMatch(apiRouterCtx, libraryItem, matchData, options = {}) {
     let hasUpdated = false
+    const changedFields = []
     if (matchData.cover && (!libraryItem.media.coverPath || options.overrideCover)) {
       Logger.debug(`[Scanner] Updating cover "${matchData.cover}"`)
       const coverResult = await CoverManager.downloadCoverFromUrlNew(matchData.cover, libraryItem.id, libraryItem.isFile ? null : libraryItem.path)
@@ -137,15 +164,19 @@ class Scanner {
       } else {
         libraryItem.media.coverPath = coverResult.cover
         libraryItem.media.changed('coverPath', true)
+        changedFields.push('coverPath')
         hasUpdated = true
       }
     }
 
     const bookBuildUpdateData = await this.quickMatchBookBuildUpdatePayload(apiRouterCtx, libraryItem, matchData, options)
     if (Object.keys(bookBuildUpdateData.updatePayload).length) {
+      changedFields.push(...Object.keys(bookBuildUpdateData.updatePayload))
       libraryItem.media.set(bookBuildUpdateData.updatePayload)
       if (libraryItem.media.changed()) hasUpdated = true
     }
+    if (bookBuildUpdateData.hasSeriesUpdates) changedFields.push('series')
+    if (bookBuildUpdateData.hasAuthorUpdates) changedFields.push('authors')
     if (bookBuildUpdateData.hasSeriesUpdates || bookBuildUpdateData.hasAuthorUpdates) hasUpdated = true
 
     if (hasUpdated) {
@@ -155,7 +186,7 @@ class Scanner {
       await libraryItem.saveMetadataFile()
       SocketAuthority.libraryItemEmitter('item_updated', libraryItem)
     }
-    return { updated: hasUpdated, libraryItem: libraryItem.toOldJSONExpanded() }
+    return { updated: hasUpdated, changedFields: [...new Set(changedFields)], libraryItem: libraryItem.toOldJSONExpanded() }
   }
 
   /**

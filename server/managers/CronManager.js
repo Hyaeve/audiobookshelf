@@ -9,6 +9,29 @@ const Scanner = require('../scanner/Scanner')
 const ShareManager = require('./ShareManager')
 const TaskManager = require('./TaskManager')
 
+const BOOK_METADATA_FIELD_LABELS = {
+  title: '标题',
+  subtitle: '副标题',
+  description: '简介',
+  narrators: '演播者',
+  publisher: '出版商',
+  publishedYear: '出版年份',
+  genres: '流派',
+  tags: '标签',
+  language: '语言',
+  explicit: '露骨内容标记',
+  abridged: '删节标记',
+  asin: 'ASIN',
+  isbn: 'ISBN',
+  coverPath: '封面',
+  authors: '作者',
+  series: '系列'
+}
+
+function getBookMetadataFieldLabels(fields = []) {
+  return fields.map((field) => BOOK_METADATA_FIELD_LABELS[field] || field)
+}
+
 class CronManager {
   constructor(podcastManager, playbackSessionManager) {
     /** @type {import('./PodcastManager')} */
@@ -335,13 +358,26 @@ class CronManager {
             if (this.bookMetadataCompletionCancelRequested || Date.now() >= deadline) break
             result.processed += 1
             try {
-              const matchResult = await Scanner.quickMatchLibraryItem(this.apiRouterCtx, libraryItem, { overrideCover: false, overrideDetails: false })
-              if (matchResult.warning) result.unmatched += 1
-              else if (matchResult.updated) result.updated += 1
-              else result.skipped += 1
+              const matchResult = await Scanner.quickMatchLibraryItem(this.apiRouterCtx, libraryItem, {
+                provider: library.provider || 'google',
+                overrideCover: false,
+                overrideDetails: false,
+                isCancelled: () => this.bookMetadataCompletionCancelRequested || Date.now() >= deadline
+              })
+              if (matchResult.warning) {
+                result.unmatched += 1
+                Logger.info(`[CronManager] 书籍元数据补全：书籍 "${libraryItem.media?.title || libraryItem.title || libraryItem.id}"，未找到候选，提供商：${library.provider || 'google'}`)
+              } else if (matchResult.updated) {
+                result.updated += 1
+                Logger.info(`[CronManager] 书籍元数据补全：书籍 "${libraryItem.media?.title || libraryItem.title || libraryItem.id}"，补全字段：${getBookMetadataFieldLabels(matchResult.changedFields).join('、') || '无'}，提供商：${library.provider || 'google'}`)
+              } else {
+                result.skipped += 1
+                Logger.info(`[CronManager] 书籍元数据补全：书籍 "${libraryItem.media?.title || libraryItem.title || libraryItem.id}"，无需更新，提供商：${library.provider || 'google'}`)
+              }
             } catch (error) {
+              if (error.code === 'TASK_CANCELLED' || this.bookMetadataCompletionCancelRequested || Date.now() >= deadline) break
               result.skipped += 1
-              Logger.warn(`[CronManager] Book metadata completion failed for "${libraryItem.id}": ${error.message}`)
+              Logger.warn(`[CronManager] 书籍元数据补全失败：书籍 "${libraryItem.media?.title || libraryItem.title || libraryItem.id}"，原因：${error.message}`)
             }
             TaskManager.updateTaskProgress(task, selectedLibraries.length ? Math.min(99, ((libraryIndex + 1) / selectedLibraries.length) * 100) : 100, { currentLibrary: library.name, ...result })
           }
