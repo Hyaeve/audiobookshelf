@@ -336,8 +336,11 @@ export default {
 }
 .metadata-field > .metadata-lock-button {
   position: absolute;
-  right: 0.25rem;
+  right: 0.5rem;
   bottom: 0.25rem;
+  width: 1.75rem;
+  min-width: 1.75rem;
+  height: 1.75rem;
   z-index: 2;
 }
 .metadata-field :deep(input),
@@ -356,5 +359,9 @@ export default {
   border: 1px solid rgb(75, 85, 99);
   border-radius: 3px;
   z-index: 2;
+}
+:deep(trix-editor) {
+  resize: vertical;
+  overflow: auto;
 }
 </style>
