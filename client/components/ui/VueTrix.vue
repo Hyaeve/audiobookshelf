@@ -1,5 +1,6 @@
 <template>
   <div>
+    <div class="trix-toolbar-wrapper">
     <trix-toolbar :id="toolbarId">
       <div v-show="!disabledEditor" class="trix-button-row">
         <span class="trix-button-group trix-button-group--text-tools" data-trix-button-group="text-tools">
@@ -18,7 +19,6 @@
           <button type="button" class="trix-button trix-button--icon trix-button--icon-undo" data-trix-action="undo" data-trix-key="z" :title="$strings.LabelUndo" tabindex="-1">{{ $strings.LabelUndo }}</button>
           <button type="button" class="trix-button trix-button--icon trix-button--icon-redo" data-trix-action="redo" data-trix-key="shift+z" :title="$strings.LabelRedo" tabindex="-1">{{ $strings.LabelRedo }}</button>
         </span>
-        <slot name="toolbar-end" />
       </div>
       <div class="trix-dialogs" data-trix-dialogs>
         <div class="trix-dialog trix-dialog--link" data-trix-dialog="href" data-trix-dialog-attribute="href">
@@ -32,6 +32,8 @@
         </div>
       </div>
     </trix-toolbar>
+    <slot name="toolbar-end" />
+    </div>
     <trix-editor :toolbar="toolbarId" :contenteditable="!disabledEditor" :class="['trix-content']" ref="trix" :input="computedId" :placeholder="placeholder" @trix-change="handleContentChange" @trix-initialize="handleInitialize" @trix-focus="processTrixFocus" @trix-blur="processTrixBlur" @trix-attachment-add="handleAttachmentAdd" />
     <input type="hidden" :name="inputName" :id="computedId" :value="editorContent" />
   </div>
@@ -343,6 +345,12 @@ export default {
   }
 }
 </script>
+
+<style scoped>
+.trix-toolbar-wrapper {
+  position: relative;
+}
+</style>
 
 <style lang="css" module>
 .trix_container {

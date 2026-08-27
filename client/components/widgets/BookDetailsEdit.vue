@@ -346,12 +346,15 @@ export default {
   padding-right: 2.75rem;
 }
 .description-toolbar-lock {
-  height: 1.7rem;
-  width: 2.6rem;
-  min-width: 2.6rem;
-  margin-left: 1.5vw;
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: 1.6em;
+  width: 2.6em;
+  min-width: 2.6em;
   margin-bottom: 10px;
   border: 1px solid rgb(75, 85, 99);
   border-radius: 3px;
+  z-index: 2;
 }
 </style>
