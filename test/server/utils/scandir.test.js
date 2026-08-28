@@ -207,4 +207,42 @@ describe('scanUtils', async () => {
 
     await fs.rm(tempDir, { recursive: true, force: true })
   })
+
+  it('re-reads STRM pointer contents even when the mtime is unchanged', async () => {
+    const tempDir = await fs.mkdtemp(Path.join(os.tmpdir(), 'audiobookshelf-strm-mtime-'))
+    const strmPath = Path.join(tempDir, 'chapter.strm')
+    const firstTarget = Path.join(tempDir, 'first.flac')
+    const secondTarget = Path.join(tempDir, 'second.flac')
+    await fs.writeFile(firstTarget, 'audio placeholder')
+    await fs.writeFile(secondTarget, 'audio placeholder')
+
+    // Pin a fixed mtime after every rewrite. Filesystem mtime resolution is
+    // coarse enough that two quick rewrites can land on the same tick naturally,
+    // so the resolver must never trust mtime to detect content changes.
+    const pinnedTime = new Date(Date.now() - 60000)
+    const pinMtime = () => fs.utimes(strmPath, pinnedTime, pinnedTime)
+
+    await fs.writeFile(strmPath, './first.flac')
+    await pinMtime()
+    const pinnedMtimeMs = (await fs.stat(strmPath)).mtimeMs
+    expect(await resolveStrmTarget(strmPath, [tempDir])).to.deep.equal({ type: 'local', value: firstTarget.replace(/\\/g, '/') })
+
+    await fs.writeFile(strmPath, './second.flac')
+    await pinMtime()
+    expect((await fs.stat(strmPath)).mtimeMs).to.equal(pinnedMtimeMs)
+    expect(await resolveStrmTarget(strmPath, [tempDir])).to.deep.equal({ type: 'local', value: secondTarget.replace(/\\/g, '/') })
+
+    // The library root check must still run on an unchanged mtime.
+    await fs.writeFile(strmPath, Path.join(tempDir, '..', 'outside.flac'))
+    await pinMtime()
+    expect((await fs.stat(strmPath)).mtimeMs).to.equal(pinnedMtimeMs)
+    try {
+      await resolveStrmTarget(strmPath, [tempDir])
+      throw new Error('Expected local STRM target validation to fail')
+    } catch (error) {
+      expect(error.message).to.include('outside configured library folders')
+    }
+
+    await fs.rm(tempDir, { recursive: true, force: true })
+  })
 })

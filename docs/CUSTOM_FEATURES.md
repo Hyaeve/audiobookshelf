@@ -106,11 +106,11 @@
 - 队列按优先级“播放触发 > 手动执行 > 计划任务”选择下一本书；同一优先级内按请求进入队列的先后顺序 FIFO 处理。当前正在媒体预读的书不会被抢占，完成后才重新选择高优先级队列。
 - 队列初始化于 [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:40)：`strmCompletionQueues = { playback: [], manual: [], scheduled: [] }` 三个队列、`strmCompletionQueueRunning` 运行锁与 `strmCompletionQueuedIds` 去重集合。
 - 入队与调度核心位于 [`enqueueStrmBookCompletion`](../server/managers/PlaybackSessionManager.js:490) 与 [`processStrmCompletionQueue`](../server/managers/PlaybackSessionManager.js:500)：每次轮询按优先级顺序取第一个非空队列，级内 `shift()` 保持 FIFO；取出作业后串行执行，当前作业完成或失败后才重新选择高优先级队列。循环结束后若发现新入队作业会再次触发调度，避免竞态遗漏。
-- 单书作业统一走 [`queueStrmBookById`](../server/managers/PlaybackSessionManager.js:528)：加载书籍后先用 [`isCompleteStrmBookMetadata`](../server/managers/PlaybackSessionManager.js:580) 判断整书是否已完成（存在 strm 文件且所有 strm 音轨完整），已完成直接跳过；否则只取缺失时长/编码/声道的 strm 音轨交给 [`completeStrmBook`](../server/managers/PlaybackSessionManager.js:632) 进行媒体预读探测。
-- 播放触发的媒体预读通过 [`completeStrmBookAfterPlayback`](../server/managers/PlaybackSessionManager.js:597) 以 `playback` 优先级入队，走 `useLibraryQps: true` 读取所属媒体库的 `strmMetadataQps`，每 3000 文件暂停 3 分钟，并用 `strmCompletionQueuedIds` 按书籍 ID 去重。
-- 手动入口以 `manual` 优先级入队，全部使用 `useLibraryQps: true`：单本 [`completeStrmItem`](../server/managers/PlaybackSessionManager.js:854)、多本 [`completeStrmItems`](../server/managers/PlaybackSessionManager.js:983)（共享 `throttleState`）、媒体库级 [`completeStrmLibrary`](../server/managers/PlaybackSessionManager.js:783) 与 [`_completeStrmLibrary`](../server/managers/PlaybackSessionManager.js:793)。手动入口通过 `strmManualEnqueueChain` 串行准备作业，避免并发重复提交。
-- QPS 与批量参数集中在文件顶部常量 `DEFAULT_STRM_METADATA_QPS = 2.0`、`STRM_METADATA_BATCH_SIZE = 3000`、`STRM_METADATA_PAUSE_MINUTES = 3`（[`PlaybackSessionManager.js:24`](../server/managers/PlaybackSessionManager.js:24)），媒体库取值统一走 [`getLibraryStrmQps`](../server/managers/PlaybackSessionManager.js:591)（越界或非法回落默认 2.0）。[`completeStrmBook`](../server/managers/PlaybackSessionManager.js:632) 在 `options.useLibraryQps` 为真时按媒体库取 QPS，否则回落 `options.qps`，并把实际 `requestIntervalMs` 回写到共享的 `throttleState`。
-- 计划任务以 `scheduled` 优先级入队，见 [`completeScheduledStrmMetadata`](../server/managers/PlaybackSessionManager.js:877)，其 QPS 与批量阈值仍来自服务端设置，不使用媒体库 `strmMetadataQps`。
+- 单书作业统一走 [`queueStrmBookById`](../server/managers/PlaybackSessionManager.js:528)：加载书籍后先用 [`isCompleteStrmBookMetadata`](../server/managers/PlaybackSessionManager.js:580) 判断整书是否已完成（存在 strm 文件且所有 strm 音轨完整），已完成直接跳过；否则只取缺失时长/编码/声道的 strm 音轨交给 [`completeStrmBook`](../server/managers/PlaybackSessionManager.js:732) 进行媒体预读探测。
+- 播放触发的媒体预读通过 [`completeStrmBookAfterPlayback`](../server/managers/PlaybackSessionManager.js:666) 以 `playback` 优先级入队，走 `useLibraryQps: true` 读取所属媒体库的 `strmMetadataQps`，每 3000 文件暂停 3 分钟，并用 `strmCompletionQueuedIds` 按书籍 ID 去重。
+- 手动入口以 `manual` 优先级入队，全部使用 `useLibraryQps: true`：单本 [`completeStrmItem`](../server/managers/PlaybackSessionManager.js:951)、多本 [`completeStrmItems`](../server/managers/PlaybackSessionManager.js:1098)（共享 `throttleState`）、媒体库级 [`completeStrmLibrary`](../server/managers/PlaybackSessionManager.js:883) 与 [`_completeStrmLibrary`](../server/managers/PlaybackSessionManager.js:893)。手动入口通过 `strmManualEnqueueChain` 串行准备作业，避免并发重复提交。
+- QPS 与批量参数集中在文件顶部常量 `DEFAULT_STRM_METADATA_QPS = 2.0`、`STRM_METADATA_BATCH_SIZE = 3000`、`STRM_METADATA_PAUSE_MINUTES = 3`（[`PlaybackSessionManager.js:24`](../server/managers/PlaybackSessionManager.js:24)），媒体库取值统一走 [`getLibraryStrmQps`](../server/managers/PlaybackSessionManager.js:591)（越界或非法回落默认 2.0）。[`completeStrmBook`](../server/managers/PlaybackSessionManager.js:732) 在 `options.useLibraryQps` 为真时按媒体库取 QPS，否则回落 `options.qps`，并把实际 `requestIntervalMs` 回写到共享的 `throttleState`。
+- 计划任务以 `scheduled` 优先级入队，见 [`completeScheduledStrmMetadata`](../server/managers/PlaybackSessionManager.js:994)，其 QPS 与批量阈值仍来自服务端设置，不使用媒体库 `strmMetadataQps`。
 
 ### 5. 计划任务：媒体库扫描、书籍匹配、元数据补全、媒体预读与清理丢失项目
 
@@ -161,7 +161,7 @@
 
 - 这是本地新增功能，不新增数据库字段。音轨是否完成仍以 `duration > 0`、存在 `codec` 且 `channels > 0` 为事实来源；整书完成只要求存在的 STRM 音轨全部完成，不再额外依赖书籍聚合 `media.duration`，避免已完成音轨因聚合时长异常为 0 而重复补全。
 - [`getStrmBookMetadataStatus`](../server/managers/PlaybackSessionManager.js:566) 动态计算 STRM 音轨总数、已完成数、未完成数、百分比和整书完成状态。由于状态由已保存音轨实时推导，扫描新增或删除 `.strm` 文件后，重新扫描媒体库即可自动纳入或移除统计，不会留下过期状态字段。
-- [`completeStrmBook`](../server/managers/PlaybackSessionManager.js:632) 在每成功探测一个音轨后累积待保存数量；每 50 个成功音轨执行一次局部持久化，并在取消、时间限制、循环结束时强制 flush。持久化会先重建当前已知的音轨排序、章节和总时长，再调用 `media.save()` 与 `saveMetadataFile()`，随后发送 `item_updated` 事件。
+- [`completeStrmBook`](../server/managers/PlaybackSessionManager.js:732) 在每成功探测一个音轨后累积待保存数量；每 50 个成功音轨执行一次局部持久化，并在取消、时间限制、循环结束时强制 flush。持久化会先重建当前已知的音轨排序、章节和总时长，再调用 `media.save()` 与 `saveMetadataFile()`，随后发送 `item_updated` 事件。
 - 取消或超时只会停止后续探测，不回滚已经成功且已保存的音轨。下次入口重新读取书籍后，`queueStrmBookById` 只把不完整音轨传给探测器，因此可以从上次保存位置继续；已经完成的音轨不会重复请求。当前小批次阈值是内部常量 50，与计划任务的 3000/5000 音轨暂停阈值相互独立。
 - [`LibraryItemDetails.vue`](../client/components/content/LibraryItemDetails.vue:72) 在有声书详情页根据 `media.audioFiles` 动态判断补全状态。书籍已经补全出部分有效总时长、但仍有未完成 STRM 音轨时，在“持续时间”值右侧显示小型沙漏“待完成”标识；总时长仍为 `0 sec`、尚未开始有效补全时不显示，全部音轨完成后自动消失。该标识不与 `isMissing`、`isInvalid` 或用户播放进度混用。
 - 数据库保存成功但 metadata 文件写入失败时会记录错误，数据库中的进度仍可供下一次断点接续；下一次成功 flush 会再次写 metadata 文件。该策略避免为了 metadata 文件失败而丢弃已经持久化的音轨事实。
@@ -171,6 +171,27 @@
 - `浩瀚星空` 回退为静态深邃藏蓝、墨紫和炭黑底色，保留少量错落的银白、浅蓝、淡金和浅紫星点；不使用漂移、缩放或闪烁动画，背景层不阻挡页面交互。
 - 新增 `暗色主题`，采用炭黑、冷灰和低饱和蓝灰配色，适合作为低干扰的纯暗色界面。
 
+### 8. 媒体预读在「活动」中显示当前书名
+
+- 五个媒体预读入口全部会在客户端右上角「活动」下拉里出现一条任务，并显示**当前正在预读的书名**：播放触发、单本手动、多本批量手动、媒体库级手动、计划任务。改动前只有媒体库级手动和计划任务两个入口建任务，另外三个入口只写日志，界面上完全看不到预读在跑。
+- 统一由三个辅助方法承载，避免每个入口各写一套任务代码：[`createStrmPreloadTask`](../server/managers/PlaybackSessionManager.js:616) 建任务、[`updateStrmPreloadTaskBook`](../server/managers/PlaybackSessionManager.js:637) 更新当前书名与进度、[`finishStrmPreloadTask`](../server/managers/PlaybackSessionManager.js:653) 收尾。书名统一取自 [`getStrmBookDisplayTitle`](../server/managers/PlaybackSessionManager.js:603)（`media.title` → `libraryItem.title` → `id`）。
+- 任务标题即当前书名：任务刚建立时标题为「媒体预读排队中」（`MessageTaskCompletingStrmMetadataQueued`），真正开始某本书时切换为「正在媒体预读：<书名>」（`MessageTaskCompletingStrmMetadata`，`titleSubs = [书名]`）。批量、媒体库和计划任务在每切换一本书时都会重新写入书名，所以下拉里始终显示的是**正在预读的那一本**，不是任务发起时的那一本。
+- 任务描述固定标注预读来源，便于在活动列表中区分同名书籍的不同入口：`MessageTaskStrmPreloadSourcePlayback`（播放触发媒体预读）、`MessageTaskStrmPreloadSourceManual`（手动媒体预读）、`MessageTaskStrmPreloadSourceBatch`（手动批量媒体预读（N 本））、`MessageTaskStrmPreloadSourceLibrary`（手动媒体预读：<媒体库名>）、`MessageTaskStrmPreloadSourceScheduled`（计划任务媒体预读）。描述在任务结束后需要保留，因此 `finishStrmPreloadTask` 调用的是 `setFinished()` 而**不是** `setFinished(null, true)`（后者会清空描述）。
+- 播放触发的预读任务在**入队时**就创建，因此书籍在全局队列中等待期间活动里已经可见（显示书名 + 「播放触发媒体预读」），轮到执行时再刷新音轨总数与进度。为了不给无需预读的书建空任务，[`completeStrmBookAfterPlayback`](../server/managers/PlaybackSessionManager.js:666) 在入队前先加载书籍判断是否存在未完成 STRM 音轨；由于该查询会让出事件循环，紧接着必须再检查一次 `strmCompletionQueuedIds` 去重集合，否则同一本书并发触发两次播放会建出两条任务。
+- 进度沿用各入口原有的 `throttleState.onTrackScanned` 回调累计已扫描音轨数，换算成 0–100 的百分比通过 `task_progress` 事件推送。单本、批量与播放三个入口原先没有 `onTrackScanned` 回调，本次补上。
+- 前端 [`ItemTaskRunningCard.vue`](../client/components/cards/ItemTaskRunningCard.vue:107) 为 `strm-metadata-completion` 动作增加 `strmPreloadProgress` 计算属性，在书名与来源描述之下多显示一行「已扫描/总数」音轨计数（`totalTracks` 为 0 时不显示，任务结束后不显示）；同时把该动作的图标从默认 `settings` 改为 `graphic_eq`。
+- 失败状态统一使用新键 `MessageTaskStrmPreloadFailed`（「媒体预读失败：{0}」），替换原先计划任务使用的、实际并不存在于翻译文件中的 `MessageTaskCompletingStrmMetadataFailed`（缺键会导致 `$getString` 返回空串，界面上看不到任何失败原因）。
+- 依赖两处本地已有改造：服务端 [`TaskManager.updateTaskProgress`](../server/managers/TaskManager.js:39) 在 `task_progress` 事件里附带 `taskId`/`action`/`data`/`title`/`titleKey`/`titleSubs`；前端 [`tasks.js` 的 `updateTaskProgress`](../client/store/tasks.js:45) 在 payload 带 `taskId` 时更新对应任务对象（上游原版只写 `state.taskProgress[libraryItemId]`，不会刷新标题）。这两处缺一，书名就不会随当前书籍变化。
+- 「活动」下拉只显示未结束任务，以及结束后 60 秒内的失败或 `showSuccess` 任务（[`NotificationWidget.vue`](../client/components/widgets/NotificationWidget.vue:62)），所有预读任务均以 `showSuccess = true` 创建，因此完成后会短暂保留一条成功记录。
+
+### 9. STRM 指针解析取消 mtime 缓存
+
+- [`resolveStrmTarget`](../server/utils/strmUtils.js:60) 原本以 `<指针路径>|<mtimeMs>|<允许的根目录>` 为键缓存解析结果（`strmUrlCache`），现已完全移除该缓存，每次调用都重新 `readFile` 指针内容。
+- 移除原因（实测确认，不是理论风险）：文件系统 mtime 分辨率很粗。在 Windows 上连续改写同一个 `.strm` 文件 400 次只产生 128 个不同的 `mtimeMs`，相邻写入间隔中位数约 1ms。两次改写落在同一刻度时缓存键完全相同，于是命中旧缓存并返回**改写前**的旧目标。更严重的是「目标必须位于媒体库目录或 `/NetDisk` 之内」的越界校验和目标 `stat()` 检查原本写在缓存回调内部，命中缓存时这两项检查**被整体跳过**。实测 200 次改写中 mtime 相同 42 次、越界校验未抛错 42 次，两组完全重合。
+- 该缓存也是 `test/server/utils/scandir.test.js` 里 `should resolve local STRM targets without probing the target during scanning` 偶发失败（20 次约 2–3 次）的根因；移除后连续 30 次 0 失败。注意干净树上同样会失败，属于本地既有缺陷而非上游问题。
+- 性能代价可忽略：实测 `readFile` 单次约 0.1526ms，原缓存命中路径约 0.0362ms，即每次多约 0.12ms。按 10 QPS 预读 3000 个文件总共多约 0.36 秒。
+- 回归测试 [`re-reads STRM pointer contents even when the mtime is unchanged`](../test/server/utils/scandir.test.js:211)：用 `fs.utimes` 把每次改写后的 mtime **钉死到同一个固定值**，断言改写后能解析出新目标、mtime 确实未变、改写为库外路径后仍抛 `outside configured library folders`。写该测试时注意 `stat().mtimeMs` 带小数，必须在 pin 之后重新读一次取基准值再比较，直接和 pin 之前的值比会失败。
+
 ## 代码锚点
 
 ### 后端 STRM 与补全队列
@@ -179,21 +200,27 @@
 - [`server/objects/files/AudioFile.js`](../server/objects/files/AudioFile.js:112)：创建不依赖远程探测的占位音频对象。
 - [`server/scanner/AudioFileScanner.js`](../server/scanner/AudioFileScanner.js:157)：扫描时识别 `.strm` 并跳过 `ffprobe`。
 - [`server/utils/strmUtils.js`](../server/utils/strmUtils.js:1)：指针解析、URL/本地目标判定、安全校验、完整扫描探测和当前章节媒体代理。
+- [`server/utils/strmUtils.js`](../server/utils/strmUtils.js:60)：`resolveStrmTarget` 每次调用都重新读取指针内容，不再有 mtime 缓存；越界校验与目标 `stat()` 无条件执行。
+- [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:603)：`getStrmBookDisplayTitle` 活动列表书名取值。
+- [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:616)：`createStrmPreloadTask` 创建媒体预读活动任务（`showSuccess = true`，描述记录预读来源）。
+- [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:637)：`updateStrmPreloadTaskBook` 把当前书名写入 `titleKey`/`titleSubs` 并推送进度。
+- [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:653)：`finishStrmPreloadTask` 收尾（保留描述，未真正预读时把标题回落为「媒体预读」）。
+- [`server/managers/TaskManager.js`](../server/managers/TaskManager.js:39)：`updateTaskProgress` 在 `task_progress` 事件中附带 `taskId`/`action`/`data`/`title`/`titleKey`/`titleSubs`。
 - [`server/utils/scandir.js`](../server/utils/scandir.js:48)：默认保留原项目父级目录分组和末级目录书名解析；启用 `topLevelBookAnchor` 时按根目录下一层文件夹聚合文件，并仅使用首层目录进行书名解析。
 - [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:40)：全局三级补全队列初始化（playback/manual/scheduled 三个 FIFO 队列 + 运行锁 + 书籍去重）。
 - [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:490)：`enqueueStrmBookCompletion` 入队与 `processStrmCompletionQueue` 优先级调度核心。
 - [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:528)：`queueStrmBookById` 单书作业：过滤已完成书籍、只取缺失元数据的 strm 音轨。
 - [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:560)：`isCompleteStrmAudioFile`（duration/codec/channels 完整性判断）。
 - [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:580)：`isCompleteStrmBookMetadata`（整书是否已补全）。
-- [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:632)：`completeStrmBook` 完整扫描核心：探测、QPS/批量暂停/截止时间控制、书内断点保存、结束后重建章节与总时长并保存。
+- [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:732)：`completeStrmBook` 完整扫描核心：探测、QPS/批量暂停/截止时间控制、书内断点保存、结束后重建章节与总时长并保存。
 - [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:566)：`getStrmBookMetadataStatus` 动态计算音轨完成比例；持久化批次和取消前 flush 逻辑位于 `completeStrmBook` 内部，未引入新的数据库状态列。
 - [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:24)：媒体预读节流常量 `DEFAULT_STRM_METADATA_QPS = 2.0`、`STRM_METADATA_BATCH_SIZE = 3000`、`STRM_METADATA_PAUSE_MINUTES = 3`。
 - [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:591)：`getLibraryStrmQps` 读取媒体库 `settings.strmMetadataQps`，非法或越界回落 2.0。
-- [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:597)：播放触发补全（playback 优先级、`useLibraryQps`、每 3000 文件暂停 3 分钟、书籍 ID 去重；无每本完成后固定冷却）。
-- [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:854)：单本手动媒体预读（manual 优先级、`useLibraryQps`、每 3000 文件暂停 3 分钟）。
-- [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:983)：多本手动媒体预读（manual 优先级、`useLibraryQps`、跨书共享每 3000 文件暂停 3 分钟）。
-- [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:793)：媒体库级手动媒体预读（manual 优先级、`useLibraryQps`、累计 3000 文件暂停 3 分钟）。
-- [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:877)：计划任务媒体预读（scheduled 优先级、读取服务端 QPS/批量设置、按时限运行）。
+- [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:666)：播放触发补全（playback 优先级、`useLibraryQps`、每 3000 文件暂停 3 分钟、书籍 ID 去重；无每本完成后固定冷却）。
+- [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:951)：单本手动媒体预读（manual 优先级、`useLibraryQps`、每 3000 文件暂停 3 分钟）。
+- [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:1098)：多本手动媒体预读（manual 优先级、`useLibraryQps`、跨书共享每 3000 文件暂停 3 分钟）。
+- [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:893)：媒体库级手动媒体预读（manual 优先级、`useLibraryQps`、累计 3000 文件暂停 3 分钟）。
+- [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:994)：计划任务媒体预读（scheduled 优先级、读取服务端 QPS/批量设置、按时限运行）。
 - [`server/models/Library.js`](../server/models/Library.js:18)：`LibrarySettingsObject` typedef 中的 `strmMetadataQps`；[`getDefaultLibrarySettingsForMediaType`](../server/models/Library.js:83) 只在 book 分支写入默认 `2.0`。
 - [`server/controllers/LibraryController.js`](../server/controllers/LibraryController.js:113)：创建媒体库时校验 `strmMetadataQps`（有限数、0.1–10、0.1 步长，取整到 0.1）。
 - [`server/controllers/LibraryController.js`](../server/controllers/LibraryController.js:363)：更新媒体库时的同一套校验，含 `hasUpdates` 与调试日志。
@@ -239,10 +266,13 @@
 - [`client/pages/config/scheduled-tasks.vue`](../client/pages/config/scheduled-tasks.vue:2)：计划任务页面四条任务横条，第二项为书籍匹配；标题使用 `:header-text`（无原生 title 悬浮提示）；cron 空值规范化为 `null`。书籍匹配设置使用左右双栏，管理员打开设置时按需读取已保存密钥。
 - [`server/managers/AiBookMatchManager.js`](../server/managers/AiBookMatchManager.js:1)：AI 候选白名单、OpenAI 协议调用、严格结果校验、“仅标题/描述和扫描基础信息”的未匹配筛选（封面不参与判断）及 `extraData.aiBookMatch` 审计持久化；计划任务确认匹配后以覆盖封面和详情模式应用候选结果，同时继续遵守元数据锁。
 - [`server/managers/CronManager.js`](../server/managers/CronManager.js:262)：普通书籍匹配按 50 本分页读取后先批量过滤，只有未匹配候选进入逐本匹配流程，已匹配项直接计入 `skipped`；开启 `aiBookMatchGlobal` 后不执行该预过滤，全部有效书籍都会重新匹配。确认匹配后使用覆盖封面和详情模式写入，但总锁和字段锁继续生效。运行中通过 `AbortController` 取消 AI 请求，停止后不再写入失败审计；启动和结束日志使用媒体库名称并注明 AI 是否已配置，多个媒体库和书籍均按顺序串行处理。
-- [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:877)：STRM 计划媒体预读按 `strmMetadataCompletionLibraryIds` 筛选图书媒体库，建立媒体库 ID 到名称的映射，开始、完成和失败日志均输出媒体库名称，不输出媒体库 ID；计划媒体预读仍通过全局队列逐书调度。
+- [`server/managers/PlaybackSessionManager.js`](../server/managers/PlaybackSessionManager.js:994)：STRM 计划媒体预读按 `strmMetadataCompletionLibraryIds` 筛选图书媒体库，建立媒体库 ID 到名称的映射，开始、完成和失败日志均输出媒体库名称，不输出媒体库 ID；计划媒体预读仍通过全局队列逐书调度。
 - [`server/scanner/Scanner.js`](../server/scanner/Scanner.js:159)：`applyBookMatch` 是普通快速匹配与 AI 匹配共用的候选应用入口。
 - [`client/components/app/SettingsContent.vue`](../client/components/app/SettingsContent.vue:18)：只声明 `headerText`/`description`/`note` props，未声明 `title`。
 - [`client/layouts/default.vue`](../client/layouts/default.vue:256)：全局处理 `task_finished` 后更新任务 store，并通过 `$eventBus` 转发任务完成事件，保证计划任务页面能收到手动任务结果。
+- [`client/components/cards/ItemTaskRunningCard.vue`](../client/components/cards/ItemTaskRunningCard.vue:107)：`strmPreloadProgress` 显示媒体预读任务的「已扫描/总数」音轨计数；[`actionIcon`](../client/components/cards/ItemTaskRunningCard.vue:88) 为 `strm-metadata-completion` 使用 `graphic_eq` 图标。
+- [`client/store/tasks.js`](../client/store/tasks.js:45)：`updateTaskProgress` 在 payload 带 `taskId` 时刷新任务对象的 `data`/`title`/`titleKey`/`titleSubs`，是活动列表书名能随当前书籍变化的前提。
+- [`client/components/widgets/NotificationWidget.vue`](../client/components/widgets/NotificationWidget.vue:62)：「活动」下拉的显示条件（未结束任务 + 结束 60 秒内的失败或 `showSuccess` 任务）。
 - [`client/components/app/ConfigSideNav.vue`](../client/components/app/ConfigSideNav.vue:75)：设置页面用户下方的计划任务入口。
 - [`client/components/tables/TracksTable.vue`](../client/components/tables/TracksTable.vue:18)：大量音轨展开时使用固定行高、可视窗口和上下占位进行虚拟渲染。
 - [`client/components/tables/ChaptersTable.vue`](../client/components/tables/ChaptersTable.vue:13)：详情页大量章节展开时复用音轨表的虚拟窗口渲染，保留章节播放跳转和编辑入口。
@@ -323,6 +353,9 @@
    - 为书籍匹配配置测试用 OpenAI 兼容接口、一个图书媒体库和高置信度阈值；确认第二项横条、左右双栏设置、运行/停止、手动执行完成后的上次执行摘要及“匹配了 N 本图书”正常。确认只有标题、描述、持续时间、文件大小、音轨、章节和路径等扫描基础信息的书进入 AI 流程；确认 ISBN、ASIN、副标题、出版信息、语言、作者、演播者、系列、标签、类型或 `matched-ai` 审计任一存在时在批次层排除，不提取、不搜索、不请求 AI；确认有无实际封面均不影响判断。确认带 `《书名》` 的原名称由本地确定书名、AI 提取作者/演播者；无书名号时由 AI 提取书名和人物；“书名+人物”无结果时自动回退到“仅书名”搜索。确认停止按钮可立即中断当前 AI 请求，不写入取消失败审计；确认 `unmatched`/`needs-review` 可重试，低置信度写入 `needs-review`，越界候选不会写入元数据，API 密钥不会返回浏览器。
    - 验证已完成元数据的 STRM 书籍在播放补全、单本手动、多本手动、媒体库手动和计划任务中均被直接跳过；即使书籍聚合 `media.duration` 为 0，只要所有 STRM 音轨的时长、编码和声道均完整，也不得再次补全。验证部分完成的书籍只扫描缺失元数据的音轨，确认页面显示的是整个扫描任务的服务端总耗时，而不是接口响应耗时。
    - 手工制造一本包含大量 `.strm` 音轨的书，在补全完成一部分后停止或触发时间限制；确认已成功音轨在数据库中保留，重新执行时只请求剩余音轨，详情页显示完成数量/剩余数量，全部完成后提示消失。
+   - 打开右上角「活动」下拉，逐个验证五个媒体预读入口都会出现任务并显示**当前正在预读的书名**：播放一本未预读的 STRM 书（排队期间即应显示书名 + 「播放触发媒体预读」）、详情页单本媒体预读、勾选多本批量媒体预读、媒体库三点菜单媒体预读、计划任务媒体预读。批量/媒体库/计划任务在切换到下一本书时标题应随之更新，任务卡片第三行显示「已扫描/总数」音轨计数。失败时应显示「媒体预读失败：<原因>」而不是空白。
+   - 验证不需要预读的书（全部 STRM 音轨已完整、或非 book 媒体类型）播放时**不会**在活动里产生空任务；同一本书并发触发两次播放只产生一条任务。
+   - 改写一个 `.strm` 指针文件后立刻再次播放或预读，确认读到的是新目标而不是旧目标；把指针改成媒体库和 `/NetDisk` 之外的路径后，确认立即报「outside configured library folders」而不是因缓存命中被放行。
    - 切换浩瀚星空主题，确认藏蓝/墨紫/炭黑背景及不同颜色和大小的静态星点在桌面和移动端可见且不遮挡交互；切换暗色主题，确认冷灰暗色界面正常显示。
    - 容器内执行 `ls /NetDisk/...` 能看到 `.strm` 指向的目标文件；不需要配置额外环境变量。
    - 播放远程 URL、本地 POSIX 路径和 Windows 路径目标均正常。
@@ -338,6 +371,8 @@
 - 书内断点接续不依赖新的数据库迁移；升级时重点检查 `PlaybackSessionManager.completeStrmBook` 是否仍在成功探测后批量保存，以及 `LibraryItemDetails.vue` 是否仍依据 `media.audioFiles` 动态计算持续时间旁的待完成标识。若上游改变媒体模型的 JSON 序列化，只需保证 `audioFiles` 的 `duration`、`codec`、`channels` 和 `metadata.path` 仍可用。
 - 计划任务设置字段属于 `ServerSettings`，上游若重命名或移动设置，需要同步保留 STRM、清理、媒体库扫描以及 `aiBookMatchCronExpression`、`aiBookMatchLibraryIds`、`aiBookMatchGlobal`、`aiBookMatchOnScan`、`aiBookMatchMaxHours`、`aiBookMatchApiUrl`、`aiBookMatchApiKey`、`aiBookMatchModel`、`aiBookMatchConfidence` 的构造、序列化和校验逻辑；浏览器序列化必须继续删除 API 密钥。
 - 入库匹配的唯一耦合点是 [`LibraryItemScanner.scanNewLibraryItem`](../server/scanner/LibraryItemScanner.js:197) 中对 `AiBookMatchManager.enqueueScanMatch` 的一行懒加载调用（避免 `Scanner` → `LibraryScanner` → `LibraryItemScanner` 循环依赖）。上游改写该方法时只需重新插入这一行，队列状态全部保存在 `AiBookMatchManager` 实例字段中，不落库。
+- `server/utils/strmUtils.js` 的 `resolveStrmTarget` **不得重新引入以 mtime 为键的解析缓存**。上游或早期版本的 `strmUrlCache` 会因 mtime 分辨率过粗而返回旧目标，并把库外路径校验和目标 `stat()` 一起跳过（详见「STRM 指针解析取消 mtime 缓存」一节）。如需缓存必须改为内容哈希或显式失效，且校验逻辑必须留在缓存之外无条件执行。
+- 媒体预读活动任务的三个辅助方法（`createStrmPreloadTask` / `updateStrmPreloadTaskBook` / `finishStrmPreloadTask`）与五个入口的调用是一体的，升级时一并保留；不要把 `finishStrmPreloadTask` 里的 `setFinished()` 改成 `setFinished(null, true)`，否则会清掉标识预读来源的描述。同时必须保留服务端 `TaskManager.updateTaskProgress` 的扩展 payload 和前端 `client/store/tasks.js` 的 `taskId` 分支，这两处是活动列表书名随当前书籍刷新的唯一通路。
 - 新增翻译键必须让 `client/strings/*.json` 的键名保持**纯代码点升序**（等价于 JavaScript 的 `Object.keys(obj).sort()`），因为上游 CI 工作流 `.github/workflows/i18n-integration.yml` 调用的 `audiobookshelf/audiobookshelf-i18n-updater@v1.3.0` 用的是 `if (keys[i] < keys[i - 1]) throw new Error(...)` 这种区分大小写的直接比较。**不能**用 `localeCompare()` 或 `toLowerCase().localeCompare()` 排序：这两种比较器会把 `ButtonReScan` 排到 `ButtonRemoveSeriesFromContinueSeries` 之后（因为忽略大小写时 `Res` > `Rem`），而代码点比较认为 `ButtonReS`（`S` = 0x53）小于 `ButtonRem`（`m` = 0x6D），于是 CI 报 `Keys are not alphabetized in en-us.json`。新增键后统一执行 `node -e "const fs=require('fs');for(const f of ['en-us','zh-cn']){const p='client/strings/'+f+'.json';const o=JSON.parse(fs.readFileSync(p,'utf8'));const s={};for(const k of Object.keys(o).sort())s[k]=o[k];fs.writeFileSync(p,JSON.stringify(s,null,2)+'\n')}"` 重排，文件格式固定为 2 空格缩进 + 末尾换行 + LF 行尾。
 - 书名提取规则全部是纯函数（`extractLocalTitle`、`extractSeparatorTitle`、`extractLocalTitleWithRule`），不依赖数据库或上游模型，可以整段保留；只有 `buildMatchAttempts` 需要在上游改动 `BookFinder.search` 参数签名时同步调整。新增本地规则时在 `TITLE_SEPARATOR_REGEX` 或 `extractLocalTitleWithRule` 内扩展，并同步更新 `MATCH_RULE_LABELS`，不要把规则散落到 `CronManager` 或前端。
 

@@ -9,7 +9,6 @@ const { filePathToPOSIX, isSameOrSubPath, getAudioMimeTypeFromExtname } = requir
 
 const STRM_SCAN_MAX_BYTES = 512 * 1024 * 1024
 const AUDIOBOOKSHELF_USER_AGENT = 'AudioBookShelf'
-const strmUrlCache = new Map()
 
 function isPrivateStrmHost(targetUrl) {
   let hostname
@@ -51,45 +50,42 @@ function isStrmPath(filePath) {
   return Path.extname(filePath || '').toLowerCase() === '.strm'
 }
 
+// The pointer contents are re-read on every call instead of being cached behind
+// the `.strm` file mtime. Filesystem mtime resolution is coarse (two writes
+// inside the same tick report an identical mtimeMs), so an mtime keyed cache can
+// serve a stale target after the pointer was rewritten and, because the library
+// root check lived inside the cached callback, skip that check entirely.
+// Reading the few bytes of a pointer file is cheap enough to do every time and
+// guarantees the target validation below always runs.
 async function resolveStrmTarget(filePath, allowedLocalRoots = []) {
   if (!isStrmPath(filePath)) return null
 
-  const fileStat = await fs.stat(filePath)
+  await fs.stat(filePath)
   // `/NetDisk` is the standard container mount point for local STRM targets.
   // It is still checked with stat() and the target must remain inside this root.
   const effectiveLocalRoots = [...new Set([...allowedLocalRoots, '/NetDisk'])]
-  const cacheKey = `${filePath}|${fileStat.mtimeMs}|${effectiveLocalRoots.join('|')}`
-  let cached = strmUrlCache.get(cacheKey)
-  if (!cached) {
-    cached = fs.readFile(filePath, 'utf8').then(async (contents) => {
-      const target = contents.trim()
-      if (!target) throw new Error('STRM file is empty')
+  const contents = await fs.readFile(filePath, 'utf8')
+  const target = contents.trim()
+  if (!target) throw new Error('STRM file is empty')
 
-      try {
-        const url = new URL(target)
-        if (url.protocol === 'http:' || url.protocol === 'https:') return { type: 'remote', value: url.toString() }
-        throw new Error(`Unsupported STRM URL protocol "${url.protocol}"`)
-      } catch (error) {
-        if (/^[a-z][a-z\d+.-]*:/i.test(target) && !Path.win32.isAbsolute(target)) throw error
-      }
-
-      const isAbsoluteLocalPath = Path.isAbsolute(target) || Path.posix.isAbsolute(target) || Path.win32.isAbsolute(target)
-      const localPath = isAbsoluteLocalPath ? target : Path.resolve(Path.dirname(filePath), target)
-      const normalizedPath = filePathToPOSIX(Path.normalize(localPath))
-      const normalizedRoots = effectiveLocalRoots.map((root) => filePathToPOSIX(Path.normalize(root)))
-      if (!normalizedRoots.some((root) => isSameOrSubPath(root, normalizedPath))) {
-        throw new Error(`Local STRM target is outside configured library folders: "${normalizedPath}"`)
-      }
-      const stat = await fs.stat(normalizedPath)
-      if (!stat.isFile()) throw new Error('STRM target is not a file')
-      return { type: 'local', value: normalizedPath }
-    }).catch((error) => {
-      strmUrlCache.delete(cacheKey)
-      throw error
-    })
-    strmUrlCache.set(cacheKey, cached)
+  try {
+    const url = new URL(target)
+    if (url.protocol === 'http:' || url.protocol === 'https:') return { type: 'remote', value: url.toString() }
+    throw new Error(`Unsupported STRM URL protocol "${url.protocol}"`)
+  } catch (error) {
+    if (/^[a-z][a-z\d+.-]*:/i.test(target) && !Path.win32.isAbsolute(target)) throw error
   }
-  return cached
+
+  const isAbsoluteLocalPath = Path.isAbsolute(target) || Path.posix.isAbsolute(target) || Path.win32.isAbsolute(target)
+  const localPath = isAbsoluteLocalPath ? target : Path.resolve(Path.dirname(filePath), target)
+  const normalizedPath = filePathToPOSIX(Path.normalize(localPath))
+  const normalizedRoots = effectiveLocalRoots.map((root) => filePathToPOSIX(Path.normalize(root)))
+  if (!normalizedRoots.some((root) => isSameOrSubPath(root, normalizedPath))) {
+    throw new Error(`Local STRM target is outside configured library folders: "${normalizedPath}"`)
+  }
+  const stat = await fs.stat(normalizedPath)
+  if (!stat.isFile()) throw new Error('STRM target is not a file')
+  return { type: 'local', value: normalizedPath }
 }
 
 async function resolveStrmUrl(filePath, allowedLocalRoots = []) {

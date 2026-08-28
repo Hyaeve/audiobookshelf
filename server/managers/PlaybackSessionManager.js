@@ -594,9 +594,97 @@ class PlaybackSessionManager {
     return qps
   }
 
+  /**
+   * Book title shown in the client activity dropdown while it is pre-read.
+   *
+   * @param {Object} libraryItem
+   * @returns {string}
+   */
+  getStrmBookDisplayTitle(libraryItem) {
+    return libraryItem?.media?.title || libraryItem?.title || libraryItem?.id || ''
+  }
+
+  /**
+   * Create the media pre-read task shown in the client activity dropdown. Every
+   * pre-read entry point (playback triggered, manual single/batch/library and
+   * the scheduled task) creates one so a running pre-read is always visible.
+   *
+   * @param {import('./TaskManager').TaskString} descriptionString pre-read source
+   * @param {Object} [data]
+   * @returns {import('../objects/Task')}
+   */
+  createStrmPreloadTask(descriptionString, data = {}) {
+    return TaskManager.createAndAddTask(
+      'strm-metadata-completion',
+      {
+        text: '媒体预读排队中',
+        key: 'MessageTaskCompletingStrmMetadataQueued'
+      },
+      descriptionString,
+      true,
+      { progress: 0, ...data }
+    )
+  }
+
+  /**
+   * Update the pre-read task so the activity dropdown shows which book is being
+   * pre-read right now. Passing an empty title keeps the current one.
+   *
+   * @param {import('../objects/Task')} task
+   * @param {string} [bookTitle]
+   * @param {number} [progress]
+   */
+  updateStrmPreloadTaskBook(task, bookTitle = '', progress = null) {
+    if (!task) return
+    if (bookTitle) {
+      task.title = `媒体预读：${bookTitle}`
+      task.titleKey = 'MessageTaskCompletingStrmMetadata'
+      task.titleSubs = [bookTitle]
+    }
+    const nextProgress = Number.isFinite(progress) ? progress : Number(task.data?.progress) || 0
+    TaskManager.updateTaskProgress(task, nextProgress)
+  }
+
+  /**
+   * Finish a pre-read activity task, keeping an already failed state intact.
+   *
+   * @param {import('../objects/Task')} task
+   */
+  finishStrmPreloadTask(task) {
+    if (!task) return
+    if (task.titleKey === 'MessageTaskCompletingStrmMetadataQueued') {
+      // Nothing ended up needing a pre-read, so drop the "queued" wording.
+      task.title = '媒体预读'
+      task.titleKey = 'MessageTaskStrmPreload'
+      task.titleSubs = null
+    }
+    // The description keeps naming the pre-read source after the task finished.
+    if (!task.isFinished) task.setFinished()
+    TaskManager.taskFinished(task)
+  }
+
   async completeStrmBookAfterPlayback(libraryItemId) {
     if (this.strmCompletionQueuedIds.has(libraryItemId)) return false
+
+    // Checked before queueing so the activity task only appears for books that
+    // actually need a pre-read, and stays visible while the job waits in queue.
+    const queuedItem = await Database.libraryItemModel.getExpandedById(libraryItemId)
+    if (!queuedItem?.media || queuedItem.mediaType !== 'book') return false
+    const queuedStrmFiles = (queuedItem.media.audioFiles || [])
+      .filter((audioFile) => isStrmPath(audioFile.metadata?.path))
+    if (!queuedStrmFiles.length || this.isCompleteStrmBookMetadata(queuedItem)) return false
+    // Re-checked because the lookup above yields to the event loop.
+    if (this.strmCompletionQueuedIds.has(libraryItemId)) return false
+
     this.strmCompletionQueuedIds.add(libraryItemId)
+    const queuedTitle = this.getStrmBookDisplayTitle(queuedItem)
+    const activityTask = this.createStrmPreloadTask({ text: '播放触发媒体预读', key: 'MessageTaskStrmPreloadSourcePlayback' }, {
+      libraryItemId,
+      libraryId: queuedItem.libraryId,
+      totalTracks: queuedStrmFiles.filter((audioFile) => !this.isCompleteStrmAudioFile(audioFile)).length,
+      scannedTracks: 0
+    })
+    this.updateStrmPreloadTaskBook(activityTask, queuedTitle)
 
     return this.enqueueStrmBookCompletion('playback', libraryItemId, async () => {
       try {
@@ -608,23 +696,35 @@ class PlaybackSessionManager {
         if (!allStrmFiles.length || this.isCompleteStrmBookMetadata(libraryItem)) return false
 
         const strmFiles = allStrmFiles.filter((audioFile) => !this.isCompleteStrmAudioFile(audioFile))
+        const bookTitle = this.getStrmBookDisplayTitle(libraryItem)
+        activityTask.data.totalTracks = strmFiles.length
+        activityTask.data.scannedTracks = 0
+        this.updateStrmPreloadTaskBook(activityTask, bookTitle, 0)
         Logger.info(`[PlaybackSessionManager] 媒体预读开始：书籍 "${libraryItem.media.title || '未命名'}"，待预读音轨：${strmFiles.length}`)
+        const throttleState = {
+          scannedTracks: 0,
+          requestIntervalMs: 1000 / DEFAULT_STRM_METADATA_QPS,
+          batchSize: STRM_METADATA_BATCH_SIZE,
+          pauseMinutes: STRM_METADATA_PAUSE_MINUTES,
+          onTrackScanned: () => {
+            activityTask.data.scannedTracks = throttleState.scannedTracks
+            const totalTracks = Math.max(1, activityTask.data.totalTracks || 1)
+            this.updateStrmPreloadTaskBook(activityTask, bookTitle, Math.min(100, (activityTask.data.scannedTracks / totalTracks) * 100))
+          }
+        }
         const result = await this.completeStrmBook(libraryItem, strmFiles, {
           useLibraryQps: true,
-          throttleState: {
-            scannedTracks: 0,
-            requestIntervalMs: 1000 / DEFAULT_STRM_METADATA_QPS,
-            batchSize: STRM_METADATA_BATCH_SIZE,
-            pauseMinutes: STRM_METADATA_PAUSE_MINUTES
-          }
+          throttleState
         })
         Logger.info(`[PlaybackSessionManager] 媒体预读完成：书籍 "${libraryItem.media.title || '未命名'}"，结果：${result ? '已更新' : '未更新'}`)
         return result
       } catch (error) {
         Logger.warn(`[PlaybackSessionManager] 媒体预读失败：书籍 "${libraryItemId}"，原因：${error.message}`)
+        activityTask.setFailed({ text: `媒体预读失败：${error.message}`, key: 'MessageTaskStrmPreloadFailed', subs: [error.message || ''] })
         return false
       } finally {
         this.strmCompletionQueuedIds.delete(libraryItemId)
+        this.finishStrmPreloadTask(activityTask)
       }
     })
   }
@@ -797,18 +897,17 @@ class PlaybackSessionManager {
       if (library.mediaType !== 'book') return { books: 0, updated: 0 }
 
       const items = await Database.libraryItemModel.findAll({ where: { libraryId } })
-      const task = TaskManager.createAndAddTask('strm-metadata-completion', {
-        text: `媒体预读：${library.name}`,
-        key: 'MessageTaskCompletingStrmMetadata',
+      const task = this.createStrmPreloadTask({
+        text: `手动媒体预读：${library.name}`,
+        key: 'MessageTaskStrmPreloadSourceLibrary',
         subs: [library.name]
-      }, null, true, {
+      }, {
         libraryId,
         libraryName: library.name,
         totalBooks: items.length,
         updatedBooks: 0,
         totalTracks: 0,
         scannedTracks: 0,
-        progress: 0,
         manualLibraryTask: true
       })
       const throttleState = {
@@ -820,7 +919,7 @@ class PlaybackSessionManager {
           task.data.scannedTracks = throttleState.scannedTracks
           const totalTracks = Math.max(1, task.data.totalTracks)
           task.data.progress = Math.min(100, (task.data.scannedTracks / totalTracks) * 100)
-          TaskManager.updateTaskProgress(task, task.data.progress)
+          this.updateStrmPreloadTaskBook(task, '', task.data.progress)
         }
       }
       const jobs = items.map((item) => this.queueStrmBookById('manual', item.id, {
@@ -829,8 +928,7 @@ class PlaybackSessionManager {
         throttleState,
         onStarted: (libraryItem, strmFiles) => {
           task.data.totalTracks += strmFiles.length
-          task.titleSubs = [libraryItem.media.title || libraryItem.title || libraryItem.id]
-          TaskManager.updateTaskProgress(task, task.data.progress)
+          this.updateStrmPreloadTaskBook(task, this.getStrmBookDisplayTitle(libraryItem), task.data.progress)
         }
       }))
 
@@ -839,15 +937,14 @@ class PlaybackSessionManager {
           const updated = results.filter(Boolean).length
           task.data.updatedBooks = updated
           task.data.result = { books: items.length, updated, totalTracks: task.data.totalTracks, scannedTracks: task.data.scannedTracks }
-          task.setFinished(null, true)
           return task.data.result
         })
         .catch((error) => {
           Logger.error(`[PlaybackSessionManager] 媒体库媒体预读失败：媒体库 "${libraryId}"`, error)
-          task.setFailed({ text: 'Failed', key: 'MessageTaskFailed' })
+          task.setFailed({ text: `媒体预读失败：${error.message}`, key: 'MessageTaskStrmPreloadFailed', subs: [error.message || ''] })
           throw error
         })
-        .finally(() => TaskManager.taskFinished(task))
+        .finally(() => this.finishStrmPreloadTask(task))
     })
   }
 
@@ -855,20 +952,40 @@ class PlaybackSessionManager {
     const existingTask = this.strmItemCompletionTasks.get(libraryItemId)
     if (existingTask) return existingTask
 
+    const activityTask = this.createStrmPreloadTask({ text: '手动媒体预读', key: 'MessageTaskStrmPreloadSourceManual' }, {
+      libraryItemId,
+      totalTracks: 0,
+      scannedTracks: 0
+    })
+    const throttleState = {
+      scannedTracks: 0,
+      requestIntervalMs: 1000 / DEFAULT_STRM_METADATA_QPS,
+      batchSize: STRM_METADATA_BATCH_SIZE,
+      pauseMinutes: STRM_METADATA_PAUSE_MINUTES,
+      onTrackScanned: () => {
+        activityTask.data.scannedTracks = throttleState.scannedTracks
+        const totalTracks = Math.max(1, activityTask.data.totalTracks || 1)
+        this.updateStrmPreloadTaskBook(activityTask, '', Math.min(100, (activityTask.data.scannedTracks / totalTracks) * 100))
+      }
+    }
     const task = this.enqueueManualStrmOperation(() => this.queueStrmBookById('manual', libraryItemId, {
       useLibraryQps: true,
-      throttleState: {
-        scannedTracks: 0,
-        requestIntervalMs: 1000 / DEFAULT_STRM_METADATA_QPS,
-        batchSize: STRM_METADATA_BATCH_SIZE,
-        pauseMinutes: STRM_METADATA_PAUSE_MINUTES
+      throttleState,
+      onStarted: (libraryItem, strmFiles) => {
+        activityTask.data.totalTracks = strmFiles.length
+        activityTask.data.libraryId = libraryItem.libraryId
+        this.updateStrmPreloadTaskBook(activityTask, this.getStrmBookDisplayTitle(libraryItem), 0)
       }
     }))
       .catch((error) => {
         Logger.warn(`[PlaybackSessionManager] 媒体预读失败：项目 "${libraryItemId}"，原因：${error.message}`)
+        activityTask.setFailed({ text: `媒体预读失败：${error.message}`, key: 'MessageTaskStrmPreloadFailed', subs: [error.message || ''] })
         return false
       })
-      .finally(() => this.strmItemCompletionTasks.delete(libraryItemId))
+      .finally(() => {
+        this.strmItemCompletionTasks.delete(libraryItemId)
+        this.finishStrmPreloadTask(activityTask)
+      })
 
     this.strmItemCompletionTasks.set(libraryItemId, task)
     return task
@@ -884,11 +1001,10 @@ class PlaybackSessionManager {
     this.strmScheduledCompletionTask = (async () => {
       const startedAt = Date.now()
       const deadline = startedAt + Math.max(0.5, Number(maxHours) || 1) * 60 * 60 * 1000
-      task = TaskManager.createAndAddTask('strm-metadata-completion', {
-        text: '媒体预读',
-        key: 'MessageTaskCompletingStrmMetadata',
-        subs: ['']
-      }, null, true, { scheduledTask: true, totalBooks: 0, updatedBooks: 0, totalTracks: 0, scannedTracks: 0, progress: 0 })
+      task = this.createStrmPreloadTask({
+        text: '计划任务媒体预读',
+        key: 'MessageTaskStrmPreloadSourceScheduled'
+      }, { scheduledTask: true, totalBooks: 0, updatedBooks: 0, totalTracks: 0, scannedTracks: 0 })
       const selectedLibraryIds = Array.isArray(libraryIds) ? libraryIds : []
       const items = selectedLibraryIds.length
         ? await Database.libraryItemModel.findAllExpandedWhere({ mediaType: 'book', libraryId: selectedLibraryIds })
@@ -903,8 +1019,7 @@ class PlaybackSessionManager {
         const totalTracks = Math.max(1, task.data.totalTracks || 1)
         const progress = Math.min(100, (task.data.scannedTracks / totalTracks) * 100)
         if (title) currentTitle = title
-        task.titleSubs = [currentTitle]
-        TaskManager.updateTaskProgress(task, progress)
+        this.updateStrmPreloadTaskBook(task, currentTitle, progress)
       }
       const settings = Database.serverSettings
       const throttleState = {
@@ -942,8 +1057,7 @@ class PlaybackSessionManager {
       const cancelled = this.strmScheduledCompletionCancelRequested
       Logger.info(`[PlaybackSessionManager] 媒体预读任务结束，时间 ${new Date(finishedAt).toISOString()}，处理书籍：${items.length}，更新书籍：${updated}，已取消：${cancelled}`)
       task.data.result = { books: items.length, updated, cancelled }
-      task.setFinished(null, true)
-      TaskManager.taskFinished(task)
+      this.finishStrmPreloadTask(task)
       return {
         books: items.length,
         updated,
@@ -957,10 +1071,11 @@ class PlaybackSessionManager {
         Logger.error(`[PlaybackSessionManager] 计划媒体预读失败`, error)
         if (task && !task.isFinished) {
           task.setFailed({
-            text: error.message || '媒体预读失败',
-            key: 'MessageTaskCompletingStrmMetadataFailed'
+            text: `媒体预读失败：${error.message}`,
+            key: 'MessageTaskStrmPreloadFailed',
+            subs: [error.message || '']
           })
-          TaskManager.taskFinished(task)
+          this.finishStrmPreloadTask(task)
         }
         throw error
       })
@@ -985,26 +1100,48 @@ class PlaybackSessionManager {
     const existingTask = this.strmBatchCompletionTasks.get(taskKey)
     if (existingTask) return existingTask
 
+    const activityTask = this.createStrmPreloadTask({
+      text: `手动批量媒体预读（${libraryItemIds.length}）`,
+      key: 'MessageTaskStrmPreloadSourceBatch',
+      subs: [String(libraryItemIds.length)]
+    }, {
+      totalBooks: libraryItemIds.length,
+      totalTracks: 0,
+      scannedTracks: 0
+    })
     const task = this.enqueueManualStrmOperation(async () => {
       const items = await Database.libraryItemModel.findAllExpandedWhere({ id: libraryItemIds })
       const throttleState = {
         scannedTracks: 0,
         requestIntervalMs: 1000 / DEFAULT_STRM_METADATA_QPS,
         batchSize: STRM_METADATA_BATCH_SIZE,
-        pauseMinutes: STRM_METADATA_PAUSE_MINUTES
+        pauseMinutes: STRM_METADATA_PAUSE_MINUTES,
+        onTrackScanned: () => {
+          activityTask.data.scannedTracks = throttleState.scannedTracks
+          const totalTracks = Math.max(1, activityTask.data.totalTracks || 1)
+          this.updateStrmPreloadTaskBook(activityTask, '', Math.min(100, (activityTask.data.scannedTracks / totalTracks) * 100))
+        }
       }
       const jobs = items.map((libraryItem) => this.queueStrmBookById('manual', libraryItem.id, {
         useLibraryQps: true,
-        throttleState
+        throttleState,
+        onStarted: (expandedItem, strmFiles) => {
+          activityTask.data.totalTracks += strmFiles.length
+          this.updateStrmPreloadTaskBook(activityTask, this.getStrmBookDisplayTitle(expandedItem), Number(activityTask.data.progress) || 0)
+        }
       }))
       const results = await Promise.all(jobs)
       return { books: items.length, updated: results.filter(Boolean).length }
     })
       .catch((error) => {
         Logger.warn(`[PlaybackSessionManager] 批量媒体预读失败：${error.message}`)
+        activityTask.setFailed({ text: `媒体预读失败：${error.message}`, key: 'MessageTaskStrmPreloadFailed', subs: [error.message || ''] })
         throw error
       })
-      .finally(() => this.strmBatchCompletionTasks.delete(taskKey))
+      .finally(() => {
+        this.strmBatchCompletionTasks.delete(taskKey)
+        this.finishStrmPreloadTask(activityTask)
+      })
 
     this.strmBatchCompletionTasks.set(taskKey, task)
     return task

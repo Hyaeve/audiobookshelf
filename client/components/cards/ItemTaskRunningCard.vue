@@ -8,6 +8,7 @@
       <p class="truncate text-sm">{{ title }}</p>
 
       <p class="truncate text-xs text-gray-300">{{ description }}</p>
+      <p v-if="strmPreloadProgress" class="truncate text-xs text-gray-300">{{ strmPreloadProgress }}</p>
       <p v-if="specialMessage" class="truncate text-xs text-gray-300">{{ specialMessage }}</p>
 
       <p v-if="isFailed && failedMessage" class="text-xs truncate text-red-500">{{ failedMessage }}</p>
@@ -84,6 +85,8 @@ export default {
           return 'cloud_download'
         case 'encode-m4b':
           return 'sync'
+        case 'strm-metadata-completion':
+          return 'graphic_eq'
         default:
           return 'settings'
       }
@@ -100,6 +103,15 @@ export default {
     },
     isLibraryScan() {
       return this.action === 'library-scan' || this.action === 'library-match-all'
+    },
+    strmPreloadProgress() {
+      // Track counter for media pre-read tasks so the activity dropdown shows how
+      // far the currently pre-read book has progressed.
+      if (this.action !== 'strm-metadata-completion' || this.isFinished) return ''
+      const scannedTracks = Number(this.task.data?.scannedTracks) || 0
+      const totalTracks = Number(this.task.data?.totalTracks) || 0
+      if (!totalTracks) return ''
+      return `${scannedTracks}/${totalTracks}`
     }
   },
   methods: {
