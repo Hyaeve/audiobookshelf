@@ -335,6 +335,7 @@
 - 书内断点接续不依赖新的数据库迁移；升级时重点检查 `PlaybackSessionManager.completeStrmBook` 是否仍在成功探测后批量保存，以及 `LibraryItemDetails.vue` 是否仍依据 `media.audioFiles` 动态计算持续时间旁的待完成标识。若上游改变媒体模型的 JSON 序列化，只需保证 `audioFiles` 的 `duration`、`codec`、`channels` 和 `metadata.path` 仍可用。
 - 计划任务设置字段属于 `ServerSettings`，上游若重命名或移动设置，需要同步保留 STRM、清理、媒体库扫描以及 `aiBookMatchCronExpression`、`aiBookMatchLibraryIds`、`aiBookMatchGlobal`、`aiBookMatchOnScan`、`aiBookMatchMaxHours`、`aiBookMatchApiUrl`、`aiBookMatchApiKey`、`aiBookMatchModel`、`aiBookMatchConfidence` 的构造、序列化和校验逻辑；浏览器序列化必须继续删除 API 密钥。
 - 入库匹配的唯一耦合点是 [`LibraryItemScanner.scanNewLibraryItem`](../server/scanner/LibraryItemScanner.js:197) 中对 `AiBookMatchManager.enqueueScanMatch` 的一行懒加载调用（避免 `Scanner` → `LibraryScanner` → `LibraryItemScanner` 循环依赖）。上游改写该方法时只需重新插入这一行，队列状态全部保存在 `AiBookMatchManager` 实例字段中，不落库。
+- 新增翻译键必须让 `client/strings/*.json` 的键名保持**纯代码点升序**（等价于 JavaScript 的 `Object.keys(obj).sort()`），因为上游 CI 工作流 `.github/workflows/i18n-integration.yml` 调用的 `audiobookshelf/audiobookshelf-i18n-updater@v1.3.0` 用的是 `if (keys[i] < keys[i - 1]) throw new Error(...)` 这种区分大小写的直接比较。**不能**用 `localeCompare()` 或 `toLowerCase().localeCompare()` 排序：这两种比较器会把 `ButtonReScan` 排到 `ButtonRemoveSeriesFromContinueSeries` 之后（因为忽略大小写时 `Res` > `Rem`），而代码点比较认为 `ButtonReS`（`S` = 0x53）小于 `ButtonRem`（`m` = 0x6D），于是 CI 报 `Keys are not alphabetized in en-us.json`。新增键后统一执行 `node -e "const fs=require('fs');for(const f of ['en-us','zh-cn']){const p='client/strings/'+f+'.json';const o=JSON.parse(fs.readFileSync(p,'utf8'));const s={};for(const k of Object.keys(o).sort())s[k]=o[k];fs.writeFileSync(p,JSON.stringify(s,null,2)+'\n')}"` 重排，文件格式固定为 2 空格缩进 + 末尾换行 + LF 行尾。
 - 书名提取规则全部是纯函数（`extractLocalTitle`、`extractSeparatorTitle`、`extractLocalTitleWithRule`），不依赖数据库或上游模型，可以整段保留；只有 `buildMatchAttempts` 需要在上游改动 `BookFinder.search` 参数签名时同步调整。新增本地规则时在 `TITLE_SEPARATOR_REGEX` 或 `extractLocalTitleWithRule` 内扩展，并同步更新 `MATCH_RULE_LABELS`，不要把规则散落到 `CronManager` 或前端。
 
 ## 验证命令
@@ -343,6 +344,12 @@
 
 ```text
 npm test
+```
+
+翻译键排序自检（必须输出全部为 `violations=0`，与上游 CI 的比较方式一致）：
+
+```text
+node -e "const fs=require('fs');for(const f of fs.readdirSync('client/strings')){if(!f.endsWith('.json'))continue;const k=Object.keys(JSON.parse(fs.readFileSync('client/strings/'+f,'utf8')));let n=0;for(let i=1;i<k.length;i++)if(k[i]<k[i-1])n++;console.log(f,'violations='+n)}"
 ```
 
 当前已验证后端完整测试通过，包含 STRM 分组和本地路径安全校验测试。前端构建可使用项目已有命令：
