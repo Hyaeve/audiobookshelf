@@ -4,6 +4,7 @@ const axios = require('axios')
 const Database = require('../../../server/Database')
 const AiBookMatchManager = require('../../../server/managers/AiBookMatchManager')
 const BookFinder = require('../../../server/finders/BookFinder')
+const Scanner = require('../../../server/scanner/Scanner')
 
 describe('AiBookMatchManager', () => {
   afterEach(() => sinon.restore())
@@ -60,6 +61,55 @@ describe('AiBookMatchManager', () => {
   it('extracts a quoted title locally without changing it', () => {
     assert.strictEqual(AiBookMatchManager.extractLocalTitle('《天启之门》主播：白鲸剧场 1824集完'), '天启之门')
     assert.strictEqual(AiBookMatchManager.extractLocalTitle('没有书名号的名称'), '')
+  })
+
+  it('extracts the segment before the first separator when there is no quoted title', () => {
+    assert.strictEqual(AiBookMatchManager.extractSeparatorTitle('橙红年代丨骁骑校丨主播paul'), '橙红年代')
+    assert.strictEqual(AiBookMatchManager.extractSeparatorTitle('大道朝天.演播北冥有声.猫腻.2020'), '大道朝天')
+    assert.strictEqual(AiBookMatchManager.extractSeparatorTitle('明朝那些事儿-当年明月'), '明朝那些事儿')
+    assert.strictEqual(AiBookMatchManager.extractSeparatorTitle('没有分隔符号的名称'), '')
+  })
+
+  it('prefers the quoted rule over the separator rule', () => {
+    assert.deepStrictEqual(AiBookMatchManager.extractLocalTitleWithRule('《天启之门》丨跳舞丨主播paul'), { title: '天启之门', rule: 'quoted' })
+    assert.deepStrictEqual(AiBookMatchManager.extractLocalTitleWithRule('橙红年代丨骁骑校'), { title: '橙红年代', rule: 'separator' })
+    assert.deepStrictEqual(AiBookMatchManager.extractLocalTitleWithRule('创造吧昆虫战斗卡'), { title: '', rule: null })
+  })
+
+  it('builds local attempts without calling AI and always ends with the full name', async () => {
+    const postStub = sinon.stub(axios, 'post').rejects(new Error('AI must not be called'))
+    const attempts = await AiBookMatchManager.buildMatchAttempts({ media: { title: '《天启之门》著：跳舞' } }, { aiBookMatchApiUrl: 'https://example.test/v1', aiBookMatchApiKey: 'secret', aiBookMatchModel: 'test-model' })
+    assert.deepStrictEqual(
+      attempts.map((attempt) => [attempt.rule, attempt.title, attempt.author]),
+      [
+        ['quoted', '天启之门', ''],
+        ['full-name', '《天启之门》著：跳舞', '']
+      ]
+    )
+    assert.strictEqual(postStub.called, false)
+  })
+
+  it('builds AI title+author and AI title attempts only when no local rule matches', async () => {
+    sinon.stub(AiBookMatchManager, 'extractSearchMetadata').resolves({ title: '创造吧昆虫战斗卡', authors: ['保林叔叔'], narrators: ['paul'], author: '保林叔叔, paul' })
+    const attempts = await AiBookMatchManager.buildMatchAttempts({ media: { title: '创造吧昆虫战斗卡 保林叔叔 主播paul' } }, { aiBookMatchApiUrl: 'https://example.test/v1', aiBookMatchApiKey: 'secret', aiBookMatchModel: 'test-model' })
+    assert.deepStrictEqual(
+      attempts.map((attempt) => [attempt.rule, attempt.title, attempt.author]),
+      [
+        ['ai-title-author', '创造吧昆虫战斗卡', '保林叔叔, paul'],
+        ['ai-title', '创造吧昆虫战斗卡', ''],
+        ['full-name', '创造吧昆虫战斗卡 保林叔叔 主播paul', '']
+      ]
+    )
+  })
+
+  it('falls back to the full name only when AI is not configured', async () => {
+    const postStub = sinon.stub(axios, 'post').rejects(new Error('AI must not be called'))
+    const attempts = await AiBookMatchManager.buildMatchAttempts({ media: { title: '创造吧昆虫战斗卡 保林叔叔' } }, {})
+    assert.deepStrictEqual(
+      attempts.map((attempt) => [attempt.rule, attempt.title]),
+      [['full-name', '创造吧昆虫战斗卡 保林叔叔']]
+    )
+    assert.strictEqual(postStub.called, false)
   })
 
   it('keeps a locally confirmed title when AI extraction fails', async () => {
@@ -124,19 +174,45 @@ describe('AiBookMatchManager', () => {
     const searchStub = sinon.stub(BookFinder, 'search')
     searchStub.onFirstCall().resolves([])
     searchStub.onSecondCall().resolves([{ title: '天启之门' }])
-    sinon.stub(AiBookMatchManager, 'chooseCandidate').resolves({ candidateIndex: null, confidence: 0.5, reason: 'review' })
+    sinon.stub(AiBookMatchManager, 'chooseCandidate').resolves({ candidateIndex: 0, confidence: 0.95, reason: 'title agrees' })
+    sinon.stub(Scanner, 'applyBookMatch').resolves({ updated: true })
     sinon.stub(AiBookMatchManager, 'saveAudit').resolves()
 
     const result = await AiBookMatchManager.matchLibraryItem({}, {
       isBook: true,
-      media: { title: '《天启之门》著：跳舞' }
+      media: { title: '天启之门 著 跳舞' }
     }, { provider: 'google' })
 
     assert.strictEqual(searchStub.firstCall.args[2], '天启之门')
     assert.strictEqual(searchStub.firstCall.args[3], '跳舞')
     assert.strictEqual(searchStub.secondCall.args[2], '天启之门')
     assert.strictEqual(searchStub.secondCall.args[3], null)
+    assert.strictEqual(result.status, 'matched')
+    assert.strictEqual(result.rule, 'ai-title')
     assert.strictEqual(result.searchAuthor, '')
+  })
+
+  it('falls back through separator and full name rules without AI', async () => {
+    sinon.stub(AiBookMatchManager, 'isConfigured').returns(false)
+    sinon.stub(Database, 'serverSettings').value({ aiBookMatchConfidence: 0.9 })
+    const searchStub = sinon.stub(BookFinder, 'search')
+    searchStub.onFirstCall().resolves([])
+    searchStub.onSecondCall().resolves([{ title: '橙红年代丨骁骑校' }])
+    const chooseStub = sinon.stub(AiBookMatchManager, 'chooseCandidate').rejects(new Error('AI must not be called'))
+    const applyStub = sinon.stub(Scanner, 'applyBookMatch').resolves({ updated: true })
+    sinon.stub(AiBookMatchManager, 'saveAudit').resolves()
+
+    const result = await AiBookMatchManager.matchLibraryItem({}, {
+      isBook: true,
+      media: { title: '橙红年代丨骁骑校' }
+    }, { provider: 'google' })
+
+    assert.strictEqual(searchStub.firstCall.args[2], '橙红年代')
+    assert.strictEqual(searchStub.secondCall.args[2], '橙红年代丨骁骑校')
+    assert.strictEqual(chooseStub.called, false)
+    assert.strictEqual(applyStub.calledOnce, true)
+    assert.strictEqual(result.status, 'matched')
+    assert.strictEqual(result.rule, 'full-name')
   })
 
   it('skips matched books unless global matching is enabled', async () => {

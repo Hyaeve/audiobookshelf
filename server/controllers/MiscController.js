@@ -157,7 +157,7 @@ class MiscController {
       if (settingsUpdate[key] === undefined) continue
       const expression = typeof settingsUpdate[key] === 'string' ? settingsUpdate[key].trim() : settingsUpdate[key]
       settingsUpdate[key] = expression || null
-      if (expression !== null && (typeof expression !== 'string' || !cron.validate(expression))) {
+      if (settingsUpdate[key] !== null && (typeof settingsUpdate[key] !== 'string' || !cron.validate(settingsUpdate[key]))) {
         return res.status(400).send(`Invalid cron expression for ${key}`)
       }
     }
@@ -202,6 +202,7 @@ class MiscController {
       if (settingsUpdate.missingItemsCleanupLibraryIds.some((id) => typeof id !== 'string' || !validIds.has(id))) return res.status(400).send('Invalid library ID in missing items cleanup settings')
     }
     if (settingsUpdate.aiBookMatchGlobal !== undefined && typeof settingsUpdate.aiBookMatchGlobal !== 'boolean') return res.status(400).send('AI book match global setting must be a boolean')
+    if (settingsUpdate.aiBookMatchOnScan !== undefined && typeof settingsUpdate.aiBookMatchOnScan !== 'boolean') return res.status(400).send('AI book match on scan setting must be a boolean')
     if (settingsUpdate.scheduledLibraryScanLibraryIds !== undefined) {
       if (!Array.isArray(settingsUpdate.scheduledLibraryScanLibraryIds)) return res.status(400).send('Library scan library IDs must be an array')
       const libraries = await Database.libraryModel.findAll({ attributes: ['id'] })

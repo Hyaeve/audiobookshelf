@@ -55,6 +55,7 @@ class ServerSettings {
     this.missingItemsCleanupLibraryIds = []
     this.aiBookMatchCronExpression = null
     this.aiBookMatchGlobal = false
+    this.aiBookMatchOnScan = false
     this.aiBookMatchLibraryIds = []
     this.aiBookMatchMaxHours = 1
     this.aiBookMatchApiUrl = null
@@ -149,6 +150,7 @@ class ServerSettings {
     this.missingItemsCleanupLibraryIds = Array.isArray(settings.missingItemsCleanupLibraryIds) ? settings.missingItemsCleanupLibraryIds : []
     this.aiBookMatchCronExpression = settings.aiBookMatchCronExpression || null
     this.aiBookMatchGlobal = settings.aiBookMatchGlobal === true
+    this.aiBookMatchOnScan = settings.aiBookMatchOnScan === true
     this.aiBookMatchLibraryIds = Array.isArray(settings.aiBookMatchLibraryIds) ? settings.aiBookMatchLibraryIds : []
     this.aiBookMatchMaxHours = Number(settings.aiBookMatchMaxHours) > 0 ? Number(settings.aiBookMatchMaxHours) : 1
     this.aiBookMatchApiUrl = settings.aiBookMatchApiUrl || null
@@ -285,6 +287,7 @@ class ServerSettings {
       missingItemsCleanupLibraryIds: [...this.missingItemsCleanupLibraryIds],
       aiBookMatchCronExpression: this.aiBookMatchCronExpression,
       aiBookMatchGlobal: this.aiBookMatchGlobal,
+      aiBookMatchOnScan: this.aiBookMatchOnScan,
       aiBookMatchLibraryIds: [...this.aiBookMatchLibraryIds],
       aiBookMatchMaxHours: this.aiBookMatchMaxHours,
       aiBookMatchApiUrl: this.aiBookMatchApiUrl,

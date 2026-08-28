@@ -192,6 +192,9 @@ class LibraryItemScanner {
     }
     if (newLibraryItem) {
       libraryScan.addLog(LogLevel.INFO, `Created new library item "${newLibraryItem.relPath}" with id "${newLibraryItem.id}"`)
+      // Local feature: hand new books to the book matching flow when 入库匹配 is enabled.
+      // Required lazily because AiBookMatchManager depends on Scanner -> LibraryScanner -> this module.
+      require('../managers/AiBookMatchManager').enqueueScanMatch(newLibraryItem)
     }
     return newLibraryItem
   }

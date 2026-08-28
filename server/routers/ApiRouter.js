@@ -11,6 +11,7 @@ const date = require('../libs/dateAndTime')
 
 const CacheManager = require('../managers/CacheManager')
 const RssFeedManager = require('../managers/RssFeedManager')
+const AiBookMatchManager = require('../managers/AiBookMatchManager')
 
 const LibraryController = require('../controllers/LibraryController')
 const UserController = require('../controllers/UserController')
@@ -63,6 +64,7 @@ class ApiRouter {
       this.cronManager.setMissingItemsCleanupHandler((isCancelled, libraryIds) => this.runMissingItemsCleanup(isCancelled, libraryIds))
     }
     this.cronManager?.setApiRouterContext?.(this)
+    AiBookMatchManager.setApiRouterContext(this)
   }
 
   init() {

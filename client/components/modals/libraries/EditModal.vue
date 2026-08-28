@@ -128,6 +128,7 @@ export default {
           autoScanCronExpression: null,
           hideSingleBookSeries: false,
           onlyShowLaterBooksInContinueSeries: false,
+          strmMetadataQps: 2.0,
           metadataPrecedence: ['folderStructure', 'audioMetatags', 'nfoFile', 'txtFiles', 'opfFile', 'absMetadata'],
           markAsFinishedPercentComplete: null,
           markAsFinishedTimeRemaining: 10

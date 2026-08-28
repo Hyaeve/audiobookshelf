@@ -15,6 +15,7 @@ const Logger = require('../Logger')
  * @property {string[]} metadataPrecedence
  * @property {number} markAsFinishedTimeRemaining Time remaining in seconds to mark as finished. (defaults to 10s)
  * @property {number} markAsFinishedPercentComplete Percent complete to mark as finished (0-100). If this is set it will be used over markAsFinishedTimeRemaining.
+ * @property {number} strmMetadataQps STRM media pre-read requests per second used by playback-triggered and manual pre-read for this library (0.1-10, defaults to 2)
  */
 
 class Library extends Model {
@@ -78,7 +79,8 @@ class Library extends Model {
         onlyShowLaterBooksInContinueSeries: false,
         metadataPrecedence: this.defaultMetadataPrecedence,
         markAsFinishedPercentComplete: null,
-        markAsFinishedTimeRemaining: 10
+        markAsFinishedTimeRemaining: 10,
+        strmMetadataQps: 2.0
       }
     }
   }

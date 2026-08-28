@@ -81,6 +81,19 @@
           </ui-tooltip>
         </div>
       </div>
+      <div v-if="isBookLibrary" class="p-2 w-full md:w-1/2">
+        <div class="flex items-center">
+          <div class="w-24">
+            <ui-text-input v-model="strmMetadataQps" type="number" step="0.1" min="0.1" @input="formUpdated" />
+          </div>
+          <ui-tooltip :text="$strings.LabelSettingsStrmMetadataQpsHelp">
+            <p class="pl-4 text-sm">
+              {{ $strings.LabelSettingsStrmMetadataQps }}
+              <span class="material-symbols icon-text text-sm">info</span>
+            </p>
+          </ui-tooltip>
+        </div>
+      </div>
       <div v-if="isPodcastLibrary" class="p-2 w-full md:w-1/2">
         <ui-dropdown :label="$strings.LabelPodcastSearchRegion" v-model="podcastSearchRegion" :items="$podcastSearchRegionOptions" small class="max-w-72" menu-max-height="200px" @input="formUpdated" />
       </div>
@@ -122,6 +135,7 @@ export default {
       epubsAllowScriptedContent: false,
       hideSingleBookSeries: false,
       onlyShowLaterBooksInContinueSeries: false,
+      strmMetadataQps: 2.0,
       podcastSearchRegion: 'us',
       markAsFinishedWhen: 'timeRemaining',
       markAsFinishedValue: 10
@@ -142,6 +156,11 @@ export default {
     },
     isPodcastLibrary() {
       return this.mediaType === 'podcast'
+    },
+    normalizedStrmMetadataQps() {
+      const qps = Number(this.strmMetadataQps)
+      if (!Number.isFinite(qps)) return 2.0
+      return Math.min(10, Math.max(0.1, Math.round(qps * 10) / 10))
     },
     maskAsFinishedWhenItems() {
       return [
@@ -181,6 +200,7 @@ export default {
           epubsAllowScriptedContent: !!this.epubsAllowScriptedContent,
           hideSingleBookSeries: !!this.hideSingleBookSeries,
           onlyShowLaterBooksInContinueSeries: !!this.onlyShowLaterBooksInContinueSeries,
+          strmMetadataQps: this.normalizedStrmMetadataQps,
           podcastSearchRegion: this.podcastSearchRegion,
           markAsFinishedTimeRemaining: markAsFinishedTimeRemaining,
           markAsFinishedPercentComplete: markAsFinishedPercentComplete
@@ -200,6 +220,7 @@ export default {
       this.epubsAllowScriptedContent = !!this.librarySettings.epubsAllowScriptedContent
       this.hideSingleBookSeries = !!this.librarySettings.hideSingleBookSeries
       this.onlyShowLaterBooksInContinueSeries = !!this.librarySettings.onlyShowLaterBooksInContinueSeries
+      this.strmMetadataQps = Number(this.librarySettings.strmMetadataQps) >= 0.1 ? Number(this.librarySettings.strmMetadataQps) : 2.0
       this.podcastSearchRegion = this.librarySettings.podcastSearchRegion || 'us'
       this.markAsFinishedWhen = this.librarySettings.markAsFinishedTimeRemaining ? 'timeRemaining' : 'percentComplete'
       if (!this.librarySettings.markAsFinishedTimeRemaining && !this.librarySettings.markAsFinishedPercentComplete) {

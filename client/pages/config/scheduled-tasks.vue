@@ -35,6 +35,8 @@
             <input id="book-match-hours" v-model.number="draftMaxHours" type="number" min="0.5" step="0.5" class="w-full bg-primary border border-gray-600 rounded-md px-3 py-2" />
             <label class="flex items-center mt-4 text-sm font-semibold"><input v-model="draftAiGlobal" type="checkbox" class="mr-2" /><span>全局匹配</span></label>
             <p class="text-xs text-gray-400 mt-3">{{ draftAiGlobal ? '处理所选媒体库中的全部图书，并覆盖匹配元数据。' : '仅处理未匹配图书；已有 ISBN、ASIN 或 AI 成功记录的图书会跳过。' }}</p>
+            <label class="flex items-center mt-4 text-sm font-semibold"><input v-model="draftAiOnScan" type="checkbox" class="mr-2" /><span>入库匹配</span></label>
+            <p class="text-xs text-gray-400 mt-3">勾选后由书籍匹配接管扫描新入库书籍的匹配流程，按书名号、符号分隔、AI 辅助、全称的顺序逐级尝试。</p>
           </section>
           <section>
             <h3 class="text-base font-semibold mb-4">OpenAI 兼容接口</h3>
@@ -88,7 +90,7 @@ const LAST_RUN_STORAGE_KEY = 'absScheduledTaskLastRuns'
 
 export default {
   data() {
-    return { showSettings: false, saving: false, selectedTask: null, showAiKey: false, draftCron: null, draftMaxHours: 1, draftQps: 1, draftBatchSize: 5000, draftLibraryIds: [], draftAiGlobal: false, draftAiUrl: '', draftAiKey: '', draftAiModel: '', draftAiConfidence: 0.9, running: {}, lastRuns: {} }
+    return { showSettings: false, saving: false, selectedTask: null, showAiKey: false, draftCron: null, draftMaxHours: 1, draftQps: 1, draftBatchSize: 5000, draftLibraryIds: [], draftAiGlobal: false, draftAiOnScan: false, draftAiUrl: '', draftAiKey: '', draftAiModel: '', draftAiConfidence: 0.9, running: {}, lastRuns: {} }
   },
   computed: {
     tasks() { return this.$store.state.tasks.tasks || [] },
@@ -103,7 +105,7 @@ export default {
     taskDefinitions() {
       return [
         { key: 'scan', title: '媒体库扫描', description: '扫描选定媒体库', hasMaxHours: true },
-        { key: 'bookMatch', title: '书籍匹配', description: 'AI 辅助匹配未匹配书籍', hasMaxHours: true },
+        { key: 'bookMatch', title: '书籍匹配', description: '按书名号、符号分隔、AI 辅助、全称逐级提取书名并匹配', hasMaxHours: true },
         { key: 'bookMetadata', title: '补全元数据', description: '根据当前书名搜索并仅补充缺失的书籍元数据', hasMaxHours: true },
         { key: 'metadata', title: '媒体预读', description: '仅预读缺少有声书总时长的书籍', hasMaxHours: true },
         { key: 'missing', title: '清理丢失项目', description: '删除扫描后标记为丢失的项目数据库记录，不删除文件系统文件', hasMaxHours: false }
@@ -147,6 +149,7 @@ export default {
       this.draftQps = Number(this.serverSettings.strmMetadataCompletionQps) || 1
       this.draftBatchSize = Number(this.serverSettings.strmMetadataCompletionBatchSize) || 5000
       this.draftAiGlobal = this.serverSettings.aiBookMatchGlobal === true
+      this.draftAiOnScan = this.serverSettings.aiBookMatchOnScan === true
       this.draftAiUrl = this.serverSettings.aiBookMatchApiUrl || ''
       this.draftAiKey = ''
       this.draftAiModel = this.serverSettings.aiBookMatchModel || ''
@@ -188,22 +191,62 @@ export default {
       this.$set(this.running, task.key + 'Stopping', true)
       try { const result = await this.$axios.$post(`/api/${this.actionFor(task)}/stop`); if (!result.stopped) this.$set(this.running, task.key, false) } catch (error) { this.$toast.error('停止任务失败') } finally { this.$set(this.running, task.key + 'Stopping', false) }
     },
+    draftNumber(value) {
+      const number = typeof value === 'number' ? value : Number(String(value ?? '').trim())
+      return Number.isFinite(number) ? number : null
+    },
+    isStepMultiple(value, step) {
+      return Number.isInteger(Math.round(value / step)) && Math.abs(Math.round(value / step) * step - value) < 1e-9
+    },
+    validateDrafts(taskKey) {
+      const numbers = {}
+      if (taskKey !== 'missing') {
+        const maxHours = this.draftNumber(this.draftMaxHours)
+        if (maxHours === null || maxHours < 0.5 || !this.isStepMultiple(maxHours, 0.5)) return { error: '单次最长执行时间必须是不小于 0.5 且为 0.5 倍数的数值' }
+        numbers.maxHours = maxHours
+      }
+      if (taskKey === 'metadata') {
+        const qps = this.draftNumber(this.draftQps)
+        if (qps === null || qps < 0.1 || qps > 10 || !this.isStepMultiple(qps, 0.1)) return { error: '扫描 QPS 必须是 0.1 至 10 之间且为 0.1 倍数的数值' }
+        const batchSize = this.draftNumber(this.draftBatchSize)
+        if (batchSize === null || !Number.isInteger(batchSize) || batchSize < 500 || batchSize % 500 !== 0) return { error: '暂停阈值必须是不小于 500 且为 500 倍数的整数' }
+        numbers.qps = qps
+        numbers.batchSize = batchSize
+      }
+      if (taskKey === 'bookMatch') {
+        const confidence = this.draftNumber(this.draftAiConfidence)
+        if (confidence === null || confidence < 0.5 || confidence > 1) return { error: '自动应用最低置信度必须是 0.5 至 1 之间的数值' }
+        numbers.confidence = confidence
+      }
+      return { numbers }
+    },
     async saveSettings() {
+      if (!this.selectedTask) return
+      const taskKey = this.selectedTask.key
+      const { numbers, error: validationError } = this.validateDrafts(taskKey)
+      if (validationError) return this.$toast.error(validationError)
       this.saving = true
       try {
         const cronExpression = typeof this.draftCron === 'string' && this.draftCron.trim() ? this.draftCron.trim() : null
         let payload
-        if (this.selectedTask.key === 'scan') payload = { scheduledLibraryScanCronExpression: cronExpression, scheduledLibraryScanLibraryIds: this.draftLibraryIds, scheduledLibraryScanMaxHours: this.draftMaxHours }
-        else if (this.selectedTask.key === 'bookMatch') {
-          payload = { aiBookMatchCronExpression: cronExpression, aiBookMatchLibraryIds: this.draftLibraryIds, aiBookMatchGlobal: this.draftAiGlobal, aiBookMatchMaxHours: this.draftMaxHours, aiBookMatchApiUrl: this.draftAiUrl.trim() || null, aiBookMatchModel: this.draftAiModel.trim() || null, aiBookMatchConfidence: this.draftAiConfidence }
-          if (this.draftAiKey.trim()) payload.aiBookMatchApiKey = this.draftAiKey.trim()
-        } else if (this.selectedTask.key === 'bookMetadata') payload = { bookMetadataCompletionCronExpression: cronExpression, bookMetadataCompletionLibraryIds: this.draftLibraryIds, bookMetadataCompletionMaxHours: this.draftMaxHours }
-        else if (this.selectedTask.key === 'metadata') payload = { strmMetadataCompletionCronExpression: cronExpression, strmMetadataCompletionLibraryIds: this.draftLibraryIds, strmMetadataCompletionMaxHours: this.draftMaxHours, strmMetadataCompletionQps: this.draftQps, strmMetadataCompletionBatchSize: this.draftBatchSize }
+        if (taskKey === 'scan') payload = { scheduledLibraryScanCronExpression: cronExpression, scheduledLibraryScanLibraryIds: this.draftLibraryIds, scheduledLibraryScanMaxHours: numbers.maxHours }
+        else if (taskKey === 'bookMatch') {
+          payload = { aiBookMatchCronExpression: cronExpression, aiBookMatchLibraryIds: this.draftLibraryIds, aiBookMatchGlobal: this.draftAiGlobal, aiBookMatchOnScan: this.draftAiOnScan, aiBookMatchMaxHours: numbers.maxHours, aiBookMatchApiUrl: (this.draftAiUrl || '').trim() || null, aiBookMatchModel: (this.draftAiModel || '').trim() || null, aiBookMatchConfidence: numbers.confidence }
+          if ((this.draftAiKey || '').trim()) payload.aiBookMatchApiKey = this.draftAiKey.trim()
+        } else if (taskKey === 'bookMetadata') payload = { bookMetadataCompletionCronExpression: cronExpression, bookMetadataCompletionLibraryIds: this.draftLibraryIds, bookMetadataCompletionMaxHours: numbers.maxHours }
+        else if (taskKey === 'metadata') payload = { strmMetadataCompletionCronExpression: cronExpression, strmMetadataCompletionLibraryIds: this.draftLibraryIds, strmMetadataCompletionMaxHours: numbers.maxHours, strmMetadataCompletionQps: numbers.qps, strmMetadataCompletionBatchSize: numbers.batchSize }
         else payload = { missingItemsCleanupCronExpression: cronExpression, missingItemsCleanupLibraryIds: this.draftLibraryIds }
         const response = await this.$axios.$patch('/api/settings', payload)
         this.$store.commit('setServerSettings', response.serverSettings)
         this.showSettings = false
-      } catch (error) { console.error('Failed to save scheduled task settings', error) } finally { this.saving = false }
+        this.$toast.success(`${this.selectedTask.title}设置已保存`)
+      } catch (error) {
+        console.error('Failed to save scheduled task settings', error)
+        const serverMessage = typeof error.response?.data === 'string' ? error.response.data.trim() : ''
+        this.$toast.error(serverMessage || '保存设置失败')
+      } finally {
+        this.saving = false
+      }
     }
   }
 }

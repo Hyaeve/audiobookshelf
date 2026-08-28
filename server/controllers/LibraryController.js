@@ -110,6 +110,12 @@ class LibraryController {
               return res.status(400).send(`Invalid request. Setting "${key}" must be greater than or equal to 0`)
             }
             newLibraryPayload.settings[key] = req.body.settings[key] === null ? null : Number(req.body.settings[key])
+          } else if (key === 'strmMetadataQps') {
+            const qps = Number(req.body.settings[key])
+            if (!Number.isFinite(qps) || qps < 0.1 || qps > 10 || Math.abs(qps * 10 - Math.round(qps * 10)) > 1e-9) {
+              return res.status(400).send('Invalid request. Setting "strmMetadataQps" must use 0.1 increments between 0.1 and 10')
+            }
+            newLibraryPayload.settings[key] = Math.round(qps * 10) / 10
           } else {
             if (typeof req.body.settings[key] !== typeof newLibraryPayload.settings[key]) {
               return res.status(400).send(`Invalid request. Setting "${key}" must be of type ${typeof newLibraryPayload.settings[key]}`)
@@ -352,6 +358,18 @@ class LibraryController {
           if (req.body.settings[key] !== updatedSettings[key]) {
             hasUpdates = true
             updatedSettings[key] = req.body.settings[key] === null ? null : Number(req.body.settings[key])
+            Logger.debug(`[LibraryController] Library "${req.library.name}" updating setting "${key}" to "${updatedSettings[key]}"`)
+          }
+        } else if (key === 'strmMetadataQps') {
+          const qps = Number(req.body.settings[key])
+          if (!Number.isFinite(qps) || qps < 0.1 || qps > 10 || Math.abs(qps * 10 - Math.round(qps * 10)) > 1e-9) {
+            Logger.error(`[LibraryController] Invalid request. Setting "strmMetadataQps" must use 0.1 increments between 0.1 and 10`)
+            return res.status(400).send('Invalid request. Setting "strmMetadataQps" must use 0.1 increments between 0.1 and 10')
+          }
+          const normalizedQps = Math.round(qps * 10) / 10
+          if (normalizedQps !== updatedSettings[key]) {
+            hasUpdates = true
+            updatedSettings[key] = normalizedQps
             Logger.debug(`[LibraryController] Library "${req.library.name}" updating setting "${key}" to "${updatedSettings[key]}"`)
           }
         } else {

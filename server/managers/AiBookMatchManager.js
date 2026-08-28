@@ -4,10 +4,31 @@ const Database = require('../Database')
 const BookFinder = require('../finders/BookFinder')
 const { getMetadataLocks } = require('../utils/metadataLocks')
 const Scanner = require('../scanner/Scanner')
+const LibraryScanner = require('../scanner/LibraryScanner')
 
 const AUDIT_KEY = 'aiBookMatch'
 
+const MATCHED_AUDIT_STATUSES = new Set(['matched-ai', 'matched-local'])
+
+const TITLE_SEPARATOR_REGEX = /[丨|｜.．\-－—–]/
+
+const MATCH_RULE_LABELS = {
+  quoted: '书名号',
+  separator: '符号分隔',
+  'ai-title-author': 'AI 书名+人物',
+  'ai-title': 'AI 仅书名',
+  'full-name': '全称'
+}
+
 class AiBookMatchManager {
+  constructor() {
+    /** @type {import('../routers/ApiRouter')} */
+    this.apiRouterCtx = null
+    this.scanMatchQueue = []
+    this.scanMatchQueuedIds = new Set()
+    this.scanMatchRunning = false
+  }
+
   isConfigured(settings = Database.serverSettings) {
     return !!(settings?.aiBookMatchApiUrl && settings?.aiBookMatchApiKey && settings?.aiBookMatchModel)
   }
@@ -28,7 +49,7 @@ class AiBookMatchManager {
 
   isUnmatchedCandidate(libraryItem) {
     const audit = this.getAudit(libraryItem)
-    if (audit?.status === 'matched-ai') return false
+    if (MATCHED_AUDIT_STATUSES.has(audit?.status)) return false
 
     const media = libraryItem.media || {}
     const expandedAuthors = Array.isArray(media.authors) ? media.authors : []
@@ -85,6 +106,76 @@ class AiBookMatchManager {
   extractLocalTitle(sourceName) {
     const quotedTitle = String(sourceName || '').match(/[《「『]([^》」』]+)[》」』]/)
     return quotedTitle?.[1]?.trim().slice(0, 300) || ''
+  }
+
+  extractSeparatorTitle(sourceName) {
+    const normalizedName = String(sourceName || '').trim()
+    if (!normalizedName) return ''
+    const separatorIndex = normalizedName.search(TITLE_SEPARATOR_REGEX)
+    if (separatorIndex < 0) return ''
+    const firstSegment = normalizedName
+      .split(TITLE_SEPARATOR_REGEX)
+      .map((segment) => segment.trim())
+      .find((segment) => !!segment)
+    return firstSegment && firstSegment !== normalizedName ? firstSegment.slice(0, 300) : ''
+  }
+
+  /**
+   * Local book title extraction with a fixed rule priority:
+   * 1. Text wrapped in book-title brackets
+   * 2. Text before the first 丨 | . - separator
+   *
+   * @param {string} sourceName
+   * @returns {{title: string, rule: string|null}}
+   */
+  extractLocalTitleWithRule(sourceName) {
+    const quotedTitle = this.extractLocalTitle(sourceName)
+    if (quotedTitle) return { title: quotedTitle, rule: 'quoted' }
+    const separatorTitle = this.extractSeparatorTitle(sourceName)
+    if (separatorTitle) return { title: separatorTitle, rule: 'separator' }
+    return { title: '', rule: null }
+  }
+
+  getMatchRuleLabel(rule) {
+    return MATCH_RULE_LABELS[rule] || rule || '-'
+  }
+
+  /**
+   * Build the ordered list of search attempts for one book.
+   * Local rules never call the AI; the AI is only used when no local rule matches.
+   *
+   * @param {import('../models/LibraryItem')} libraryItem
+   * @param {import('../objects/settings/ServerSettings')} settings
+   * @param {Object} options
+   * @returns {Promise<{rule: string, title: string, author: string, authors: string[], narrators: string[]}[]>}
+   */
+  async buildMatchAttempts(libraryItem, settings = Database.serverSettings, options = {}) {
+    const sourceName = String(libraryItem.media?.title || '').trim()
+    const attempts = []
+    const addAttempt = (attempt) => {
+      if (!attempt.title) return
+      const isDuplicate = attempts.some((existing) => existing.title === attempt.title && (existing.author || '') === (attempt.author || ''))
+      if (!isDuplicate) attempts.push({ authors: [], narrators: [], author: '', ...attempt })
+    }
+
+    const localTitle = this.extractLocalTitleWithRule(sourceName)
+    if (localTitle.title) {
+      addAttempt({ rule: localTitle.rule, title: localTitle.title })
+    } else if (this.isConfigured(settings)) {
+      let searchMetadata = null
+      try {
+        searchMetadata = await this.extractSearchMetadata(libraryItem, settings, options)
+      } catch (error) {
+        if (options.signal?.aborted || error.code === 'ERR_CANCELED' || error.name === 'CanceledError') throw error
+        Logger.warn(`[AiBookMatchManager] AI 书名提取失败："${sourceName}"，原因：${error.message}`)
+      }
+      if (searchMetadata?.title) {
+        if (searchMetadata.author) addAttempt({ rule: 'ai-title-author', title: searchMetadata.title, author: searchMetadata.author, authors: searchMetadata.authors, narrators: searchMetadata.narrators })
+        addAttempt({ rule: 'ai-title', title: searchMetadata.title, authors: searchMetadata.authors, narrators: searchMetadata.narrators })
+      }
+    }
+    addAttempt({ rule: 'full-name', title: sourceName.slice(0, 300) })
+    return attempts
   }
 
   async extractSearchMetadata(libraryItem, settings = Database.serverSettings, options = {}) {
@@ -190,59 +281,154 @@ class AiBookMatchManager {
     return { candidateIndex, confidence, reason: typeof decision?.reason === 'string' ? decision.reason.slice(0, 500) : '' }
   }
 
+  throwIfAborted(options = {}) {
+    if (options.signal?.aborted) throw new Error('AI matching cancelled')
+  }
+
+  /**
+   * Match one book by walking the fixed extraction rule priority until a candidate is applied.
+   * Rule order: book-title brackets, first separator segment, AI title + people, AI title only, full name.
+   *
+   * @param {import('../routers/ApiRouter')} apiRouterCtx
+   * @param {import('../models/LibraryItem')} libraryItem
+   * @param {import('../models/Library')} library
+   * @param {Object} options
+   */
   async matchLibraryItem(apiRouterCtx, libraryItem, library, options = {}) {
     if (!libraryItem.isBook || (this.isAlreadyMatched(libraryItem) && options.globalMatch !== true)) return { status: 'skipped' }
     if (options.scheduledTask === true && getMetadataLocks(libraryItem).all) return { status: 'skipped', reason: '已锁定' }
     const settings = Database.serverSettings
-    if (!this.isConfigured(settings)) throw new Error('AI book matching is not configured')
-
-    let searchMetadata
-    const localTitle = this.extractLocalTitle(libraryItem.media?.title || '')
-    try {
-      searchMetadata = await this.extractSearchMetadata(libraryItem, settings, options)
-    } catch (error) {
-      if (options.signal?.aborted || error.code === 'ERR_CANCELED' || error.name === 'CanceledError') throw error
-      if (!localTitle) throw error
-      searchMetadata = { title: localTitle, authors: [], narrators: [], author: '' }
-    }
-    if (options.signal?.aborted) throw new Error('AI matching cancelled')
-    let searchAuthor = searchMetadata.author
-    let results = await BookFinder.search(libraryItem, library.provider || 'google', searchMetadata.title, searchAuthor, null, null, { maxFuzzySearches: 2 })
-    if (!results.length && searchAuthor) {
-      if (options.signal?.aborted) throw new Error('AI matching cancelled')
-      searchAuthor = ''
-      results = await BookFinder.search(libraryItem, library.provider || 'google', searchMetadata.title, null, null, null, { maxFuzzySearches: 2 })
-    }
-    if (options.signal?.aborted) throw new Error('AI matching cancelled')
-    const candidates = this.getCandidates(results)
-    if (options.signal?.aborted) throw new Error('AI matching cancelled')
-    if (!candidates.length) {
-      await this.saveAudit(libraryItem, { status: 'unmatched', source: 'provider', updatedAt: Date.now(), reason: 'No metadata provider candidates found' })
-      return { status: 'unmatched', searchTitle: searchMetadata.title, searchAuthor, reason: '没有找到元数据候选' }
+    const attempts = await this.buildMatchAttempts(libraryItem, settings, options)
+    if (!attempts.length) {
+      await this.saveAudit(libraryItem, { status: 'unmatched', source: 'local', updatedAt: Date.now(), reason: 'No book title could be extracted' })
+      return { status: 'unmatched', reason: '没有可用的书名' }
     }
 
-    if (options.signal?.aborted) throw new Error('AI matching cancelled')
-    const decision = await this.chooseCandidate(libraryItem, candidates, settings, { ...searchMetadata, author: searchAuthor }, options)
     const threshold = Number(settings.aiBookMatchConfidence) || 0.9
-    if (decision.candidateIndex === null || decision.confidence < threshold) {
+    const aiConfigured = this.isConfigured(settings)
+    let lastFailure = null
+    for (const attempt of attempts) {
+      this.throwIfAborted(options)
+      const results = await BookFinder.search(libraryItem, library.provider || 'google', attempt.title, attempt.author || null, null, null, { maxFuzzySearches: 2 })
+      this.throwIfAborted(options)
+      const candidates = this.getCandidates(results)
+      if (!candidates.length) {
+        lastFailure = { status: 'unmatched', source: 'provider', reason: '没有找到元数据候选', attempt }
+        continue
+      }
+
+      let selectedIndex = 0
+      let confidence = null
+      let decisionReason = ''
+      if (aiConfigured) {
+        const decision = await this.chooseCandidate(libraryItem, candidates, settings, attempt, options)
+        this.throwIfAborted(options)
+        if (decision.candidateIndex === null || decision.confidence < threshold) {
+          lastFailure = { status: 'needs-review', source: 'ai', reason: decision.reason || 'AI confidence did not reach the configured threshold', confidence: decision.confidence, attempt }
+          continue
+        }
+        selectedIndex = decision.candidateIndex
+        confidence = decision.confidence
+        decisionReason = decision.reason
+      }
+
+      const selectedResult = results[selectedIndex]
+      this.throwIfAborted(options)
+      const result = await Scanner.applyBookMatch(apiRouterCtx, libraryItem, selectedResult, options)
       await this.saveAudit(libraryItem, {
-        status: 'needs-review', source: 'ai', model: settings.aiBookMatchModel, confidence: decision.confidence, updatedAt: Date.now(), reason: decision.reason || 'AI confidence did not reach the configured threshold'
+        status: result.updated ? (aiConfigured ? 'matched-ai' : 'matched-local') : 'needs-review',
+        source: aiConfigured ? 'ai' : 'local',
+        model: aiConfigured ? settings.aiBookMatchModel : null,
+        rule: attempt.rule,
+        confidence,
+        updatedAt: Date.now(),
+        candidate: candidates[selectedIndex],
+        reason: decisionReason
       })
-      return { status: 'needs-review', searchTitle: searchMetadata.title, searchAuthor }
+      return {
+        status: result.updated ? 'matched' : 'needs-review',
+        rule: attempt.rule,
+        ruleLabel: this.getMatchRuleLabel(attempt.rule),
+        searchTitle: attempt.title,
+        searchAuthor: attempt.author || '',
+        candidateTitle: selectedResult.title || selectedResult.name || null
+      }
     }
 
-    const selectedResult = results[decision.candidateIndex]
-    if (options.signal?.aborted) throw new Error('AI matching cancelled')
-    const result = await Scanner.applyBookMatch(apiRouterCtx, libraryItem, selectedResult, options)
     await this.saveAudit(libraryItem, {
-      status: result.updated ? 'matched-ai' : 'needs-review', source: 'ai', model: settings.aiBookMatchModel, confidence: decision.confidence, updatedAt: Date.now(), candidate: candidates[decision.candidateIndex], reason: decision.reason
+      status: lastFailure.status,
+      source: lastFailure.source,
+      model: lastFailure.source === 'ai' ? settings.aiBookMatchModel : null,
+      rule: lastFailure.attempt?.rule || null,
+      confidence: lastFailure.confidence ?? null,
+      updatedAt: Date.now(),
+      reason: lastFailure.reason
     })
     return {
-      status: result.updated ? 'matched' : 'needs-review',
-      searchTitle: searchMetadata.title,
-      searchAuthor,
-      candidateTitle: selectedResult.title || selectedResult.name || null
+      status: lastFailure.status,
+      rule: lastFailure.attempt?.rule || null,
+      ruleLabel: this.getMatchRuleLabel(lastFailure.attempt?.rule),
+      searchTitle: lastFailure.attempt?.title || '',
+      searchAuthor: lastFailure.attempt?.author || '',
+      reason: lastFailure.reason
     }
+  }
+
+  /**
+   * Queue a newly scanned book for the shared book-match flow.
+   * Only used by the "入库匹配" option; jobs run one book at a time.
+   *
+   * @param {import('../models/LibraryItem')} libraryItem
+   */
+  enqueueScanMatch(libraryItem) {
+    const settings = Database.serverSettings
+    if (settings?.aiBookMatchOnScan !== true) return false
+    if (!libraryItem?.id || libraryItem.mediaType !== 'book') return false
+    const selectedLibraryIds = Array.isArray(settings.aiBookMatchLibraryIds) ? settings.aiBookMatchLibraryIds : []
+    if (selectedLibraryIds.length && !selectedLibraryIds.includes(libraryItem.libraryId)) return false
+    if (this.scanMatchQueuedIds.has(libraryItem.id)) return false
+    this.scanMatchQueuedIds.add(libraryItem.id)
+    this.scanMatchQueue.push({ id: libraryItem.id, libraryId: libraryItem.libraryId, title: libraryItem.media?.title || libraryItem.title || libraryItem.relPath })
+    this.processScanMatchQueue()
+    return true
+  }
+
+  async processScanMatchQueue() {
+    if (this.scanMatchRunning) return
+    this.scanMatchRunning = true
+    try {
+      while (this.scanMatchQueue.length) {
+        const job = this.scanMatchQueue.shift()
+        this.scanMatchQueuedIds.delete(job.id)
+        try {
+          // Do not write metadata while the library scan that created the item is still running
+          while (LibraryScanner.isLibraryScanning(job.libraryId)) {
+            await new Promise((resolve) => setTimeout(resolve, 5000))
+          }
+          const libraryItem = await Database.libraryItemModel.getExpandedById(job.id)
+          if (!libraryItem?.isBook) continue
+          const library = await Database.libraryModel.findByPk(job.libraryId)
+          if (library?.mediaType !== 'book') continue
+          const matchResult = await this.matchLibraryItem(this.apiRouterCtx, libraryItem, library, {
+            scheduledTask: true,
+            // New items are matched regardless of folder-parsed metadata; this option replaces the scan-time match step
+            globalMatch: true,
+            overrideCover: true,
+            overrideDetails: true
+          })
+          Logger.info(`[AiBookMatchManager] 入库匹配：媒体库 "${library.name}"，原名称 "${job.title}"，规则：${this.getMatchRuleLabel(matchResult.rule)}，搜索标题 "${matchResult.searchTitle || '-'}"，搜索作者 "${matchResult.searchAuthor || '-'}"，结果：${matchResult.status}${matchResult.candidateTitle ? `，匹配为 "${matchResult.candidateTitle}"` : ''}${matchResult.reason ? `，原因：${matchResult.reason}` : ''}`)
+        } catch (error) {
+          Logger.warn(`[AiBookMatchManager] 入库匹配失败："${job.title}"，原因：${error.message}`)
+        }
+      }
+    } finally {
+      this.scanMatchRunning = false
+      if (this.scanMatchQueue.length) this.processScanMatchQueue()
+    }
+  }
+
+  setApiRouterContext(apiRouterCtx) {
+    this.apiRouterCtx = apiRouterCtx
   }
 }
 

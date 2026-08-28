@@ -261,7 +261,6 @@ class CronManager {
 
   async runAiBookMatch(scheduledTask = false) {
     if (this.aiBookMatchExecuting) return { skipped: true }
-    if (!AiBookMatchManager.isConfigured()) throw new Error('AI book matching is not configured')
     this.aiBookMatchExecuting = true
     this.aiBookMatchCancelRequested = false
     const settings = Database.serverSettings
@@ -283,10 +282,10 @@ class CronManager {
       const libraries = await Database.libraryModel.getAllWithFolders()
       const selectedLibraries = libraryIds.map((id) => libraries.find((library) => library.id === id)).filter((library) => library?.mediaType === 'book')
       const selectedLibraryNames = selectedLibraries.map((library) => library.name)
-      Logger.info(`[CronManager] AI书籍匹配${taskTypeText}开始，模式：${settings.aiBookMatchGlobal ? '全局匹配' : '仅未匹配'}，目标媒体库：${selectedLibraryNames.length ? selectedLibraryNames.join('、') : '无'}`)
+      Logger.info(`[CronManager] 书籍匹配${taskTypeText}开始，模式：${settings.aiBookMatchGlobal ? '全局匹配' : '仅未匹配'}，AI 辅助：${AiBookMatchManager.isConfigured(settings) ? '已配置' : '未配置'}，目标媒体库：${selectedLibraryNames.length ? selectedLibraryNames.join('、') : '无'}`)
       let processed = 0
       for (const library of selectedLibraries) {
-        Logger.info(`[CronManager] AI书籍匹配开始处理媒体库："${library.name}"`)
+        Logger.info(`[CronManager] 书籍匹配开始处理媒体库："${library.name}"`)
         let offset = 0
         while (!this.aiBookMatchCancelRequested && Date.now() < deadline) {
           const items = await Database.libraryItemModel.getLibraryItemsIncrement(offset, 50, { libraryId: library.id, mediaType: 'book', isMissing: false, isInvalid: false })
@@ -309,7 +308,7 @@ class CronManager {
               if (this.aiBookMatchCancelRequested || error.code === 'ERR_CANCELED' || error.name === 'CanceledError') {
                 matchResult = { status: 'skipped', reason: '已停止' }
               } else {
-                Logger.warn(`[CronManager] AI matching failed for "${libraryItem.id}": ${error.message}`)
+                Logger.warn(`[CronManager] Book matching failed for "${libraryItem.id}": ${error.message}`)
                 await AiBookMatchManager.saveAudit(libraryItem, { status: 'needs-review', source: 'ai', model: settings.aiBookMatchModel, updatedAt: Date.now(), reason: error.message })
                 matchResult = { status: 'needs-review', reason: error.message }
               }
@@ -318,7 +317,7 @@ class CronManager {
             else if (matchResult.status === 'unmatched') result.unmatched += 1
             else if (matchResult.status === 'needs-review') result.needsReview += 1
             else result.skipped += 1
-            Logger.info(`[CronManager] AI书籍匹配：媒体库 "${library.name}"，原名称 "${libraryItem.media?.title || libraryItem.title || '未命名'}"，搜索标题 "${matchResult.searchTitle || '-'}"，搜索作者 "${matchResult.searchAuthor || '-'}"，结果：${matchStatusText[matchResult.status] || matchResult.status}${matchResult.candidateTitle ? `，匹配为 "${matchResult.candidateTitle}"` : ''}${matchResult.reason ? `，原因：${matchResult.reason}` : ''}`)
+            Logger.info(`[CronManager] 书籍匹配：媒体库 "${library.name}"，原名称 "${libraryItem.media?.title || libraryItem.title || '未命名'}"，提取规则：${matchResult.ruleLabel || '-'}，搜索标题 "${matchResult.searchTitle || '-'}"，搜索作者 "${matchResult.searchAuthor || '-'}"，结果：${matchStatusText[matchResult.status] || matchResult.status}${matchResult.candidateTitle ? `，匹配为 "${matchResult.candidateTitle}"` : ''}${matchResult.reason ? `，原因：${matchResult.reason}` : ''}`)
             processed += 1
             TaskManager.updateTaskProgress(task, selectedLibraries.length ? Math.min(99, ((selectedLibraries.indexOf(library) + 1) / selectedLibraries.length) * 100) : 100, { currentLibrary: library.name, processed, ...result })
           }
@@ -328,7 +327,7 @@ class CronManager {
       result.cancelled = this.aiBookMatchCancelRequested || Date.now() >= deadline
       const finishedAt = Date.now()
       const summary = { startedAt, finishedAt, durationMs: finishedAt - startedAt, ...result }
-      Logger.info(`[CronManager] AI书籍匹配${taskTypeText}结束：${JSON.stringify(summary)}`)
+      Logger.info(`[CronManager] 书籍匹配${taskTypeText}结束：${JSON.stringify(summary)}`)
       task.data.result = summary
       task.setFinished(null, true)
       Database.serverSettings.aiBookMatchLastRun = summary

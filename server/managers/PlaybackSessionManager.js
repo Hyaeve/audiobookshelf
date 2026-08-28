@@ -19,6 +19,12 @@ const PlaybackSession = require('../objects/PlaybackSession')
 const DeviceInfo = require('../objects/DeviceInfo')
 const Stream = require('../objects/Stream')
 
+// Playback-triggered and manual STRM media pre-read share the library level
+// "strmMetadataQps" setting and a fixed 3000 track / 3 minute pause window.
+const DEFAULT_STRM_METADATA_QPS = 2.0
+const STRM_METADATA_BATCH_SIZE = 3000
+const STRM_METADATA_PAUSE_MINUTES = 3
+
 class PlaybackSessionManager {
   constructor() {
     this.StreamsPath = Path.join(global.MetadataPath, 'streams')
@@ -575,6 +581,19 @@ class PlaybackSessionManager {
     return this.getStrmBookMetadataStatus(libraryItem).isComplete
   }
 
+  /**
+   * Media pre-read QPS configured on the library. Shared by playback-triggered
+   * and every manual pre-read entry for books in that library.
+   *
+   * @param {Object} library
+   * @returns {number}
+   */
+  getLibraryStrmQps(library) {
+    const qps = Number(library?.settings?.strmMetadataQps)
+    if (!Number.isFinite(qps) || qps < 0.1 || qps > 10) return DEFAULT_STRM_METADATA_QPS
+    return qps
+  }
+
   async completeStrmBookAfterPlayback(libraryItemId) {
     if (this.strmCompletionQueuedIds.has(libraryItemId)) return false
     this.strmCompletionQueuedIds.add(libraryItemId)
@@ -591,11 +610,15 @@ class PlaybackSessionManager {
         const strmFiles = allStrmFiles.filter((audioFile) => !this.isCompleteStrmAudioFile(audioFile))
         Logger.info(`[PlaybackSessionManager] 媒体预读开始：书籍 "${libraryItem.media.title || '未命名'}"，待预读音轨：${strmFiles.length}`)
         const result = await this.completeStrmBook(libraryItem, strmFiles, {
-          qps: 2.0,
-          throttleState: { scannedTracks: 0, requestIntervalMs: 1000 / 2.0 }
+          useLibraryQps: true,
+          throttleState: {
+            scannedTracks: 0,
+            requestIntervalMs: 1000 / DEFAULT_STRM_METADATA_QPS,
+            batchSize: STRM_METADATA_BATCH_SIZE,
+            pauseMinutes: STRM_METADATA_PAUSE_MINUTES
+          }
         })
         Logger.info(`[PlaybackSessionManager] 媒体预读完成：书籍 "${libraryItem.media.title || '未命名'}"，结果：${result ? '已更新' : '未更新'}`)
-        await new Promise((resolve) => setTimeout(resolve, 3 * 60 * 1000))
         return result
       } catch (error) {
         Logger.warn(`[PlaybackSessionManager] 媒体预读失败：书籍 "${libraryItemId}"，原因：${error.message}`)
@@ -619,8 +642,9 @@ class PlaybackSessionManager {
     const library = await Database.libraryModel.findByIdWithFolders(libraryItem.libraryId)
     const allowedLocalRoots = (library?.libraryFolders || []).map((folder) => folder.path)
     const totalStrmFiles = (libraryItem.media.audioFiles || []).filter((audioFile) => isStrmPath(audioFile.metadata?.path)).length
-    const qps = Number(options.qps) > 0 ? Number(options.qps) : 0.5
+    const qps = options.useLibraryQps ? this.getLibraryStrmQps(library) : Number(options.qps) > 0 ? Number(options.qps) : 0.5
     const requestIntervalMs = 1000 / qps
+    if (options.throttleState) options.throttleState.requestIntervalMs = requestIntervalMs
     const persistBatchSize = 50
     let updatedCount = 0
     let pendingPersistCount = 0
@@ -789,9 +813,9 @@ class PlaybackSessionManager {
       })
       const throttleState = {
         scannedTracks: 0,
-        requestIntervalMs: 1000 / 1.5,
-        batchSize: 5000,
-        pauseMinutes: 3,
+        requestIntervalMs: 1000 / this.getLibraryStrmQps(library),
+        batchSize: STRM_METADATA_BATCH_SIZE,
+        pauseMinutes: STRM_METADATA_PAUSE_MINUTES,
         onTrackScanned: () => {
           task.data.scannedTracks = throttleState.scannedTracks
           const totalTracks = Math.max(1, task.data.totalTracks)
@@ -800,7 +824,7 @@ class PlaybackSessionManager {
         }
       }
       const jobs = items.map((item) => this.queueStrmBookById('manual', item.id, {
-        qps: 1.5,
+        useLibraryQps: true,
         manualLibraryTask: true,
         throttleState,
         onStarted: (libraryItem, strmFiles) => {
@@ -832,11 +856,12 @@ class PlaybackSessionManager {
     if (existingTask) return existingTask
 
     const task = this.enqueueManualStrmOperation(() => this.queueStrmBookById('manual', libraryItemId, {
-      qps: 2.0,
+      useLibraryQps: true,
       throttleState: {
         scannedTracks: 0,
-        requestIntervalMs: 1000 / 2.0,
-        batchSize: 3000
+        requestIntervalMs: 1000 / DEFAULT_STRM_METADATA_QPS,
+        batchSize: STRM_METADATA_BATCH_SIZE,
+        pauseMinutes: STRM_METADATA_PAUSE_MINUTES
       }
     }))
       .catch((error) => {
@@ -964,11 +989,12 @@ class PlaybackSessionManager {
       const items = await Database.libraryItemModel.findAllExpandedWhere({ id: libraryItemIds })
       const throttleState = {
         scannedTracks: 0,
-        requestIntervalMs: 1000 / 1.5,
-        batchSize: 3000
+        requestIntervalMs: 1000 / DEFAULT_STRM_METADATA_QPS,
+        batchSize: STRM_METADATA_BATCH_SIZE,
+        pauseMinutes: STRM_METADATA_PAUSE_MINUTES
       }
       const jobs = items.map((libraryItem) => this.queueStrmBookById('manual', libraryItem.id, {
-        qps: 1.5,
+        useLibraryQps: true,
         throttleState
       }))
       const results = await Promise.all(jobs)
