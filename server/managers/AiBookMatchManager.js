@@ -12,13 +12,19 @@ const MATCHED_AUDIT_STATUSES = new Set(['matched-ai', 'matched-local'])
 
 const TITLE_SEPARATOR_REGEX = /[丨|｜.．\-－—–]/
 
+const LOCAL_AUTHOR_TRIM_REGEX = /^[\s丨|｜.．\-－—–_~、,，;；]+|[\s丨|｜.．\-－—–_~、,，;；]+$/g
+
 const AI_FAILURE_STREAK_LIMIT = 3
 
 const AI_COOLDOWN_MS = 5 * 60 * 1000
 
 const MATCH_RULE_LABELS = {
   quoted: '书名号',
+  'quoted-ai-author': '书名号+AI 人物',
+  'quoted-local-author': '书名号+剩余文本',
   separator: '符号分隔',
+  'separator-ai-author': '符号分隔+AI 人物',
+  'separator-local-author': '符号分隔+后段文本',
   'ai-title-author': 'AI 书名+人物',
   'ai-title': 'AI 仅书名',
   'full-name': '全称'
@@ -181,13 +187,68 @@ class AiBookMatchManager {
     return { title: '', rule: null }
   }
 
+  trimLocalAuthor(value) {
+    return String(value || '')
+      .replace(LOCAL_AUTHOR_TRIM_REGEX, '')
+      .trim()
+      .slice(0, 300)
+  }
+
+  /**
+   * Local author extraction used when the AI is not configured or unavailable.
+   * quoted rule: the whole name minus the book-title brackets and their content
+   * separator rule: everything after the first separator
+   *
+   * @param {string} sourceName
+   * @param {string} rule
+   * @returns {string}
+   */
+  extractLocalAuthor(sourceName, rule) {
+    const normalizedName = String(sourceName || '').trim()
+    if (!normalizedName) return ''
+    if (rule === 'quoted') {
+      return this.trimLocalAuthor(normalizedName.replace(/[《「『][^》」』]+[》」』]/, ' '))
+    }
+    if (rule === 'separator') {
+      const separatorTitle = this.extractSeparatorTitle(normalizedName)
+      if (!separatorTitle) return ''
+      const titleIndex = normalizedName.indexOf(separatorTitle)
+      if (titleIndex < 0) return ''
+      return this.trimLocalAuthor(normalizedName.slice(titleIndex + separatorTitle.length))
+    }
+    return ''
+  }
+
   getMatchRuleLabel(rule) {
     return MATCH_RULE_LABELS[rule] || rule || '-'
   }
 
   /**
+   * Run the AI metadata extraction without letting a transport failure abort the match.
+   *
+   * @param {import('../models/LibraryItem')} libraryItem
+   * @param {import('../objects/settings/ServerSettings')} settings
+   * @param {Object} options
+   * @param {string} sourceName
+   * @returns {Promise<{title: string, author: string, authors: string[], narrators: string[]}|null>}
+   */
+  async extractSearchMetadataSafely(libraryItem, settings, options, sourceName) {
+    try {
+      const searchMetadata = await this.extractSearchMetadata(libraryItem, settings, options)
+      this.noteAiSuccess()
+      return searchMetadata
+    } catch (error) {
+      if (this.isCancelledError(error, options)) throw error
+      this.noteAiFailure(error, `AI 书名提取（"${sourceName}"）`)
+      return null
+    }
+  }
+
+  /**
    * Build the ordered list of search attempts for one book.
-   * Local rules never call the AI; the AI is only used when no local rule matches.
+   * The title always comes from the highest matching rule (brackets, then separator,
+   * then AI); the author column is filled by the AI when it is usable and by the
+   * leftover text of the same local rule when it is not.
    *
    * @param {import('../models/LibraryItem')} libraryItem
    * @param {import('../objects/settings/ServerSettings')} settings
@@ -204,29 +265,41 @@ class AiBookMatchManager {
     }
 
     const localTitle = this.extractLocalTitleWithRule(sourceName)
+    const aiUsable = this.isAiUsable(settings)
     if (localTitle.title) {
-      addAttempt({ rule: localTitle.rule, title: localTitle.title })
-    } else if (this.isAiUsable(settings)) {
-      let searchMetadata = null
-      try {
-        searchMetadata = await this.extractSearchMetadata(libraryItem, settings, options)
-        this.noteAiSuccess()
-      } catch (error) {
-        if (this.isCancelledError(error, options)) throw error
-        this.noteAiFailure(error, `AI 书名提取（"${sourceName}"）`)
+      // Priority 1 and 2: the local rule owns the title, the AI only supplies the people
+      let aiAuthor = ''
+      if (aiUsable) {
+        const searchMetadata = await this.extractSearchMetadataSafely(libraryItem, settings, options, sourceName)
+        if (searchMetadata?.author) {
+          aiAuthor = searchMetadata.author
+          addAttempt({ rule: `${localTitle.rule}-ai-author`, title: localTitle.title, author: aiAuthor, authors: searchMetadata.authors, narrators: searchMetadata.narrators })
+        }
       }
+      if (!aiAuthor) {
+        // No AI (not configured, cooling down or failed): use the leftover text of the same rule
+        const localAuthor = this.extractLocalAuthor(sourceName, localTitle.rule)
+        if (localAuthor) addAttempt({ rule: `${localTitle.rule}-local-author`, title: localTitle.title, author: localAuthor })
+      }
+      // Author-free retry so a noisy author column cannot block an otherwise correct match
+      addAttempt({ rule: localTitle.rule, title: localTitle.title })
+    } else if (aiUsable) {
+      // Priority 3: no brackets and no separator, the AI supplies both title and people
+      const searchMetadata = await this.extractSearchMetadataSafely(libraryItem, settings, options, sourceName)
       if (searchMetadata?.title) {
         if (searchMetadata.author) addAttempt({ rule: 'ai-title-author', title: searchMetadata.title, author: searchMetadata.author, authors: searchMetadata.authors, narrators: searchMetadata.narrators })
         addAttempt({ rule: 'ai-title', title: searchMetadata.title, authors: searchMetadata.authors, narrators: searchMetadata.narrators })
       }
     }
+    // Last resort: no bracket rule, no separator rule and no AI title
     addAttempt({ rule: 'full-name', title: sourceName.slice(0, 300) })
     return attempts
   }
 
   async extractSearchMetadata(libraryItem, settings = Database.serverSettings, options = {}) {
     const sourceName = libraryItem.media?.title || ''
-    const confirmedTitle = this.extractLocalTitle(sourceName)
+    // When a local rule already produced the title the AI is only asked for the people
+    const confirmedTitle = this.extractLocalTitleWithRule(sourceName).title
     const response = await this.postAiRequest({
       model: settings.aiBookMatchModel,
       temperature: 0,
@@ -234,7 +307,7 @@ class AiBookMatchManager {
         {
           role: 'system',
           content: confirmedTitle
-            ? 'You extract people metadata from an audiobook name. Return strict JSON: {"title": string, "authors": string[], "narrators": string[]}. The confirmedTitle was extracted locally from book-title brackets and must be copied exactly into title. Do not alter, shorten, translate, or omit it. Extract authors only after markers such as 著, 作者, 原著. Extract narrators only after 播, 主播, 演播, 播讲, 朗读, or CV. Do not guess an author. Do not treat narrator, studio, platform, or publisher as an author. Ignore episode counts, completion markers, seasons, collections, and technical suffixes. Use empty arrays when unknown.'
+            ? 'You extract people metadata from an audiobook name. Return strict JSON: {"title": string, "authors": string[], "narrators": string[]}. The confirmedTitle was extracted locally by a fixed local rule and must be copied exactly into title. Do not alter, shorten, translate, or omit it. Extract authors only after markers such as 著, 作者, 原著. Extract narrators only after 播, 主播, 演播, 播讲, 朗读, or CV. Do not guess an author. Do not treat narrator, studio, platform, or publisher as an author. Ignore episode counts, completion markers, seasons, collections, and technical suffixes. Use empty arrays when unknown.'
             : 'You extract audiobook search metadata from an unprocessed audiobook name. Return strict JSON: {"title": string, "authors": string[], "narrators": string[]}. Identify the actual work title and remove edition, year, format, bitrate, release-group, episode counts, completion markers, collection/season markers, and other technical suffixes. Extract authors only after 著, 作者, 原著 or an unmistakable author separator; extract narrators only after 演播, 主播, 播讲, 朗读, 播, or CV. Never guess. For Chinese names, recognize 《》, 「」, 『』 and separators such as 丨, |, ., -, &, parentheses. Use empty arrays when unknown.'
         },
         {
@@ -376,7 +449,9 @@ class AiBookMatchManager {
 
   /**
    * Match one book by walking the fixed extraction rule priority until a candidate is applied.
-   * Rule order: book-title brackets, first separator segment, AI title + people, AI title only, full name.
+   * Rule order: book-title brackets (+ AI or leftover author), first separator segment
+   * (+ AI or trailing author), the same local title without an author, AI title + people,
+   * AI title only, full name.
    *
    * @param {import('../routers/ApiRouter')} apiRouterCtx
    * @param {import('../models/LibraryItem')} libraryItem
