@@ -118,12 +118,12 @@
 - 计划任务和相关操作的用户可见名称统一为“媒体预读”，内部 API action `strm-metadata-completion` 保持不变以兼容既有调用。
 - 书籍、媒体库、批量和计划任务相关的操作选项、任务标题、提示消息及日志均使用“媒体预读”名称，内部 API action `strm-metadata-completion` 保持不变以兼容既有调用。
 - 本地新增的第二项“书籍匹配”横条使用 `ai-book-match` 任务动作。它支持 cron、图书媒体库多选、默认关闭的“全局匹配”、默认关闭的“入库匹配”和 0.5 小时步长的时间限制；设置窗口为左右双栏，左侧是任务参数，右侧是 OpenAI 兼容接口地址、API 密钥、模型和自动应用最低置信度。“全局匹配”和“入库匹配”两个复选项固定排在左栏最底部同一行左右对齐（左栏 `section` 使用 `flex flex-col`，复选项容器用 `mt-auto` 压到底），功能说明不再用小字段落，而是与媒体库编辑窗口设置栏一致的 `ui-tooltip` + `material-symbols` 感叹号图标悬浮显示。全局匹配关闭时只处理未匹配图书；开启后所选媒体库中的全部有效图书都会重新经过书籍匹配，并以覆盖模式应用匹配元数据。入库匹配开启后由本任务的匹配逻辑接管新书籍扫描入库后的匹配操作。横条第二行在手动或计划任务完成后均显示上次执行时间、耗时和成功匹配的图书数量。AI 接口未配置时任务仍可运行，只使用本地提取规则和全称兜底。
-- 本地新增的“补全元数据”横条使用 `book-metadata-completion` 任务动作，支持 cron、图书媒体库多选和 0.5 小时步长的时间限制。该任务与 AI 书籍匹配严格分离：按照每本书所属媒体库的默认 `library.provider` 逐本请求 [`BookFinder.search()`](../server/finders/BookFinder.js:374)，找到候选后调用 [`Scanner.quickMatchLibraryItem()`](../server/scanner/Scanner.js:59)；始终关闭覆盖封面和覆盖详情，只补充缺失字段。停止时 provider 搜索等待可被协作式取消抢先结束，取消后不继续写入或处理下一本书。每本书的日志只显示书名、提供商和实际补全的字段类别（如标题、作者、流派、出版商、系列、封面），不输出元数据具体内容；自定义提供商显示设置中配置的名称，不显示 `custom-UUID`，内置提供商显示规范可读名称。AI 书籍匹配仍只处理 [`getUnmatchedCandidates()`](../server/managers/AiBookMatchManager.js:40) 判定为未完成匹配的书籍，对已匹配书籍不执行 AI 请求、provider 搜索或写入。
+- 本地新增的“补全元数据”横条使用 `book-metadata-completion` 任务动作，支持 cron、图书媒体库多选和 0.5 小时步长的时间限制。该任务与 AI 书籍匹配严格分离：按照每本书所属媒体库的默认 `library.provider` 逐本请求 [`BookFinder.search()`](../server/finders/BookFinder.js:374)，找到候选后调用 [`Scanner.quickMatchLibraryItem()`](../server/scanner/Scanner.js:59)；始终关闭覆盖封面和覆盖详情，只补充缺失字段。停止时 provider 搜索等待可被协作式取消抢先结束，取消后不继续写入或处理下一本书。每本书的日志只显示书名、提供商和实际补全的字段类别（如标题、作者、流派、出版商、系列、封面），不输出元数据具体内容；自定义提供商显示设置中配置的名称，不显示 `custom-UUID`，内置提供商显示规范可读名称。AI 书籍匹配仍只处理 [`getUnmatchedCandidates()`](../server/managers/AiBookMatchManager.js:85) 判定为未完成匹配的书籍，对已匹配书籍不执行 AI 请求、provider 搜索或写入。
 - 书籍支持不新增数据库列的计划任务元数据锁，锁状态存储在 `LibraryItem.extraData.metadataLocks`，结构为 `{ all, fields }`。单书详情页右下角三点菜单和书籍卡片菜单在“媒体预读”下面显示“锁定元数据/解锁元数据”；媒体库批量选择后的右上角三点菜单提供批量锁定与解锁。总锁只阻止书籍匹配和补全元数据计划任务，手动快速匹配、手动匹配和手动编辑仍可更新。
 - 编辑书籍详情页在“删节版”右侧显示“锁定”总开关；成人内容、删节版和总锁三个复选项底部对齐，成人内容与删节版不提供逐字段锁。普通元数据锁图标位于输入控件内部右侧；描述锁图标位于描述输入框内部右上角，富文本工具栏保持原始高度和按钮布局，编辑器右下角保留浏览器原生尺寸拖拽手柄。锁图标默认是暗灰色开锁，点击后成为带主题自适应高亮背景的白色闭锁。逐字段锁即使字段为空也禁止计划任务补全该字段；总锁未开启时，其他未锁字段仍可补全。封面也纳入字段锁。前端图标使用 [`MetadataLockButton.vue`](../client/components/widgets/MetadataLockButton.vue:1)，原始闭锁图资源保留为 [`metadata-lock.png`](../client/static/metadata-lock.png)。
-- [`AiBookMatchManager`](../server/managers/AiBookMatchManager.js:23) 以书籍的 `media.title`（该字段就是原始文件夹名）为输入。只有本地提取规则都不适用时，才把该名称发送给 OpenAI 兼容接口 `/chat/completions` 提取书名、作者和演播者；作者与演播者去重合并后分别作为既有 [`BookFinder.search`](../server/finders/BookFinder.js:374) 的标题和作者参数，再获取最多 8 个候选。随后 AI 只能返回本次候选数组中的序号、0 至 1 置信度和理由；服务端拒绝越界序号、非法 JSON 与非法置信度，禁止 AI 自由生成并直接写入元数据。
+- [`AiBookMatchManager`](../server/managers/AiBookMatchManager.js:27) 以书籍的 `media.title`（该字段就是原始文件夹名）为输入。只有本地提取规则都不适用时，才把该名称发送给 OpenAI 兼容接口 `/chat/completions` 提取书名、作者和演播者；作者与演播者去重合并后分别作为既有 [`BookFinder.search`](../server/finders/BookFinder.js:374) 的标题和作者参数，再获取最多 8 个候选。随后 AI 只能返回本次候选数组中的序号、0 至 1 置信度和理由；服务端拒绝越界序号、非法 JSON 与非法置信度，禁止 AI 自由生成并直接写入元数据。
 - 达到 `aiBookMatchConfidence` 阈值后，任务调用 [`Scanner.applyBookMatch`](../server/scanner/Scanner.js:159)，与原快速匹配共用封面、作者、系列、元数据文件和 Socket 更新流程。
-- 书名提取按固定优先级逐级尝试，任一级搜索并确认匹配成功即结束，不再执行后续级别（[`buildMatchAttempts`](../server/managers/AiBookMatchManager.js:152)、[`matchLibraryItem`](../server/managers/AiBookMatchManager.js:297)）：
+- 书名提取按固定优先级逐级尝试，任一级搜索并确认匹配成功即结束，不再执行后续级别（[`buildMatchAttempts`](../server/managers/AiBookMatchManager.js:197)、[`matchLibraryItem`](../server/managers/AiBookMatchManager.js:386)）：
   1. 本地书名号：原名称含 `《》`、`「」` 或 `『』` 时直接取括号内文本作为书名，优先级最高，此时不请求 AI。
   2. 本地符号分隔：无书名号时按 `丨`、`|`、`｜`、`.`、`．`、`-`、`－`、`—`、`–` 定位第一个符号，取符号之前的片段作为书名，此时同样不请求 AI。
   3. AI 书名 + 人物：无任何本地符号标识且已配置 AI 时，由 AI 分别提取书名和作者/演播者，作为搜索栏的书名与作者名一起搜索。
@@ -132,13 +132,13 @@
 - 本地规则（第一、二级）提取到书名后不再调用 AI 提取接口；AI 只在没有任何本地符号标识时参与书名/人物提取。未配置 AI 时整条链路只保留本地规则和全称兜底，候选判断退化为直接采用 provider 的首个候选，审计状态记为 `matched-local`。
 - 已配置 AI 时每一级仍由 AI 候选判断把关，达到 `aiBookMatchConfidence` 阈值才写入元数据；未达阈值的级别继续尝试下一级，全部失败后按最后一次失败原因写入 `unmatched` 或 `needs-review` 审计。
 - 匹配审计新增 `rule` 字段记录命中的提取规则，日志额外输出中文规则名称（书名号、符号分隔、AI 书名+人物、AI 仅书名、全称）。
-- “入库匹配”是书籍匹配设置中的可选项，配置字段 `aiBookMatchOnScan`，默认关闭。勾选后本项目扫描到新书籍入库时不再依赖原扫描期匹配流程，而是由 [`enqueueScanMatch`](../server/managers/AiBookMatchManager.js:383) 把新书交给上述书籍匹配逻辑：入队后串行处理，一次只匹配一本书，按书籍 ID 去重；只处理书籍媒体库中的新项目，并在书籍匹配设置里选择了媒体库时仅处理所选媒体库（未选择媒体库时不限制）。完整扫描与 watcher 增量扫描共用同一入口 [`scanNewLibraryItem`](../server/scanner/LibraryItemScanner.js:186)，因此两种扫描方式行为一致。
+- “入库匹配”是书籍匹配设置中的可选项，配置字段 `aiBookMatchOnScan`，默认关闭。勾选后本项目扫描到新书籍入库时不再依赖原扫描期匹配流程，而是由 [`enqueueScanMatch`](../server/managers/AiBookMatchManager.js:486) 把新书交给上述书籍匹配逻辑：入队后串行处理，一次只匹配一本书，按书籍 ID 去重；只处理书籍媒体库中的新项目，并在书籍匹配设置里选择了媒体库时仅处理所选媒体库（未选择媒体库时不限制）。完整扫描与 watcher 增量扫描共用同一入口 [`scanNewLibraryItem`](../server/scanner/LibraryItemScanner.js:186)，因此两种扫描方式行为一致。
 - 入库匹配的队列作业会先等待创建该书的媒体库扫描结束（轮询 [`LibraryScanner.isLibraryScanning`](../server/scanner/LibraryScanner.js:33)），避免扫描写入与匹配写入相互干扰；扫描完成后再逐本匹配。匹配以覆盖封面和详情模式应用结果，但继续遵守元数据锁；每本书都写入与计划任务相同的 `extraData.aiBookMatch` 审计，因此后续计划任务不会重复匹配已成功的书。
 - 本地规则命中时不请求 AI 提取接口，只用本地书名搜索；AI 提取超时或失败时直接跳到全称兜底级别，不阻断整本书的匹配。未配置 AI 时 [`runAiBookMatch`](../server/managers/CronManager.js:262) 不再抛出“未配置”错误，任务可以只跑本地规则。
-- 计划任务停止通过 [`AbortController`](../server/managers/CronManager.js:273) 中断当前 AI HTTP 请求，并由 [`throwIfAborted`](../server/managers/AiBookMatchManager.js:284) 在每一级 provider 搜索和候选判断前后检查停止状态；取消不会写入 `needs-review` 审计，也不会继续处理下一级或下一本书。
-- 计划任务每批读取书籍后先调用 [`getUnmatchedCandidates`](../server/managers/AiBookMatchManager.js:40) 预过滤，只有“除标题、描述和扫描基础信息外，所有扩展元数据均为空”的历史书籍才进入逐本匹配。持续时间、文件大小、音轨、章节、文件路径和 `libraryFiles` 属于扫描基础信息，不影响候选资格。
+- 计划任务停止通过 [`AbortController`](../server/managers/CronManager.js:273) 中断当前 AI HTTP 请求，并由 [`throwIfAborted`](../server/managers/AiBookMatchManager.js:316) 在每一级 provider 搜索和候选判断前后检查停止状态；取消不会写入 `needs-review` 审计，也不会继续处理下一级或下一本书。
+- 计划任务每批读取书籍后先调用 [`getUnmatchedCandidates`](../server/managers/AiBookMatchManager.js:85) 预过滤，只有“除标题、描述和扫描基础信息外，所有扩展元数据均为空”的历史书籍才进入逐本匹配。持续时间、文件大小、音轨、章节、文件路径和 `libraryFiles` 属于扫描基础信息，不影响候选资格。
 - ISBN、ASIN、副标题、出版日期/年份、出版社、语言、作者、演播者、系列、标签、类型或 `matched-ai`/`matched-local` 成功审计任一存在，即视为已有匹配信息并在批次层排除，不执行 AI 提取、provider 搜索或候选判断；书籍封面可有可无，不参与匹配状态判断。`unmatched` 和 `needs-review` 审计仍允许后续计划任务重试。
-- [`matchLibraryItem`](../server/managers/AiBookMatchManager.js:297) 仍保留同一候选判断作为防御性保护，防止其他调用入口绕过计划任务批次预过滤。
+- [`matchLibraryItem`](../server/managers/AiBookMatchManager.js:386) 仍保留同一候选判断作为防御性保护，防止其他调用入口绕过计划任务批次预过滤。
 - 每次失败、低置信度或成功判断都持久化到已有 `LibraryItem.extraData.aiBookMatch`，记录 `status`、`source`、`model`、`rule`、`confidence`、`candidate`、`updatedAt`、`reason` 等审计信息，不新增数据库表或列。AI 提取失败会记录具体原因并标记待复核；没有 provider 候选的 `unmatched` 会保留实际搜索标题和作者，便于后续排查。
 - 四类计划任务都会写入可读的执行日志：媒体库扫描记录目标媒体库和扫描开始/完成；书籍匹配记录媒体库、原名称、命中的提取规则、搜索标题和作者、匹配结果及候选书名，结果状态使用“匹配成功”“未找到匹配”“待复核”“已跳过”等中文文案，不直接显示内部状态码；媒体预读记录书名、待预读音轨数和成功/失败结果；清理丢失项目记录媒体库名称和被清理项目名称。日志正文不重复写时间，也不使用媒体库 ID，时间由日志系统自动标注。书籍匹配选择多个媒体库时按设置顺序逐个处理，单个媒体库内按书籍顺序逐本处理，不并行执行；媒体预读通过媒体库 ID 到名称的映射输出媒体库名称。入库匹配的日志前缀为 `[AiBookMatchManager] 入库匹配`，同样输出媒体库名称、原名称和提取规则。
 - 配置字段为 `aiBookMatchCronExpression`、`aiBookMatchLibraryIds`、`aiBookMatchGlobal`、`aiBookMatchOnScan`、`aiBookMatchMaxHours`、`aiBookMatchApiUrl`、`aiBookMatchApiKey`、`aiBookMatchModel` 和 `aiBookMatchConfidence`，其中 `aiBookMatchGlobal` 与 `aiBookMatchOnScan` 默认 `false`。密钥只对管理员通过 [`getAiBookMatchSettings()`](../server/controllers/MiscController.js:132) 按需读取，普通浏览器设置仍不会返回密钥；页面打开书籍匹配设置时加载已保存密钥，输入框默认以密码形式显示，右侧按钮可切换明文显示与密码隐藏状态，关闭并重新打开设置时恢复隐藏。留空时不覆盖已保存值。最后一次执行摘要持久化在 `aiBookMatchLastRun`，因此即使 cron 在浏览器未打开时运行，下次进入页面仍能显示上次执行时间、耗时和匹配数量。
@@ -192,6 +192,17 @@
 - 性能代价可忽略：实测 `readFile` 单次约 0.1526ms，原缓存命中路径约 0.0362ms，即每次多约 0.12ms。按 10 QPS 预读 3000 个文件总共多约 0.36 秒。
 - 回归测试 [`re-reads STRM pointer contents even when the mtime is unchanged`](../test/server/utils/scandir.test.js:211)：用 `fs.utimes` 把每次改写后的 mtime **钉死到同一个固定值**，断言改写后能解析出新目标、mtime 确实未变、改写为库外路径后仍抛 `outside configured library folders`。写该测试时注意 `stat().mtimeMs` 带小数，必须在 pin 之后重新读一次取基准值再比较，直接和 pin 之前的值比会失败。
 
+### 10. 书籍匹配的 AI 请求重试与本地降级
+
+- 现象：日志出现 `[CronManager] 书籍匹配：…提取规则：-，搜索标题 "-"，搜索作者 "-"，结果：待复核，原因：Request failed with status code 503` 与 `[AiBookMatchManager] 入库匹配失败：…原因：Request failed with status code 503`，看上去像“入库匹配没生效”“未匹配书籍也没生效”。
+- 根因不在提取规则，而在 AI 请求的异常处理。以 `恶魔法则.演播一种侃侃.跳舞.2023` 为例：名称含 `.`，本地符号分隔规则正常命中并提取出 `恶魔法则`，provider 也返回了候选；随后 [`chooseCandidate`](../server/managers/AiBookMatchManager.js:273) 请求 AI 接口拿到 `503`，`axios` 抛出的异常一路冒泡出 [`matchLibraryItem`](../server/managers/AiBookMatchManager.js:386)，被 [`CronManager`](../server/managers/CronManager.js:307) 的 `catch` 兜住后统一写成 `needs-review`。该 `catch` 构造的 `matchResult` 只有 `status` 和 `reason`，没有 `rule`/`searchTitle`/`searchAuthor`，所以日志把这三项打成 `-`，造成“规则没生效”的误判。入库匹配走 [`processScanMatchQueue`](../server/managers/AiBookMatchManager.js:499) 的 `catch`，表现为“入库匹配失败”。
+- 修复一：AI 请求统一走带重试的 [`postAiRequest`](../server/managers/AiBookMatchManager.js:351)。`408`、`429`、`5xx` 和网络层错误（无 `response`）最多重试 3 次；有 `Retry-After` 头时按该值等待（上限 30 秒），否则按 2 秒、4 秒递增。`401`、`403`、`400` 一类确定性错误立即失败，不做无意义重试。等待走 [`wait`](../server/managers/AiBookMatchManager.js:330)，可被停止信号打断。
+- 修复二：AI 失败不再让整本书失败。[`buildMatchAttempts`](../server/managers/AiBookMatchManager.js:197) 的书名提取失败原本已经降级，本次补上候选判定：`matchLibraryItem` 内的 `chooseCandidate` 失败后只把本书剩余级别的 `aiUsable` 置为 `false`，直接采用 provider 首个候选并把审计写成 `matched-local` / `source: local`，而不是抛出异常。审计里的 `status`/`source`/`model` 改为依据实际是否用到 AI 的 `usedAi` 变量，而不是“是否配置了 AI”的 `aiConfigured`，避免降级后仍被标成 `matched-ai`。
+- 修复三：新增软熔断。连续 `AI_FAILURE_STREAK_LIMIT = 3` 次 AI 传输失败后，[`noteAiFailure`](../server/managers/AiBookMatchManager.js:66) 把 `aiUnavailableUntil` 推后 `AI_COOLDOWN_MS = 5` 分钟，期间 [`isAiUsable`](../server/managers/AiBookMatchManager.js:51) 返回 `false`，整批书籍跳过 AI 步骤、只用本地规则继续匹配，不会每本书都白等三次重试超时。任一次 AI 成功即由 [`noteAiSuccess`](../server/managers/AiBookMatchManager.js:55) 清零。熔断状态只存在于 `AiBookMatchManager` 实例字段，不落库、不影响 `isConfigured` 的语义。
+- 取消判定集中到 [`isCancelledError`](../server/managers/AiBookMatchManager.js:320)（检查 `options.signal.aborted`、`ERR_CANCELED`、`CanceledError`），停止计划任务时仍立即中断且不写失败审计、不触发熔断计数以外的重试。
+- 修复四：兜底日志不再丢信息。[`CronManager`](../server/managers/CronManager.js:307) 的 `catch` 和 [`processScanMatchQueue`](../server/managers/AiBookMatchManager.js:499) 的 `catch` 都会重新用 `extractLocalTitleWithRule` 算出规则与书名后再写审计和日志，因此即便出现未预料的异常，日志也会显示真实的提取规则和搜索标题，而不是三个 `-`。
+- 效果对比：修复前 AI 侧一次 `503` 会让该书直接进入 `needs-review` 且日志丢失规则信息；修复后先重试，仍失败则用本地规则 + provider 首个候选完成匹配（审计 `matched-local`），日志正常显示 `提取规则：符号分隔，搜索标题 "恶魔法则"`。若 provider 本身没有候选，结果仍是 `unmatched`，这属于正常语义。
+
 ## 代码锚点
 
 ### 后端 STRM 与补全队列
@@ -239,27 +250,30 @@
 
 这一组锚点对应“书名提取五级优先级 + 入库匹配”功能，是上游同步时需要逐个确认的位置。除 `LibraryItemScanner.js` 的一行调用外，其余逻辑都集中在本地新增文件 `AiBookMatchManager.js` 内。
 
-- [`server/managers/AiBookMatchManager.js`](../server/managers/AiBookMatchManager.js:11)：`MATCHED_AUDIT_STATUSES` 把 `matched-ai` 与本地匹配成功状态 `matched-local` 一并视为已匹配，供 [`isUnmatchedCandidate`](../server/managers/AiBookMatchManager.js:50) 判断。
+- [`server/managers/AiBookMatchManager.js`](../server/managers/AiBookMatchManager.js:11)：`MATCHED_AUDIT_STATUSES` 把 `matched-ai` 与本地匹配成功状态 `matched-local` 一并视为已匹配，供 [`isUnmatchedCandidate`](../server/managers/AiBookMatchManager.js:95) 判断。
 - [`server/managers/AiBookMatchManager.js`](../server/managers/AiBookMatchManager.js:13)：`TITLE_SEPARATOR_REGEX` 定义第二级本地规则识别的分隔符 `丨 | ｜ . ． - － — –`。
-- [`server/managers/AiBookMatchManager.js`](../server/managers/AiBookMatchManager.js:15)：`MATCH_RULE_LABELS` 提取规则的中文日志名称（书名号、符号分隔、AI 书名+人物、AI 仅书名、全称）。
-- [`server/managers/AiBookMatchManager.js`](../server/managers/AiBookMatchManager.js:24)：构造函数中的 `apiRouterCtx`、`scanMatchQueue`、`scanMatchQueuedIds`、`scanMatchRunning` 四个入库匹配队列字段，全部只存在于内存，不落库。
-- [`extractLocalTitle`](../server/managers/AiBookMatchManager.js:106)：第一级书名号提取，保持原有实现不变。
-- [`extractSeparatorTitle`](../server/managers/AiBookMatchManager.js:111)：第二级符号分隔提取，取第一个分隔符之前的非空片段；整名没有分隔符或首段等于原名时返回空串。
-- [`extractLocalTitleWithRule`](../server/managers/AiBookMatchManager.js:131)：把两条本地规则合并为 `{ title, rule }`，书名号优先于符号分隔。
-- [`getMatchRuleLabel`](../server/managers/AiBookMatchManager.js:139)：规则英文键到中文标签的映射，供日志使用。
-- [`buildMatchAttempts`](../server/managers/AiBookMatchManager.js:152)：生成有序尝试列表。本地规则命中即只产出该级 + 全称兜底，不调用 AI；本地规则都不命中且已配置 AI 时才调用 [`extractSearchMetadata`](../server/managers/AiBookMatchManager.js:181)，产出 `ai-title-author`、`ai-title` 两级；最后无条件追加 `full-name`，并按“标题+作者”去重。
-- [`throwIfAborted`](../server/managers/AiBookMatchManager.js:284)：统一的停止信号检查点，替代原来散落的多处 `options.signal?.aborted` 判断。
-- [`matchLibraryItem`](../server/managers/AiBookMatchManager.js:297)：逐级执行尝试列表。每级先 provider 搜索，无候选就进入下一级；已配置 AI 时由 [`chooseCandidate`](../server/managers/AiBookMatchManager.js:234) 把关且未达阈值继续下一级，未配置 AI 时直接取首个候选。成功后写 `matched-ai`/`matched-local` 审计并返回 `rule`、`ruleLabel`；全部失败按最后一次失败原因写 `unmatched`/`needs-review`。
-- [`enqueueScanMatch`](../server/managers/AiBookMatchManager.js:383)：入库匹配入队。校验 `aiBookMatchOnScan`、`mediaType === 'book'`、`aiBookMatchLibraryIds`（为空表示不限制）与书籍 ID 去重，任一不满足直接返回 `false`，因此关闭该选项时对上游扫描流程零影响。
-- [`processScanMatchQueue`](../server/managers/AiBookMatchManager.js:396)：串行处理队列，一次只匹配一本书；先轮询 [`LibraryScanner.isLibraryScanning`](../server/scanner/LibraryScanner.js:33) 等待所属媒体库扫描结束，再用 `getExpandedById` 重新读取书籍并调用 `matchLibraryItem`，单本失败只记警告不中断队列。
-- [`setApiRouterContext`](../server/managers/AiBookMatchManager.js:430)：接收 `ApiRouter` 实例，供入库匹配复用 `checkRemoveAuthorsWithNoBooks` 与 `checkRemoveEmptySeries`。
+- [`server/managers/AiBookMatchManager.js`](../server/managers/AiBookMatchManager.js:19)：`MATCH_RULE_LABELS` 提取规则的中文日志名称（书名号、符号分隔、AI 书名+人物、AI 仅书名、全称）。
+- [`server/managers/AiBookMatchManager.js`](../server/managers/AiBookMatchManager.js:28)：构造函数中的 `apiRouterCtx`、`scanMatchQueue`、`scanMatchQueuedIds`、`scanMatchRunning` 四个入库匹配队列字段，全部只存在于内存，不落库。
+- [`extractLocalTitle`](../server/managers/AiBookMatchManager.js:151)：第一级书名号提取，保持原有实现不变。
+- [`extractSeparatorTitle`](../server/managers/AiBookMatchManager.js:156)：第二级符号分隔提取，取第一个分隔符之前的非空片段；整名没有分隔符或首段等于原名时返回空串。
+- [`extractLocalTitleWithRule`](../server/managers/AiBookMatchManager.js:176)：把两条本地规则合并为 `{ title, rule }`，书名号优先于符号分隔。
+- [`getMatchRuleLabel`](../server/managers/AiBookMatchManager.js:184)：规则英文键到中文标签的映射，供日志使用。
+- [`buildMatchAttempts`](../server/managers/AiBookMatchManager.js:197)：生成有序尝试列表。本地规则命中即只产出该级 + 全称兜底，不调用 AI；本地规则都不命中且已配置 AI 时才调用 [`extractSearchMetadata`](../server/managers/AiBookMatchManager.js:227)，产出 `ai-title-author`、`ai-title` 两级；最后无条件追加 `full-name`，并按“标题+作者”去重。
+- [`postAiRequest`](../server/managers/AiBookMatchManager.js:351)：所有 AI 请求的唯一出口，重试 408/429/5xx 与网络错误（最多 3 次，遵守 `Retry-After`），确定性错误立即失败。
+- [`isCancelledError`](../server/managers/AiBookMatchManager.js:320) 与 [`wait`](../server/managers/AiBookMatchManager.js:330)：统一的取消判定和可打断退避等待。
+- [`isAiUsable`](../server/managers/AiBookMatchManager.js:51) / [`noteAiSuccess`](../server/managers/AiBookMatchManager.js:55) / [`noteAiFailure`](../server/managers/AiBookMatchManager.js:66)：AI 软熔断（连续 3 次传输失败后暂停 5 分钟，只用本地规则），常量 `AI_FAILURE_STREAK_LIMIT`、`AI_COOLDOWN_MS` 位于文件顶部。
+- [`throwIfAborted`](../server/managers/AiBookMatchManager.js:316)：统一的停止信号检查点，替代原来散落的多处 `options.signal?.aborted` 判断。
+- [`matchLibraryItem`](../server/managers/AiBookMatchManager.js:386)：逐级执行尝试列表。每级先 provider 搜索，无候选就进入下一级；已配置 AI 时由 [`chooseCandidate`](../server/managers/AiBookMatchManager.js:273) 把关且未达阈值继续下一级，未配置 AI 时直接取首个候选。成功后写 `matched-ai`/`matched-local` 审计并返回 `rule`、`ruleLabel`；全部失败按最后一次失败原因写 `unmatched`/`needs-review`。
+- [`enqueueScanMatch`](../server/managers/AiBookMatchManager.js:486)：入库匹配入队。校验 `aiBookMatchOnScan`、`mediaType === 'book'`、`aiBookMatchLibraryIds`（为空表示不限制）与书籍 ID 去重，任一不满足直接返回 `false`，因此关闭该选项时对上游扫描流程零影响。
+- [`processScanMatchQueue`](../server/managers/AiBookMatchManager.js:499)：串行处理队列，一次只匹配一本书；先轮询 [`LibraryScanner.isLibraryScanning`](../server/scanner/LibraryScanner.js:33) 等待所属媒体库扫描结束，再用 `getExpandedById` 重新读取书籍并调用 `matchLibraryItem`，单本失败只记警告不中断队列。
+- [`setApiRouterContext`](../server/managers/AiBookMatchManager.js:534)：接收 `ApiRouter` 实例，供入库匹配复用 `checkRemoveAuthorsWithNoBooks` 与 `checkRemoveEmptySeries`。
 - [`server/scanner/LibraryItemScanner.js`](../server/scanner/LibraryItemScanner.js:197)：**唯一的上游耦合点**。在 `scanNewLibraryItem` 创建成功日志之后增加一行 `require('../managers/AiBookMatchManager').enqueueScanMatch(newLibraryItem)`。必须使用懒加载 `require`，因为 `AiBookMatchManager` → `Scanner` → `LibraryScanner` → `LibraryItemScanner` 构成循环依赖；改为顶部 `require` 会得到空对象。完整扫描与 watcher 增量扫描都经过该方法，所以两条扫描路径行为一致。
 - [`server/objects/settings/ServerSettings.js`](../server/objects/settings/ServerSettings.js:58)：`aiBookMatchOnScan` 默认值 `false`；[反序列化](../server/objects/settings/ServerSettings.js:153) 使用 `=== true` 严格布尔；[`toJSON`](../server/objects/settings/ServerSettings.js:290) 输出该字段（浏览器序列化无需额外处理，只有 API 密钥仍被删除）。
 - [`server/controllers/MiscController.js`](../server/controllers/MiscController.js:205)：`aiBookMatchOnScan` 的布尔类型校验，紧邻既有 `aiBookMatchGlobal` 校验。该字段不影响 cron，无需触发 `updateAiBookMatchCron`。
 - [`server/routers/ApiRouter.js`](../server/routers/ApiRouter.js:14)：新增 `AiBookMatchManager` 顶部引入；[构造函数末尾](../server/routers/ApiRouter.js:67) 调用 `AiBookMatchManager.setApiRouterContext(this)`，与既有 `cronManager?.setApiRouterContext?.(this)` 并列。
 - [`server/managers/CronManager.js`](../server/managers/CronManager.js:262)：`runAiBookMatch` 删除了“未配置 AI 直接抛错”的前置判断；[启动日志](../server/managers/CronManager.js:285) 增加 AI 配置状态，[逐本日志](../server/managers/CronManager.js:320) 增加 `提取规则` 字段，日志前缀由“AI书籍匹配”统一改为“书籍匹配”。
 - [`client/pages/config/scheduled-tasks.vue`](../client/pages/config/scheduled-tasks.vue:36)：书籍匹配设置左栏底部的 `book-match-toggles` 容器，“全局匹配”与“入库匹配”在同一行左右对齐，各自用 `ui-tooltip` 包裹 `<label>` + `info` 图标提供悬浮说明；容器靠 `mt-auto` 贴到左栏底部，左栏 `section` 需保留 `flex flex-col`，`.book-match-settings-grid` 需保留 `align-items: stretch` 才能让两栏等高、`mt-auto` 生效；[`data`](../client/pages/config/scheduled-tasks.vue:108) 新增 `draftAiOnScan`，[`openSettings`](../client/pages/config/scheduled-tasks.vue:160) 读取 `aiBookMatchOnScan`，[`saveSettings`](../client/pages/config/scheduled-tasks.vue:239) 把它并入 `bookMatch` 的 PATCH 载荷。
-- [`test/server/managers/AiBookMatchManager.test.js`](../test/server/managers/AiBookMatchManager.test.js:66)：新增分隔符提取、规则优先级、尝试链构建（含“本地命中不调 AI”“未配置 AI 只剩全称”）与无 AI 逐级回退共 6 个用例。
+- [`test/server/managers/AiBookMatchManager.test.js`](../test/server/managers/AiBookMatchManager.test.js:75)：分隔符提取、规则优先级、尝试链构建（含“本地命中不调 AI”“未配置 AI 只剩全称”）与无 AI 逐级回退用例。另有四个 AI 容错用例：[`retries a 503`](../test/server/managers/AiBookMatchManager.test.js:137)、[`does not retry a 401`](../test/server/managers/AiBookMatchManager.test.js:153)、[`opens the AI circuit breaker`](../test/server/managers/AiBookMatchManager.test.js:165)、[`falls back to the first provider candidate when the AI candidate decision fails`](../test/server/managers/AiBookMatchManager.test.js:182)。该测试文件在 `beforeEach` 里 stub 掉 `wait` 并调用 `noteAiSuccess()` 重置熔断，否则重试退避会让用例超时、熔断状态会在用例之间串味。
 
 ### 前端计划任务与主题
 
@@ -356,6 +370,8 @@
    - 打开右上角「活动」下拉，逐个验证五个媒体预读入口都会出现任务并显示**当前正在预读的书名**：播放一本未预读的 STRM 书（排队期间即应显示书名 + 「播放触发媒体预读」）、详情页单本媒体预读、勾选多本批量媒体预读、媒体库三点菜单媒体预读、计划任务媒体预读。批量/媒体库/计划任务在切换到下一本书时标题应随之更新，任务卡片第三行显示「已扫描/总数」音轨计数。失败时应显示「媒体预读失败：<原因>」而不是空白。
    - 验证不需要预读的书（全部 STRM 音轨已完整、或非 book 媒体类型）播放时**不会**在活动里产生空任务；同一本书并发触发两次播放只产生一条任务。
    - 改写一个 `.strm` 指针文件后立刻再次播放或预读，确认读到的是新目标而不是旧目标；把指针改成媒体库和 `/NetDisk` 之外的路径后，确认立即报「outside configured library folders」而不是因缓存命中被放行。
+   - 断开或阻断 AI 接口（或用返回 503 的假接口），确认书籍匹配和入库匹配仍能用本地规则完成：日志显示 `提取规则：符号分隔` 与真实的搜索标题，审计写 `matched-local`，而不是全部变成 `提取规则：-，搜索标题 "-"，结果：待复核`。确认连续失败 3 次后出现“暂停 AI 辅助 5 分钟”的日志且后续书籍不再等待 AI 重试。
+   - 用返回 401 的假接口确认不做重试、立即失败；用首次 503、第二次成功的假接口确认自动重试后正常匹配。
    - 切换浩瀚星空主题，确认藏蓝/墨紫/炭黑背景及不同颜色和大小的静态星点在桌面和移动端可见且不遮挡交互；切换暗色主题，确认冷灰暗色界面正常显示。
    - 容器内执行 `ls /NetDisk/...` 能看到 `.strm` 指向的目标文件；不需要配置额外环境变量。
    - 播放远程 URL、本地 POSIX 路径和 Windows 路径目标均正常。
@@ -370,6 +386,7 @@
 - 全局补全队列的状态全部保存在 `PlaybackSessionManager` 实例字段中（不落库），升级时保留这些字段和三个队列处理函数即可，无需迁移数据。
 - 书内断点接续不依赖新的数据库迁移；升级时重点检查 `PlaybackSessionManager.completeStrmBook` 是否仍在成功探测后批量保存，以及 `LibraryItemDetails.vue` 是否仍依据 `media.audioFiles` 动态计算持续时间旁的待完成标识。若上游改变媒体模型的 JSON 序列化，只需保证 `audioFiles` 的 `duration`、`codec`、`channels` 和 `metadata.path` 仍可用。
 - 计划任务设置字段属于 `ServerSettings`，上游若重命名或移动设置，需要同步保留 STRM、清理、媒体库扫描以及 `aiBookMatchCronExpression`、`aiBookMatchLibraryIds`、`aiBookMatchGlobal`、`aiBookMatchOnScan`、`aiBookMatchMaxHours`、`aiBookMatchApiUrl`、`aiBookMatchApiKey`、`aiBookMatchModel`、`aiBookMatchConfidence` 的构造、序列化和校验逻辑；浏览器序列化必须继续删除 API 密钥。
+- AI 请求必须继续经由 `postAiRequest` 统一出口，不要在 `extractSearchMetadata` 或 `chooseCandidate` 里直接调用 `axios.post`，否则会丢掉重试与熔断计数。AI 失败时的降级语义（候选判定失败 → 本地首个候选 + `matched-local`）也必须保留，不能恢复为“异常直接冒泡到 CronManager 写 needs-review”，那会让日志丢失提取规则与搜索标题，看起来像提取规则失效。
 - 入库匹配的唯一耦合点是 [`LibraryItemScanner.scanNewLibraryItem`](../server/scanner/LibraryItemScanner.js:197) 中对 `AiBookMatchManager.enqueueScanMatch` 的一行懒加载调用（避免 `Scanner` → `LibraryScanner` → `LibraryItemScanner` 循环依赖）。上游改写该方法时只需重新插入这一行，队列状态全部保存在 `AiBookMatchManager` 实例字段中，不落库。
 - `server/utils/strmUtils.js` 的 `resolveStrmTarget` **不得重新引入以 mtime 为键的解析缓存**。上游或早期版本的 `strmUrlCache` 会因 mtime 分辨率过粗而返回旧目标，并把库外路径校验和目标 `stat()` 一起跳过（详见「STRM 指针解析取消 mtime 缓存」一节）。如需缓存必须改为内容哈希或显式失效，且校验逻辑必须留在缓存之外无条件执行。
 - 媒体预读活动任务的三个辅助方法（`createStrmPreloadTask` / `updateStrmPreloadTaskBook` / `finishStrmPreloadTask`）与五个入口的调用是一体的，升级时一并保留；不要把 `finishStrmPreloadTask` 里的 `setFinished()` 改成 `setFinished(null, true)`，否则会清掉标识预读来源的描述。同时必须保留服务端 `TaskManager.updateTaskProgress` 的扩展 payload 和前端 `client/store/tasks.js` 的 `taskId` 分支，这两处是活动列表书名随当前书籍刷新的唯一通路。

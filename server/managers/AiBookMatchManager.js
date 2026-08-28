@@ -12,6 +12,10 @@ const MATCHED_AUDIT_STATUSES = new Set(['matched-ai', 'matched-local'])
 
 const TITLE_SEPARATOR_REGEX = /[丨|｜.．\-－—–]/
 
+const AI_FAILURE_STREAK_LIMIT = 3
+
+const AI_COOLDOWN_MS = 5 * 60 * 1000
+
 const MATCH_RULE_LABELS = {
   quoted: '书名号',
   separator: '符号分隔',
@@ -27,6 +31,47 @@ class AiBookMatchManager {
     this.scanMatchQueue = []
     this.scanMatchQueuedIds = new Set()
     this.scanMatchRunning = false
+    // Soft circuit breaker: after repeated transport failures (503 from an
+    // overloaded gateway, timeouts, ...) the AI steps are skipped for a while so
+    // matching keeps running on the local rules instead of stalling on retries.
+    this.aiFailureStreak = 0
+    this.aiUnavailableUntil = 0
+  }
+
+  isAiTemporarilyUnavailable() {
+    return this.aiUnavailableUntil > Date.now()
+  }
+
+  /**
+   * AI is usable only when it is configured and the circuit breaker is closed.
+   *
+   * @param {import('../objects/settings/ServerSettings')} settings
+   * @returns {boolean}
+   */
+  isAiUsable(settings = Database.serverSettings) {
+    return this.isConfigured(settings) && !this.isAiTemporarilyUnavailable()
+  }
+
+  noteAiSuccess() {
+    this.aiFailureStreak = 0
+    this.aiUnavailableUntil = 0
+  }
+
+  /**
+   * Record an AI transport failure and open the circuit breaker after 3 in a row.
+   *
+   * @param {Error} error
+   * @param {string} label
+   */
+  noteAiFailure(error, label) {
+    this.aiFailureStreak += 1
+    const status = error?.response?.status ? `HTTP ${error.response.status}` : error?.code || error?.message
+    if (this.aiFailureStreak >= AI_FAILURE_STREAK_LIMIT) {
+      this.aiUnavailableUntil = Date.now() + AI_COOLDOWN_MS
+      Logger.warn(`[AiBookMatchManager] ${label}连续失败 ${this.aiFailureStreak} 次（${status}），暂停 AI 辅助 ${AI_COOLDOWN_MS / 60000} 分钟，改用本地规则继续匹配`)
+    } else {
+      Logger.warn(`[AiBookMatchManager] ${label}失败（${status}），本次降级为本地规则`)
+    }
   }
 
   isConfigured(settings = Database.serverSettings) {
@@ -161,13 +206,14 @@ class AiBookMatchManager {
     const localTitle = this.extractLocalTitleWithRule(sourceName)
     if (localTitle.title) {
       addAttempt({ rule: localTitle.rule, title: localTitle.title })
-    } else if (this.isConfigured(settings)) {
+    } else if (this.isAiUsable(settings)) {
       let searchMetadata = null
       try {
         searchMetadata = await this.extractSearchMetadata(libraryItem, settings, options)
+        this.noteAiSuccess()
       } catch (error) {
-        if (options.signal?.aborted || error.code === 'ERR_CANCELED' || error.name === 'CanceledError') throw error
-        Logger.warn(`[AiBookMatchManager] AI 书名提取失败："${sourceName}"，原因：${error.message}`)
+        if (this.isCancelledError(error, options)) throw error
+        this.noteAiFailure(error, `AI 书名提取（"${sourceName}"）`)
       }
       if (searchMetadata?.title) {
         if (searchMetadata.author) addAttempt({ rule: 'ai-title-author', title: searchMetadata.title, author: searchMetadata.author, authors: searchMetadata.authors, narrators: searchMetadata.narrators })
@@ -179,12 +225,9 @@ class AiBookMatchManager {
   }
 
   async extractSearchMetadata(libraryItem, settings = Database.serverSettings, options = {}) {
-    const endpoint = this.getEndpoint(settings.aiBookMatchApiUrl)
-    if (!endpoint) throw new Error('AI matching API URL is not configured')
-
     const sourceName = libraryItem.media?.title || ''
     const confirmedTitle = this.extractLocalTitle(sourceName)
-    const response = await axios.post(endpoint, {
+    const response = await this.postAiRequest({
       model: settings.aiBookMatchModel,
       temperature: 0,
       messages: [
@@ -200,11 +243,7 @@ class AiBookMatchManager {
         }
       ],
       response_format: { type: 'json_object' }
-    }, {
-      headers: { Authorization: `Bearer ${settings.aiBookMatchApiKey}`, 'Content-Type': 'application/json' },
-      timeout: 30000,
-      signal: options.signal
-    })
+    }, settings, options, 'AI 书名提取')
 
     const content = response.data?.choices?.[0]?.message?.content
     let metadata
@@ -232,9 +271,6 @@ class AiBookMatchManager {
   }
 
   async chooseCandidate(libraryItem, candidates, settings = Database.serverSettings, searchMetadata = null, options = {}) {
-    const endpoint = this.getEndpoint(settings.aiBookMatchApiUrl)
-    if (!endpoint) throw new Error('AI matching API URL is not configured')
-
     const book = {
       title: searchMetadata?.title || libraryItem.media.title || null,
       author: searchMetadata?.author || libraryItem.media.authorName || null,
@@ -245,7 +281,7 @@ class AiBookMatchManager {
       durationMinutes: Math.round((Number(libraryItem.media.duration) || 0) / 60),
       path: libraryItem.relPath || null
     }
-    const response = await axios.post(endpoint, {
+    const response = await this.postAiRequest({
       model: settings.aiBookMatchModel,
       temperature: 0,
       messages: [
@@ -259,11 +295,7 @@ class AiBookMatchManager {
         }
       ],
       response_format: { type: 'json_object' }
-    }, {
-      headers: { Authorization: `Bearer ${settings.aiBookMatchApiKey}`, 'Content-Type': 'application/json' },
-      timeout: 30000,
-      signal: options.signal
-    })
+    }, settings, options, 'AI 候选判定')
 
     const content = response.data?.choices?.[0]?.message?.content
     let decision
@@ -283,6 +315,63 @@ class AiBookMatchManager {
 
   throwIfAborted(options = {}) {
     if (options.signal?.aborted) throw new Error('AI matching cancelled')
+  }
+
+  isCancelledError(error, options = {}) {
+    return !!(options.signal?.aborted || error?.code === 'ERR_CANCELED' || error?.name === 'CanceledError')
+  }
+
+  /**
+   * Abort-aware sleep used between AI request retries.
+   *
+   * @param {number} durationMs
+   * @param {Object} options
+   */
+  wait(durationMs, options = {}) {
+    return new Promise((resolve) => {
+      const startedAt = Date.now()
+      const check = () => {
+        if (options.signal?.aborted || Date.now() - startedAt >= durationMs) return resolve()
+        setTimeout(check, Math.min(500, durationMs - (Date.now() - startedAt)))
+      }
+      check()
+    })
+  }
+
+  /**
+   * POST to the OpenAI compatible endpoint, retrying transient failures.
+   * Retries 408 / 429 / 5xx and network errors (a 503 from an overloaded
+   * gateway is the common case); everything else fails immediately.
+   *
+   * @param {Object} payload chat completion body
+   * @param {import('../objects/settings/ServerSettings')} settings
+   * @param {Object} options
+   * @param {string} label log label
+   */
+  async postAiRequest(payload, settings, options = {}, label = 'AI 请求') {
+    const endpoint = this.getEndpoint(settings.aiBookMatchApiUrl)
+    if (!endpoint) throw new Error('AI matching API URL is not configured')
+
+    const maxAttempts = 3
+    for (let attempt = 1; ; attempt++) {
+      this.throwIfAborted(options)
+      try {
+        return await axios.post(endpoint, payload, {
+          headers: { Authorization: `Bearer ${settings.aiBookMatchApiKey}`, 'Content-Type': 'application/json' },
+          timeout: 30000,
+          signal: options.signal
+        })
+      } catch (error) {
+        if (this.isCancelledError(error, options)) throw error
+        const status = Number(error.response?.status) || 0
+        const isRetryable = !status || status === 408 || status === 429 || status >= 500
+        if (!isRetryable || attempt >= maxAttempts) throw error
+        const retryAfterSeconds = Number(error.response?.headers?.['retry-after'])
+        const waitMs = Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0 ? Math.min(30000, retryAfterSeconds * 1000) : attempt * 2000
+        Logger.warn(`[AiBookMatchManager] ${label}失败（${status || error.code || error.message}），${Math.round(waitMs / 1000)} 秒后重试（第 ${attempt + 1}/${maxAttempts} 次）`)
+        await this.wait(waitMs, options)
+      }
+    }
   }
 
   /**
@@ -305,7 +394,9 @@ class AiBookMatchManager {
     }
 
     const threshold = Number(settings.aiBookMatchConfidence) || 0.9
-    const aiConfigured = this.isConfigured(settings)
+    // Re-evaluated per attempt: a transport failure degrades the rest of this
+    // book to local candidate selection instead of aborting the whole match.
+    let aiUsable = this.isAiUsable(settings)
     let lastFailure = null
     for (const attempt of attempts) {
       this.throwIfAborted(options)
@@ -320,25 +411,37 @@ class AiBookMatchManager {
       let selectedIndex = 0
       let confidence = null
       let decisionReason = ''
-      if (aiConfigured) {
-        const decision = await this.chooseCandidate(libraryItem, candidates, settings, attempt, options)
-        this.throwIfAborted(options)
-        if (decision.candidateIndex === null || decision.confidence < threshold) {
-          lastFailure = { status: 'needs-review', source: 'ai', reason: decision.reason || 'AI confidence did not reach the configured threshold', confidence: decision.confidence, attempt }
-          continue
+      let usedAi = false
+      if (aiUsable) {
+        let decision = null
+        try {
+          decision = await this.chooseCandidate(libraryItem, candidates, settings, attempt, options)
+          this.noteAiSuccess()
+        } catch (error) {
+          if (this.isCancelledError(error, options)) throw error
+          this.noteAiFailure(error, `AI 候选判定（"${attempt.title}"）`)
+          aiUsable = false
         }
-        selectedIndex = decision.candidateIndex
-        confidence = decision.confidence
-        decisionReason = decision.reason
+        if (decision) {
+          usedAi = true
+          this.throwIfAborted(options)
+          if (decision.candidateIndex === null || decision.confidence < threshold) {
+            lastFailure = { status: 'needs-review', source: 'ai', reason: decision.reason || 'AI confidence did not reach the configured threshold', confidence: decision.confidence, attempt }
+            continue
+          }
+          selectedIndex = decision.candidateIndex
+          confidence = decision.confidence
+          decisionReason = decision.reason
+        }
       }
 
       const selectedResult = results[selectedIndex]
       this.throwIfAborted(options)
       const result = await Scanner.applyBookMatch(apiRouterCtx, libraryItem, selectedResult, options)
       await this.saveAudit(libraryItem, {
-        status: result.updated ? (aiConfigured ? 'matched-ai' : 'matched-local') : 'needs-review',
-        source: aiConfigured ? 'ai' : 'local',
-        model: aiConfigured ? settings.aiBookMatchModel : null,
+        status: result.updated ? (usedAi ? 'matched-ai' : 'matched-local') : 'needs-review',
+        source: usedAi ? 'ai' : 'local',
+        model: usedAi ? settings.aiBookMatchModel : null,
         rule: attempt.rule,
         confidence,
         updatedAt: Date.now(),
@@ -418,7 +521,8 @@ class AiBookMatchManager {
           })
           Logger.info(`[AiBookMatchManager] 入库匹配：媒体库 "${library.name}"，原名称 "${job.title}"，规则：${this.getMatchRuleLabel(matchResult.rule)}，搜索标题 "${matchResult.searchTitle || '-'}"，搜索作者 "${matchResult.searchAuthor || '-'}"，结果：${matchResult.status}${matchResult.candidateTitle ? `，匹配为 "${matchResult.candidateTitle}"` : ''}${matchResult.reason ? `，原因：${matchResult.reason}` : ''}`)
         } catch (error) {
-          Logger.warn(`[AiBookMatchManager] 入库匹配失败："${job.title}"，原因：${error.message}`)
+          const localTitle = this.extractLocalTitleWithRule(job.title || '')
+          Logger.warn(`[AiBookMatchManager] 入库匹配失败："${job.title}"，规则：${this.getMatchRuleLabel(localTitle.rule)}，搜索标题 "${localTitle.title || '-'}"，原因：${error.message}`)
         }
       }
     } finally {

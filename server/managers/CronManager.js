@@ -309,8 +309,17 @@ class CronManager {
                 matchResult = { status: 'skipped', reason: '已停止' }
               } else {
                 Logger.warn(`[CronManager] Book matching failed for "${libraryItem.id}": ${error.message}`)
-                await AiBookMatchManager.saveAudit(libraryItem, { status: 'needs-review', source: 'ai', model: settings.aiBookMatchModel, updatedAt: Date.now(), reason: error.message })
-                matchResult = { status: 'needs-review', reason: error.message }
+                // Keep the locally extracted rule and title in the audit and log so an
+                // unexpected failure is not reported as "no rule matched".
+                const localTitle = AiBookMatchManager.extractLocalTitleWithRule(libraryItem.media?.title || '')
+                await AiBookMatchManager.saveAudit(libraryItem, { status: 'needs-review', source: 'ai', model: settings.aiBookMatchModel, rule: localTitle.rule, updatedAt: Date.now(), reason: error.message })
+                matchResult = {
+                  status: 'needs-review',
+                  rule: localTitle.rule,
+                  ruleLabel: AiBookMatchManager.getMatchRuleLabel(localTitle.rule),
+                  searchTitle: localTitle.title,
+                  reason: error.message
+                }
               }
             }
             if (matchResult.status === 'matched') result.matched += 1

@@ -7,7 +7,16 @@ const BookFinder = require('../../../server/finders/BookFinder')
 const Scanner = require('../../../server/scanner/Scanner')
 
 describe('AiBookMatchManager', () => {
-  afterEach(() => sinon.restore())
+  beforeEach(() => {
+    AiBookMatchManager.noteAiSuccess()
+    // Retry backoff is not exercised in unit tests
+    sinon.stub(AiBookMatchManager, 'wait').resolves()
+  })
+
+  afterEach(() => {
+    sinon.restore()
+    AiBookMatchManager.noteAiSuccess()
+  })
 
   it('only treats books with title, description, and scan data as unmatched candidates', () => {
     const libraryItem = {
@@ -113,7 +122,7 @@ describe('AiBookMatchManager', () => {
   })
 
   it('keeps a locally confirmed title when AI extraction fails', async () => {
-    sinon.stub(axios, 'post').rejects(new Error('timeout'))
+    const postStub = sinon.stub(axios, 'post').rejects(new Error('timeout'))
     const libraryItem = { media: { title: '《天启之门》主播：白鲸剧场 1824集完' } }
     const localTitle = AiBookMatchManager.extractLocalTitle(libraryItem.media.title)
     assert.strictEqual(localTitle, '天启之门')
@@ -122,6 +131,75 @@ describe('AiBookMatchManager', () => {
       aiBookMatchApiKey: 'secret',
       aiBookMatchModel: 'test-model'
     }), /timeout/)
+    assert.strictEqual(postStub.callCount, 3)
+  })
+
+  it('retries a 503 from the AI endpoint and succeeds on a later attempt', async () => {
+    const error503 = new Error('Request failed with status code 503')
+    error503.response = { status: 503, headers: {} }
+    const postStub = sinon.stub(axios, 'post')
+    postStub.onFirstCall().rejects(error503)
+    postStub.onSecondCall().resolves({ data: { choices: [{ message: { content: JSON.stringify({ title: '恶魔法则', authors: ['跳舞'], narrators: ['一种侃侃'] }) } }] } })
+
+    const metadata = await AiBookMatchManager.extractSearchMetadata({ media: { title: '恶魔法则_演播一种侃侃_跳舞_2023' } }, {
+      aiBookMatchApiUrl: 'https://example.test/v1',
+      aiBookMatchApiKey: 'secret',
+      aiBookMatchModel: 'test-model'
+    })
+    assert.strictEqual(metadata.title, '恶魔法则')
+    assert.strictEqual(postStub.callCount, 2)
+  })
+
+  it('does not retry a 401 from the AI endpoint', async () => {
+    const error401 = new Error('Request failed with status code 401')
+    error401.response = { status: 401, headers: {} }
+    const postStub = sinon.stub(axios, 'post').rejects(error401)
+    await assert.rejects(() => AiBookMatchManager.extractSearchMetadata({ media: { title: '无分隔名称' } }, {
+      aiBookMatchApiUrl: 'https://example.test/v1',
+      aiBookMatchApiKey: 'secret',
+      aiBookMatchModel: 'test-model'
+    }), /401/)
+    assert.strictEqual(postStub.callCount, 1)
+  })
+
+  it('opens the AI circuit breaker after repeated failures and keeps matching locally', () => {
+    const settings = { aiBookMatchApiUrl: 'https://example.test/v1', aiBookMatchApiKey: 'secret', aiBookMatchModel: 'test-model' }
+    const error503 = new Error('Request failed with status code 503')
+    error503.response = { status: 503, headers: {} }
+
+    assert.strictEqual(AiBookMatchManager.isAiUsable(settings), true)
+    AiBookMatchManager.noteAiFailure(error503, 'AI 书名提取')
+    AiBookMatchManager.noteAiFailure(error503, 'AI 书名提取')
+    assert.strictEqual(AiBookMatchManager.isAiUsable(settings), true)
+    AiBookMatchManager.noteAiFailure(error503, 'AI 书名提取')
+    assert.strictEqual(AiBookMatchManager.isAiUsable(settings), false)
+    assert.strictEqual(AiBookMatchManager.isConfigured(settings), true)
+
+    AiBookMatchManager.noteAiSuccess()
+    assert.strictEqual(AiBookMatchManager.isAiUsable(settings), true)
+  })
+
+  it('falls back to the first provider candidate when the AI candidate decision fails', async () => {
+    sinon.stub(Database, 'serverSettings').value({ aiBookMatchConfidence: 0.9, aiBookMatchApiUrl: 'https://example.test/v1', aiBookMatchApiKey: 'secret', aiBookMatchModel: 'test-model' })
+    const error503 = new Error('Request failed with status code 503')
+    error503.response = { status: 503, headers: {} }
+    sinon.stub(BookFinder, 'search').resolves([{ title: '恶魔法则' }])
+    const chooseStub = sinon.stub(AiBookMatchManager, 'chooseCandidate').rejects(error503)
+    const applyStub = sinon.stub(Scanner, 'applyBookMatch').resolves({ updated: true })
+    const auditStub = sinon.stub(AiBookMatchManager, 'saveAudit').resolves()
+
+    const result = await AiBookMatchManager.matchLibraryItem({}, {
+      isBook: true,
+      media: { title: '恶魔法则.演播一种侃侃.跳舞.2023' }
+    }, { provider: 'google' })
+
+    assert.strictEqual(chooseStub.calledOnce, true)
+    assert.strictEqual(applyStub.calledOnce, true)
+    assert.strictEqual(result.status, 'matched')
+    assert.strictEqual(result.rule, 'separator')
+    assert.strictEqual(result.searchTitle, '恶魔法则')
+    assert.strictEqual(auditStub.firstCall.args[1].status, 'matched-local')
+    assert.strictEqual(auditStub.firstCall.args[1].source, 'local')
   })
 
   it('extracts title, authors, and narrators for search metadata', async () => {
