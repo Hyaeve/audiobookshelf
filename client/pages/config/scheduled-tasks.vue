@@ -22,7 +22,7 @@
       <div class="p-5 bg-bg rounded-md">
         <h2 class="text-xl font-semibold mb-5">{{ selectedTask ? selectedTask.title + '设置' : '计划任务设置' }}</h2>
         <div v-if="selectedTask && selectedTask.key === 'bookMatch'" class="book-match-settings-grid">
-          <section>
+          <section class="flex flex-col">
             <h3 class="text-base font-semibold mb-4">任务设置</h3>
             <label class="block text-sm font-semibold mb-2" for="book-match-cron">Cron 表达式</label>
             <input id="book-match-cron" v-model="draftCron" type="text" class="w-full bg-primary border border-gray-600 rounded-md px-3 py-2" placeholder="例如：0 3 * * *" />
@@ -31,12 +31,28 @@
               <label v-for="library in bookLibraries" :key="library.id" class="flex items-center text-sm py-1"><input v-model="draftLibraryIds" type="checkbox" :value="library.id" class="mr-2" /><span>{{ library.name }}</span></label>
               <p v-if="!bookLibraries.length" class="text-sm text-gray-400">暂无图书媒体库</p>
             </div>
-            <label class="block text-sm font-semibold mb-2 mt-4" for="book-match-hours">单次最长执行时间（小时）</label>
+            <label class="block text-sm font-semibold mb-2 mt-4" for="book-match-hours">时间限制（h）</label>
             <input id="book-match-hours" v-model.number="draftMaxHours" type="number" min="0.5" step="0.5" class="w-full bg-primary border border-gray-600 rounded-md px-3 py-2" />
-            <label class="flex items-center mt-4 text-sm font-semibold"><input v-model="draftAiGlobal" type="checkbox" class="mr-2" /><span>全局匹配</span></label>
-            <p class="text-xs text-gray-400 mt-3">{{ draftAiGlobal ? '处理所选媒体库中的全部图书，并覆盖匹配元数据。' : '仅处理未匹配图书；已有 ISBN、ASIN 或 AI 成功记录的图书会跳过。' }}</p>
-            <label class="flex items-center mt-4 text-sm font-semibold"><input v-model="draftAiOnScan" type="checkbox" class="mr-2" /><span>入库匹配</span></label>
-            <p class="text-xs text-gray-400 mt-3">勾选后由书籍匹配接管扫描新入库书籍的匹配流程，按书名号、符号分隔、AI 辅助、全称的顺序逐级尝试。</p>
+            <div class="book-match-toggles flex items-center mt-auto pt-5">
+              <div class="flex items-center mr-8">
+                <input id="book-match-global" v-model="draftAiGlobal" type="checkbox" class="mr-2 shrink-0" />
+                <ui-tooltip text="开启后处理所选媒体库中的全部图书，并以覆盖模式写入匹配元数据；关闭时仅处理未匹配图书，已有 ISBN、ASIN 或匹配成功记录的图书会跳过。">
+                  <label class="text-sm font-semibold cursor-pointer" for="book-match-global">
+                    全局匹配
+                    <span class="material-symbols icon-text text-sm">info</span>
+                  </label>
+                </ui-tooltip>
+              </div>
+              <div class="flex items-center">
+                <input id="book-match-on-scan" v-model="draftAiOnScan" type="checkbox" class="mr-2 shrink-0" />
+                <ui-tooltip text="开启后由书籍匹配接管扫描新入库书籍的匹配流程，按书名号、符号分隔、AI 辅助、全称的顺序逐级尝试。">
+                  <label class="text-sm font-semibold cursor-pointer" for="book-match-on-scan">
+                    入库匹配
+                    <span class="material-symbols icon-text text-sm">info</span>
+                  </label>
+                </ui-tooltip>
+              </div>
+            </div>
           </section>
           <section>
             <h3 class="text-base font-semibold mb-4">OpenAI 兼容接口</h3>
@@ -61,7 +77,7 @@
           <div v-if="selectedTask && (selectedTask.key === 'scan' || selectedTask.key === 'bookMetadata' || selectedTask.key === 'metadata')" class="mt-5">
             <label class="block text-sm font-semibold mb-2">{{ selectedTask.key === 'scan' ? '扫描媒体库' : selectedTask.key === 'bookMetadata' ? '补全媒体库' : '预读媒体库' }}</label>
             <div class="max-h-40 overflow-y-auto bg-primary border border-gray-600 rounded-md p-2 space-y-1"><label v-for="library in selectedTask.key === 'scan' ? libraries : bookLibraries" :key="library.id" class="flex items-center text-sm py-1"><input v-model="draftLibraryIds" type="checkbox" :value="library.id" class="mr-2" /><span>{{ library.name }}</span></label></div>
-            <label class="block text-sm font-semibold mb-2 mt-4">单次最长执行时间（小时）</label><input v-model.number="draftMaxHours" type="number" min="0.5" step="0.5" class="w-full bg-primary border border-gray-600 rounded-md px-3 py-2" />
+            <label class="block text-sm font-semibold mb-2 mt-4">时间限制（h）</label><input v-model.number="draftMaxHours" type="number" min="0.5" step="0.5" class="w-full bg-primary border border-gray-600 rounded-md px-3 py-2" />
             <template v-if="selectedTask.key === 'metadata'">
               <label class="block text-sm font-semibold mb-2 mt-4">扫描 QPS</label><input v-model.number="draftQps" type="number" min="0.1" max="10" step="0.1" class="w-full bg-primary border border-gray-600 rounded-md px-3 py-2" />
               <label class="block text-sm font-semibold mb-2 mt-4">每隔多少个文件暂停 5 分钟</label><input v-model.number="draftBatchSize" type="number" min="500" step="500" class="w-full bg-primary border border-gray-600 rounded-md px-3 py-2" />
@@ -74,7 +90,7 @@
             <p class="mt-3 text-sm text-gray-300">只删除所选媒体库中已标记为丢失的项目，不删除文件系统中的任何文件。</p>
           </div>
           <div v-else-if="selectedTask && selectedTask.hasMaxHours" class="mt-5">
-            <label class="block text-sm font-semibold mb-2">单次最长执行时间（小时）</label><input v-model.number="draftMaxHours" type="number" min="0.5" step="0.5" class="w-full bg-primary border border-gray-600 rounded-md px-3 py-2" />
+            <label class="block text-sm font-semibold mb-2">时间限制（h）</label><input v-model.number="draftMaxHours" type="number" min="0.5" step="0.5" class="w-full bg-primary border border-gray-600 rounded-md px-3 py-2" />
             <label class="block text-sm font-semibold mb-2 mt-4">扫描 QPS</label><input v-model.number="draftQps" type="number" min="0.1" max="10" step="0.1" class="w-full bg-primary border border-gray-600 rounded-md px-3 py-2" />
             <label class="block text-sm font-semibold mb-2 mt-4">每隔多少个文件暂停 5 分钟</label><input v-model.number="draftBatchSize" type="number" min="500" step="500" class="w-full bg-primary border border-gray-600 rounded-md px-3 py-2" />
           </div>
@@ -202,7 +218,7 @@ export default {
       const numbers = {}
       if (taskKey !== 'missing') {
         const maxHours = this.draftNumber(this.draftMaxHours)
-        if (maxHours === null || maxHours < 0.5 || !this.isStepMultiple(maxHours, 0.5)) return { error: '单次最长执行时间必须是不小于 0.5 且为 0.5 倍数的数值' }
+        if (maxHours === null || maxHours < 0.5 || !this.isStepMultiple(maxHours, 0.5)) return { error: '时间限制（h）必须是不小于 0.5 且为 0.5 倍数的数值' }
         numbers.maxHours = maxHours
       }
       if (taskKey === 'metadata') {
@@ -256,7 +272,7 @@ export default {
 .ai-key-visibility-button { position: absolute; top: 0; right: 0; height: 100%; width: 2.75rem; display: flex; align-items: center; justify-content: center; color: var(--abs-theme-muted); }
 .ai-key-visibility-button:hover { color: var(--abs-theme-text); }
 .ai-key-visibility-button .material-symbols { font-size: 1.25rem; }
-.book-match-settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.5rem; }
+.book-match-settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.5rem; align-items: stretch; }
 @media (max-width: 768px) { .book-match-settings-grid { grid-template-columns: 1fr; } }
 .scheduled-task-progress { height: 0.45rem; width: 100%; background: rgba(255, 255, 255, 0.22); border-radius: 999px; overflow: hidden; }
 .scheduled-task-progress-bar { height: 100%; background: #43b649; transition: width 200ms ease; }
