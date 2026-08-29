@@ -2,10 +2,10 @@
   <div v-if="tasksToShow.length" class="w-8 h-8 mx-1 relative" v-click-outside="clickOutsideObj">
     <button type="button" :disabled="disabled" class="w-full h-full relative cursor-pointer" aria-haspopup="listbox" :aria-expanded="showMenu" @click.stop.prevent="clickShowMenu">
       <div class="flex h-full items-center justify-center">
-        <ui-tooltip v-if="tasksRunning" :text="$strings.LabelTasks" direction="bottom" class="flex items-center">
+        <ui-tooltip v-if="tasksRunning" :text="$strings.LabelTasks" direction="bottom" class="w-6 h-6 flex items-center justify-center">
           <widgets-loading-spinner />
         </ui-tooltip>
-        <ui-tooltip v-else :text="$strings.LabelActivities" direction="bottom" class="flex items-center">
+        <ui-tooltip v-else :text="$strings.LabelActivities" direction="bottom" class="w-6 h-6 flex items-center justify-center">
           <span class="material-symbols text-1.5xl" :aria-label="$strings.LabelActivities" role="button">notifications</span>
         </ui-tooltip>
       </div>

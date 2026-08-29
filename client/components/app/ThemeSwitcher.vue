@@ -1,10 +1,10 @@
 <template>
   <div ref="themeSwitcher" class="theme-switcher relative w-8 h-8 flex items-center justify-center mx-1">
-    <ui-tooltip text="切换主题" direction="bottom" class="flex items-center">
-      <button type="button" class="theme-switcher__button w-8 h-8 flex items-center justify-center" aria-label="切换主题" aria-haspopup="menu" :aria-expanded="showMenu" @click.stop="showMenu = !showMenu">
+    <button type="button" class="theme-switcher__button w-8 h-8 flex items-center justify-center" aria-label="切换主题" aria-haspopup="menu" :aria-expanded="showMenu" @click.stop="showMenu = !showMenu">
+      <ui-tooltip text="切换主题" direction="bottom" class="w-6 h-6 flex items-center justify-center">
         <img src="~static/themes/theme-switch.png" alt="" class="w-6 h-6 object-contain" />
-      </button>
-    </ui-tooltip>
+      </ui-tooltip>
+    </button>
 
     <transition name="fade">
       <div v-if="showMenu" class="theme-switcher__menu absolute right-0 top-11 z-80 w-48 rounded-xl border p-2 shadow-xl" role="menu">

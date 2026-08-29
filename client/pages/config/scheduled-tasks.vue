@@ -48,7 +48,7 @@
               </div>
               <widgets-metadata-field-selector v-model="draftAiOverrideFields" :items="metadataFieldItems" class="mt-1" />
             </div>
-            <div class="book-match-toggles flex flex-col mt-auto pt-5 space-y-2">
+            <div class="book-match-toggles flex flex-wrap items-center mt-auto pt-5 gap-x-8 gap-y-2">
               <div class="flex items-center">
                 <input id="book-match-global" v-model="draftAiGlobal" type="checkbox" class="mr-2 shrink-0" />
                 <label class="text-sm font-semibold cursor-pointer" for="book-match-global">全局匹配</label>
