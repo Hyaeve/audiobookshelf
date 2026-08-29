@@ -40,31 +40,27 @@
               <p v-if="!bookLibraries.length" class="text-sm text-gray-400">暂无图书媒体库</p>
             </div>
             <div class="mt-4">
-              <ui-tooltip text="匹配成功时允许覆盖的元数据字段，默认全部纳入。删除某项后，书籍已有该字段时不再覆盖；若书籍原本为空，仍然会写入匹配到的内容。">
-                <span class="text-sm font-semibold">
-                  元数据匹配
+              <div class="flex items-center">
+                <span class="text-sm font-semibold">元数据匹配</span>
+                <ui-tooltip text="匹配成功时允许覆盖的元数据字段，默认全部纳入。删除某项后，书籍已有该字段时不再覆盖；若书籍原本为空，仍然会写入匹配到的内容。" class="inline-flex items-center ml-1">
                   <span class="material-symbols icon-text text-sm">info</span>
-                </span>
-              </ui-tooltip>
+                </ui-tooltip>
+              </div>
               <widgets-metadata-field-selector v-model="draftAiOverrideFields" :items="metadataFieldItems" class="mt-1" />
             </div>
             <div class="book-match-toggles flex flex-col mt-auto pt-5 space-y-2">
               <div class="flex items-center">
                 <input id="book-match-global" v-model="draftAiGlobal" type="checkbox" class="mr-2 shrink-0" />
-                <ui-tooltip text="开启后处理所选媒体库中的全部图书，并以覆盖模式写入匹配元数据；关闭时仅处理未匹配图书，已有 ISBN、ASIN 或匹配成功记录的图书会跳过。">
-                  <label class="text-sm font-semibold cursor-pointer" for="book-match-global">
-                    全局匹配
-                    <span class="material-symbols icon-text text-sm">info</span>
-                  </label>
+                <label class="text-sm font-semibold cursor-pointer" for="book-match-global">全局匹配</label>
+                <ui-tooltip text="开启后处理所选媒体库中的全部图书，并以覆盖模式写入匹配元数据；关闭时仅处理未匹配图书，已有 ISBN、ASIN 或匹配成功记录的图书会跳过。" class="inline-flex items-center ml-1">
+                  <span class="material-symbols icon-text text-sm">info</span>
                 </ui-tooltip>
               </div>
               <div class="flex items-center">
                 <input id="book-match-on-scan" v-model="draftAiOnScan" type="checkbox" class="mr-2 shrink-0" />
-                <ui-tooltip text="开启后由书籍匹配接管扫描新入库书籍的匹配流程，按书名号、符号分隔、AI 辅助、全称的顺序逐级尝试。">
-                  <label class="text-sm font-semibold cursor-pointer" for="book-match-on-scan">
-                    入库匹配
-                    <span class="material-symbols icon-text text-sm">info</span>
-                  </label>
+                <label class="text-sm font-semibold cursor-pointer" for="book-match-on-scan">入库匹配</label>
+                <ui-tooltip text="开启后由书籍匹配接管扫描新入库书籍的匹配流程，按书名号、符号分隔、AI 辅助、全称的顺序逐级尝试。" class="inline-flex items-center ml-1">
+                  <span class="material-symbols icon-text text-sm">info</span>
                 </ui-tooltip>
               </div>
             </div>
@@ -101,12 +97,12 @@
             <label class="block text-sm font-semibold mb-2">{{ selectedTask.key === 'scan' ? '扫描媒体库' : selectedTask.key === 'bookMetadata' ? '补全媒体库' : '预读媒体库' }}</label>
             <div class="max-h-40 overflow-y-auto bg-primary border border-gray-600 rounded-md p-2 space-y-1"><label v-for="library in selectedTask.key === 'scan' ? libraries : bookLibraries" :key="library.id" class="flex items-center text-sm py-1"><input v-model="draftLibraryIds" type="checkbox" :value="library.id" class="mr-2" /><span>{{ library.name }}</span></label></div>
             <div v-if="selectedTask.key === 'bookMetadata'" class="mt-4">
-              <ui-tooltip text="需要补全的元数据字段，默认全部纳入。只会向选中且当前为空的字段写入内容，不会覆盖已有值。">
-                <span class="text-sm font-semibold">
-                  元数据补全
+              <div class="flex items-center">
+                <span class="text-sm font-semibold">元数据补全</span>
+                <ui-tooltip text="需要补全的元数据字段，默认全部纳入。只会向选中且当前为空的字段写入内容，不会覆盖已有值。" class="inline-flex items-center ml-1">
                   <span class="material-symbols icon-text text-sm">info</span>
-                </span>
-              </ui-tooltip>
+                </ui-tooltip>
+              </div>
               <widgets-metadata-field-selector v-model="draftBookMetadataFields" :items="metadataFieldItems" class="mt-1" />
             </div>
             <template v-if="selectedTask.key === 'metadata'">
