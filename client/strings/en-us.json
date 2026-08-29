@@ -627,7 +627,7 @@
   "LabelSettingsStoreMetadataWithItem": "Store metadata with item",
   "LabelSettingsStoreMetadataWithItemHelp": "By default metadata files are stored in /metadata/items, enabling this setting will store metadata files in your library item folders",
   "LabelSettingsStrmMetadataQps": "Media pre-read QPS",
-  "LabelSettingsStrmMetadataQpsHelp": "Requests per second used by playback-triggered and manual media pre-read for this library (0.1-10, defaults to 2.0). Both pause 3 minutes after every 3000 pre-read files.",
+  "LabelSettingsStrmMetadataQpsHelp": "Requests per second used by playback-triggered and manual media pre-read for this library (0.1-10, defaults to 2.0). Both pause 5 minutes after every 3000 pre-read files.",
   "LabelSettingsTimeFormat": "Time Format",
   "LabelSettingsTopLevelBookAnchor": "Top-level book anchor",
   "LabelSettingsTopLevelBookAnchorHelp": "Use the first folder below the library root as the book boundary and title source",

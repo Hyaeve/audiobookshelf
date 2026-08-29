@@ -9,28 +9,7 @@ const Scanner = require('../scanner/Scanner')
 const ShareManager = require('./ShareManager')
 const TaskManager = require('./TaskManager')
 
-const BOOK_METADATA_FIELD_LABELS = {
-  title: '标题',
-  subtitle: '副标题',
-  description: '简介',
-  narrators: '演播者',
-  publisher: '出版商',
-  publishedYear: '出版年份',
-  genres: '流派',
-  tags: '标签',
-  language: '语言',
-  explicit: '露骨内容标记',
-  abridged: '删节标记',
-  asin: 'ASIN',
-  isbn: 'ISBN',
-  coverPath: '封面',
-  authors: '作者',
-  series: '系列'
-}
-
-function getBookMetadataFieldLabels(fields = []) {
-  return fields.map((field) => BOOK_METADATA_FIELD_LABELS[field] || field)
-}
+const { getBookMetadataFieldLabels, normalizeBookMetadataFields } = require('../utils/bookMetadataFields')
 
 const BUILT_IN_PROVIDER_LABELS = {
   google: 'Google Books',
@@ -208,8 +187,7 @@ class CronManager {
       }
       this.strmMetadataCron.executing = true
       try {
-        const currentSettings = Database.serverSettings
-        await this.playbackSessionManager.completeScheduledStrmMetadata(currentSettings.strmMetadataCompletionMaxHours, currentSettings.strmMetadataCompletionLibraryIds)
+        await this.runStrmMetadataCompletion(true)
       } finally {
         this.strmMetadataCron.executing = false
       }
@@ -217,8 +195,13 @@ class CronManager {
     this.strmMetadataCron = { expression, task, executing: false }
   }
 
-  async runStrmMetadataCompletion() {
-    return this.playbackSessionManager.completeScheduledStrmMetadata(Database.serverSettings.strmMetadataCompletionMaxHours, Database.serverSettings.strmMetadataCompletionLibraryIds)
+  async runStrmMetadataCompletion(scheduledTask = false) {
+    const summary = await this.playbackSessionManager.completeScheduledStrmMetadata(Database.serverSettings.strmMetadataCompletionMaxHours, Database.serverSettings.strmMetadataCompletionLibraryIds, { scheduledTask })
+    if (summary && typeof summary === 'object' && summary.startedAt) {
+      Database.serverSettings.strmMetadataCompletionLastRun = { ...summary, scheduledTask }
+      await Database.updateServerSettings()
+    }
+    return summary
   }
 
   cancelStrmMetadataCompletion() {
@@ -240,7 +223,7 @@ class CronManager {
       Logger.error(`[CronManager] Invalid missing items cleanup cron expression "${expression}"`)
       return
     }
-    const task = cron.schedule(expression, () => this.runMissingItemsCleanup())
+    const task = cron.schedule(expression, () => this.runMissingItemsCleanup(true))
     this.missingItemsCleanupCron = { expression, task }
   }
 
@@ -267,22 +250,17 @@ class CronManager {
     const libraryIds = Array.isArray(settings.aiBookMatchLibraryIds) ? settings.aiBookMatchLibraryIds : []
     const maxHours = Number(settings.aiBookMatchMaxHours) > 0 ? Number(settings.aiBookMatchMaxHours) : 1
     const deadline = Date.now() + maxHours * 60 * 60 * 1000
+    const overrideFields = normalizeBookMetadataFields(settings.aiBookMatchOverrideFields)
     const task = TaskManager.createAndAddTask('ai-book-match', { text: '书籍匹配' }, null, true, { scheduledTask, progress: 0, libraryIds, globalMatch: settings.aiBookMatchGlobal })
     const result = { matched: 0, unmatched: 0, needsReview: 0, skipped: 0, cancelled: false }
     const startedAt = Date.now()
     this.aiBookMatchAbortController = new AbortController()
     const taskTypeText = scheduledTask ? '计划任务' : '手动任务'
-    const matchStatusText = {
-      matched: '匹配成功',
-      unmatched: '未找到匹配',
-      'needs-review': '待复核',
-      skipped: '已跳过'
-    }
     try {
       const libraries = await Database.libraryModel.getAllWithFolders()
       const selectedLibraries = libraryIds.map((id) => libraries.find((library) => library.id === id)).filter((library) => library?.mediaType === 'book')
       const selectedLibraryNames = selectedLibraries.map((library) => library.name)
-      Logger.info(`[CronManager] 书籍匹配${taskTypeText}开始，模式：${settings.aiBookMatchGlobal ? '全局匹配' : '仅未匹配'}，AI 辅助：${AiBookMatchManager.isConfigured(settings) ? '已配置' : '未配置'}，目标媒体库：${selectedLibraryNames.length ? selectedLibraryNames.join('、') : '无'}`)
+      Logger.info(`[CronManager] 书籍匹配${taskTypeText}开始，模式：${settings.aiBookMatchGlobal ? '全局匹配' : '仅未匹配'}，AI 辅助：${AiBookMatchManager.isConfigured(settings) ? '已配置' : '未配置'}，覆盖元数据：${getBookMetadataFieldLabels(overrideFields).join('、') || '无'}，目标媒体库：${selectedLibraryNames.length ? selectedLibraryNames.join('、') : '无'}`)
       let processed = 0
       for (const library of selectedLibraries) {
         Logger.info(`[CronManager] 书籍匹配开始处理媒体库："${library.name}"`)
@@ -302,7 +280,8 @@ class CronManager {
                 scheduledTask: true,
                 globalMatch: settings.aiBookMatchGlobal,
                 overrideCover: true,
-                overrideDetails: true
+                overrideDetails: true,
+                overrideFields
               })
             } catch (error) {
               if (this.aiBookMatchCancelRequested || error.code === 'ERR_CANCELED' || error.name === 'CanceledError') {
@@ -326,7 +305,7 @@ class CronManager {
             else if (matchResult.status === 'unmatched') result.unmatched += 1
             else if (matchResult.status === 'needs-review') result.needsReview += 1
             else result.skipped += 1
-            Logger.info(`[CronManager] 书籍匹配：媒体库 "${library.name}"，原名称 "${libraryItem.media?.title || libraryItem.title || '未命名'}"，提取规则：${matchResult.ruleLabel || '-'}，搜索标题 "${matchResult.searchTitle || '-'}"，搜索作者 "${matchResult.searchAuthor || '-'}"，结果：${matchStatusText[matchResult.status] || matchResult.status}${matchResult.candidateTitle ? `，匹配为 "${matchResult.candidateTitle}"` : ''}${matchResult.reason ? `，原因：${matchResult.reason}` : ''}`)
+            Logger.info(`[CronManager] 书籍匹配：媒体库 "${library.name}"，原名称 "${libraryItem.media?.title || libraryItem.title || '未命名'}"，提取规则：${matchResult.ruleLabel || '-'}，搜索标题 "${matchResult.searchTitle || '-'}"，搜索作者 "${matchResult.searchAuthor || '-'}"，结果：${AiBookMatchManager.getMatchStatusLabel(matchResult.status)}${matchResult.candidateTitle ? `，匹配为 "${matchResult.candidateTitle}"` : ''}${matchResult.reason ? `，原因：${matchResult.reason}` : ''}`)
             processed += 1
             TaskManager.updateTaskProgress(task, selectedLibraries.length ? Math.min(99, ((selectedLibraries.indexOf(library) + 1) / selectedLibraries.length) * 100) : 100, { currentLibrary: library.name, processed, ...result })
           }
@@ -335,7 +314,7 @@ class CronManager {
       }
       result.cancelled = this.aiBookMatchCancelRequested || Date.now() >= deadline
       const finishedAt = Date.now()
-      const summary = { startedAt, finishedAt, durationMs: finishedAt - startedAt, ...result }
+      const summary = { startedAt, finishedAt, durationMs: finishedAt - startedAt, scheduledTask, ...result }
       Logger.info(`[CronManager] 书籍匹配${taskTypeText}结束：${JSON.stringify(summary)}`)
       task.data.result = summary
       task.setFinished(null, true)
@@ -383,6 +362,7 @@ class CronManager {
     const libraryIds = Array.isArray(settings.bookMetadataCompletionLibraryIds) ? settings.bookMetadataCompletionLibraryIds : []
     const maxHours = Number(settings.bookMetadataCompletionMaxHours) > 0 ? Number(settings.bookMetadataCompletionMaxHours) : 1
     const deadline = Date.now() + maxHours * 60 * 60 * 1000
+    const allowedFields = normalizeBookMetadataFields(settings.bookMetadataCompletionFields)
     const task = TaskManager.createAndAddTask('book-metadata-completion', { text: '补全书籍元数据' }, null, true, { scheduledTask, progress: 0, libraryIds })
     const result = { processed: 0, updated: 0, unmatched: 0, skipped: 0, cancelled: false }
     const startedAt = Date.now()
@@ -396,7 +376,7 @@ class CronManager {
       } catch (error) {
         Logger.warn(`[CronManager] 无法读取自定义元数据提供商名称：${error.message}`)
       }
-      Logger.info(`[CronManager] 书籍元数据补全${scheduledTask ? '计划任务' : '手动任务'}开始，目标媒体库：${selectedLibraries.map((library) => library.name).join('、') || '无'}`)
+      Logger.info(`[CronManager] 书籍元数据补全${scheduledTask ? '计划任务' : '手动任务'}开始，补全元数据：${getBookMetadataFieldLabels(allowedFields).join('、') || '无'}，目标媒体库：${selectedLibraries.map((library) => library.name).join('、') || '无'}`)
       for (let libraryIndex = 0; libraryIndex < selectedLibraries.length; libraryIndex += 1) {
         const library = selectedLibraries[libraryIndex]
         const provider = library.provider || 'google'
@@ -415,6 +395,7 @@ class CronManager {
                 scheduledTask: true,
                 overrideCover: false,
                 overrideDetails: false,
+                allowedFields,
                 isCancelled: () => this.bookMetadataCompletionCancelRequested || Date.now() >= deadline
               })
               if (matchResult.locked) {
@@ -442,7 +423,7 @@ class CronManager {
       }
       result.cancelled = this.bookMetadataCompletionCancelRequested || Date.now() >= deadline
       const finishedAt = Date.now()
-      const summary = { startedAt, finishedAt, durationMs: finishedAt - startedAt, ...result }
+      const summary = { startedAt, finishedAt, durationMs: finishedAt - startedAt, scheduledTask, ...result }
       task.data.result = summary
       task.setFinished(null, true)
       Database.serverSettings.bookMetadataCompletionLastRun = summary
@@ -481,26 +462,28 @@ class CronManager {
       Logger.error(`[CronManager] Invalid scheduled library scan cron expression "${expression}"`)
       return
     }
-    const task = cron.schedule(expression, () => this.runScheduledLibraryScan())
+    const task = cron.schedule(expression, () => this.runScheduledLibraryScan(true))
     this.scheduledLibraryScanCron = { expression, task }
   }
 
-  async runScheduledLibraryScan() {
+  async runScheduledLibraryScan(scheduledTask = false) {
     if (this.scheduledLibraryScanExecuting) return { skipped: true }
     this.scheduledLibraryScanExecuting = true
     this.scheduledLibraryScanCancelRequested = false
     const settings = Database.serverSettings
     const libraryIds = Array.isArray(settings.scheduledLibraryScanLibraryIds) ? settings.scheduledLibraryScanLibraryIds : []
     const maxHours = Number(settings.scheduledLibraryScanMaxHours) > 0 ? Number(settings.scheduledLibraryScanMaxHours) : 1
-    const task = TaskManager.createAndAddTask('scheduled-library-scan', '媒体库扫描', null, true, { scheduledTask: true, progress: 0, libraryIds })
-    const deadline = Date.now() + maxHours * 60 * 60 * 1000
+    const task = TaskManager.createAndAddTask('scheduled-library-scan', '媒体库扫描', null, true, { scheduledTask, progress: 0, libraryIds })
+    const startedAt = Date.now()
+    const deadline = startedAt + maxHours * 60 * 60 * 1000
+    const taskTypeText = scheduledTask ? '计划任务' : '手动任务'
     let currentLibraryId = null
     let scanned = 0
     try {
       const libraries = await Database.libraryModel.getAllWithFolders()
       const selectedLibraries = libraryIds.map((id) => libraries.find((library) => library.id === id)).filter(Boolean)
       const selectedLibraryNames = selectedLibraries.map((library) => library.name)
-      Logger.info(`[CronManager] 媒体库扫描计划任务开始，目标媒体库：${selectedLibraryNames.length ? selectedLibraryNames.join('、') : '无'}`)
+      Logger.info(`[CronManager] 媒体库扫描${taskTypeText}开始，目标媒体库：${selectedLibraryNames.length ? selectedLibraryNames.join('、') : '无'}`)
       for (let index = 0; index < selectedLibraries.length; index += 1) {
         if (this.scheduledLibraryScanCancelRequested || Date.now() >= deadline) break
         const library = selectedLibraries[index]
@@ -518,9 +501,12 @@ class CronManager {
         Logger.info(`[CronManager] 媒体库扫描完成处理媒体库："${library.name}"`)
         TaskManager.updateTaskProgress(task, ((index + 1) / Math.max(selectedLibraries.length, 1)) * 100, { currentLibrary: library.name })
       }
-      task.data.result = { scanned, canceled: this.scheduledLibraryScanCancelRequested || Date.now() >= deadline }
-      Logger.info(`[CronManager] 媒体库扫描计划任务结束：${JSON.stringify(task.data.result)}`)
+      const finishedAt = Date.now()
+      task.data.result = { scanned, canceled: this.scheduledLibraryScanCancelRequested || finishedAt >= deadline, scheduledTask, startedAt, finishedAt, durationMs: finishedAt - startedAt }
+      Logger.info(`[CronManager] 媒体库扫描${taskTypeText}结束：${JSON.stringify(task.data.result)}`)
       task.setFinished(null, true)
+      Database.serverSettings.scheduledLibraryScanLastRun = task.data.result
+      await Database.updateServerSettings()
       return task.data.result
     } catch (error) {
       task.setFailed(error.message || 'Scheduled library scan failed')
@@ -544,19 +530,25 @@ class CronManager {
     return true
   }
 
-  async runMissingItemsCleanup() {
+  async runMissingItemsCleanup(scheduledTask = false) {
     if (this.missingItemsCleanupExecuting) return { removed: 0, skipped: true }
     this.missingItemsCleanupExecuting = true
     this.missingItemsCleanupCancelRequested = false
     const libraryIds = Array.isArray(Database.serverSettings.missingItemsCleanupLibraryIds) ? Database.serverSettings.missingItemsCleanupLibraryIds : []
-    const task = TaskManager.createAndAddTask('missing-items-cleanup', 'Cleaning missing items', null, true, { scheduledTask: true, progress: 0, libraryIds })
-    Logger.info(`[CronManager] 清理丢失项目计划任务开始`)
+    const task = TaskManager.createAndAddTask('missing-items-cleanup', 'Cleaning missing items', null, true, { scheduledTask, progress: 0, libraryIds })
+    const taskTypeText = scheduledTask ? '计划任务' : '手动任务'
+    const startedAt = Date.now()
+    Logger.info(`[CronManager] 清理丢失项目${taskTypeText}开始`)
     try {
       if (!this.missingItemsCleanupHandler) throw new Error('Missing items cleanup handler is not initialized')
-      const result = await this.missingItemsCleanupHandler(() => this.missingItemsCleanupCancelRequested, libraryIds)
+      const handlerResult = await this.missingItemsCleanupHandler(() => this.missingItemsCleanupCancelRequested, libraryIds)
+      const finishedAt = Date.now()
+      const result = { ...handlerResult, scheduledTask, startedAt, finishedAt, durationMs: finishedAt - startedAt }
       task.data.result = result
-      Logger.info(`[CronManager] 清理丢失项目计划任务结束：${JSON.stringify(result)}`)
+      Logger.info(`[CronManager] 清理丢失项目${taskTypeText}结束：${JSON.stringify(result)}`)
       task.setFinished(null, true)
+      Database.serverSettings.missingItemsCleanupLastRun = result
+      await Database.updateServerSettings()
       return result
     } catch (error) {
       task.setFailed(error.message || 'Missing items cleanup failed')

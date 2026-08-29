@@ -627,7 +627,7 @@
   "LabelSettingsStoreMetadataWithItem": "存储项目元数据",
   "LabelSettingsStoreMetadataWithItemHelp": "默认情况下元数据文件存储在/metadata/items文件夹中，启用此设置将存储元数据在你媒体项目文件夹中",
   "LabelSettingsStrmMetadataQps": "媒体预读 QPS",
-  "LabelSettingsStrmMetadataQpsHelp": "本媒体库的播放触发媒体预读和手动媒体预读共用的每秒请求数（0.1 至 10，默认 2.0）。两者均在每预读 3000 个文件后暂停 3 分钟。",
+  "LabelSettingsStrmMetadataQpsHelp": "本媒体库的播放触发媒体预读和手动媒体预读共用的每秒请求数（0.1 至 10，默认 2.0）。两者均在每预读 3000 个文件后暂停 5 分钟。",
   "LabelSettingsTimeFormat": "时间格式",
   "LabelSettingsTopLevelBookAnchor": "顶层书籍锚点",
   "LabelSettingsTopLevelBookAnchorHelp": "开启后使用媒体库根目录下一层文件夹作为书籍边界和书名匹配目录",

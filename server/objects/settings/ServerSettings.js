@@ -4,6 +4,7 @@ const { BookshelfView } = require('../../utils/constants')
 const Logger = require('../../Logger')
 const User = require('../../models/User')
 const { sanitize } = require('../../utils/htmlSanitizer')
+const { BOOK_METADATA_FIELD_KEYS, normalizeBookMetadataFields } = require('../../utils/bookMetadataFields')
 
 class ServerSettings {
   constructor(settings) {
@@ -51,17 +52,21 @@ class ServerSettings {
     this.strmMetadataCompletionMaxHours = 1
     this.strmMetadataCompletionQps = 1.0
     this.strmMetadataCompletionBatchSize = 5000
+    this.strmMetadataCompletionLastRun = null
     this.missingItemsCleanupCronExpression = null
     this.missingItemsCleanupLibraryIds = []
+    this.missingItemsCleanupLastRun = null
     this.aiBookMatchCronExpression = null
     this.aiBookMatchGlobal = false
     this.aiBookMatchOnScan = false
     this.aiBookMatchLibraryIds = []
     this.aiBookMatchMaxHours = 1
+    this.aiBookMatchOverrideFields = [...BOOK_METADATA_FIELD_KEYS]
     this.aiBookMatchApiUrl = null
     this.bookMetadataCompletionCronExpression = null
     this.bookMetadataCompletionLibraryIds = []
     this.bookMetadataCompletionMaxHours = 1
+    this.bookMetadataCompletionFields = [...BOOK_METADATA_FIELD_KEYS]
     this.bookMetadataCompletionLastRun = null
     this.aiBookMatchApiKey = null
     this.aiBookMatchModel = null
@@ -70,6 +75,7 @@ class ServerSettings {
     this.scheduledLibraryScanCronExpression = null
     this.scheduledLibraryScanLibraryIds = []
     this.scheduledLibraryScanMaxHours = 1
+    this.scheduledLibraryScanLastRun = null
 
     // Sorting
     this.sortingIgnorePrefix = false
@@ -146,13 +152,16 @@ class ServerSettings {
     this.strmMetadataCompletionMaxHours = Number(settings.strmMetadataCompletionMaxHours) > 0 ? Number(settings.strmMetadataCompletionMaxHours) : 1
     this.strmMetadataCompletionQps = Number(settings.strmMetadataCompletionQps) >= 0.1 ? Number(settings.strmMetadataCompletionQps) : 1.0
     this.strmMetadataCompletionBatchSize = Number(settings.strmMetadataCompletionBatchSize) >= 500 ? Number(settings.strmMetadataCompletionBatchSize) : 5000
+    this.strmMetadataCompletionLastRun = settings.strmMetadataCompletionLastRun && typeof settings.strmMetadataCompletionLastRun === 'object' ? settings.strmMetadataCompletionLastRun : null
     this.missingItemsCleanupCronExpression = settings.missingItemsCleanupCronExpression || null
     this.missingItemsCleanupLibraryIds = Array.isArray(settings.missingItemsCleanupLibraryIds) ? settings.missingItemsCleanupLibraryIds : []
+    this.missingItemsCleanupLastRun = settings.missingItemsCleanupLastRun && typeof settings.missingItemsCleanupLastRun === 'object' ? settings.missingItemsCleanupLastRun : null
     this.aiBookMatchCronExpression = settings.aiBookMatchCronExpression || null
     this.aiBookMatchGlobal = settings.aiBookMatchGlobal === true
     this.aiBookMatchOnScan = settings.aiBookMatchOnScan === true
     this.aiBookMatchLibraryIds = Array.isArray(settings.aiBookMatchLibraryIds) ? settings.aiBookMatchLibraryIds : []
     this.aiBookMatchMaxHours = Number(settings.aiBookMatchMaxHours) > 0 ? Number(settings.aiBookMatchMaxHours) : 1
+    this.aiBookMatchOverrideFields = normalizeBookMetadataFields(settings.aiBookMatchOverrideFields)
     this.aiBookMatchApiUrl = settings.aiBookMatchApiUrl || null
     this.aiBookMatchApiKey = settings.aiBookMatchApiKey || null
     this.aiBookMatchModel = settings.aiBookMatchModel || null
@@ -161,10 +170,12 @@ class ServerSettings {
     this.bookMetadataCompletionCronExpression = settings.bookMetadataCompletionCronExpression || null
     this.bookMetadataCompletionLibraryIds = Array.isArray(settings.bookMetadataCompletionLibraryIds) ? settings.bookMetadataCompletionLibraryIds : []
     this.bookMetadataCompletionMaxHours = Number(settings.bookMetadataCompletionMaxHours) > 0 ? Number(settings.bookMetadataCompletionMaxHours) : 1
+    this.bookMetadataCompletionFields = normalizeBookMetadataFields(settings.bookMetadataCompletionFields)
     this.bookMetadataCompletionLastRun = settings.bookMetadataCompletionLastRun && typeof settings.bookMetadataCompletionLastRun === 'object' ? settings.bookMetadataCompletionLastRun : null
     this.scheduledLibraryScanCronExpression = settings.scheduledLibraryScanCronExpression || null
     this.scheduledLibraryScanLibraryIds = Array.isArray(settings.scheduledLibraryScanLibraryIds) ? settings.scheduledLibraryScanLibraryIds : []
     this.scheduledLibraryScanMaxHours = Number(settings.scheduledLibraryScanMaxHours) > 0 ? Number(settings.scheduledLibraryScanMaxHours) : 1
+    this.scheduledLibraryScanLastRun = settings.scheduledLibraryScanLastRun && typeof settings.scheduledLibraryScanLastRun === 'object' ? settings.scheduledLibraryScanLastRun : null
 
     this.sortingIgnorePrefix = !!settings.sortingIgnorePrefix
     this.sortingPrefixes = settings.sortingPrefixes || ['the']
@@ -283,13 +294,16 @@ class ServerSettings {
       strmMetadataCompletionMaxHours: this.strmMetadataCompletionMaxHours,
       strmMetadataCompletionQps: this.strmMetadataCompletionQps,
       strmMetadataCompletionBatchSize: this.strmMetadataCompletionBatchSize,
+      strmMetadataCompletionLastRun: this.strmMetadataCompletionLastRun ? { ...this.strmMetadataCompletionLastRun } : null,
       missingItemsCleanupCronExpression: this.missingItemsCleanupCronExpression,
       missingItemsCleanupLibraryIds: [...this.missingItemsCleanupLibraryIds],
+      missingItemsCleanupLastRun: this.missingItemsCleanupLastRun ? { ...this.missingItemsCleanupLastRun } : null,
       aiBookMatchCronExpression: this.aiBookMatchCronExpression,
       aiBookMatchGlobal: this.aiBookMatchGlobal,
       aiBookMatchOnScan: this.aiBookMatchOnScan,
       aiBookMatchLibraryIds: [...this.aiBookMatchLibraryIds],
       aiBookMatchMaxHours: this.aiBookMatchMaxHours,
+      aiBookMatchOverrideFields: [...this.aiBookMatchOverrideFields],
       aiBookMatchApiUrl: this.aiBookMatchApiUrl,
       aiBookMatchApiKey: this.aiBookMatchApiKey,
       aiBookMatchModel: this.aiBookMatchModel,
@@ -298,10 +312,12 @@ class ServerSettings {
       bookMetadataCompletionCronExpression: this.bookMetadataCompletionCronExpression,
       bookMetadataCompletionLibraryIds: [...this.bookMetadataCompletionLibraryIds],
       bookMetadataCompletionMaxHours: this.bookMetadataCompletionMaxHours,
+      bookMetadataCompletionFields: [...this.bookMetadataCompletionFields],
       bookMetadataCompletionLastRun: this.bookMetadataCompletionLastRun ? { ...this.bookMetadataCompletionLastRun } : null,
       scheduledLibraryScanCronExpression: this.scheduledLibraryScanCronExpression,
       scheduledLibraryScanLibraryIds: [...this.scheduledLibraryScanLibraryIds],
       scheduledLibraryScanMaxHours: this.scheduledLibraryScanMaxHours,
+      scheduledLibraryScanLastRun: this.scheduledLibraryScanLastRun ? { ...this.scheduledLibraryScanLastRun } : null,
       sortingIgnorePrefix: this.sortingIgnorePrefix,
       sortingPrefixes: [...this.sortingPrefixes],
       chromecastEnabled: this.chromecastEnabled,

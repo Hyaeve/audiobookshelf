@@ -1,6 +1,6 @@
 <template>
-  <div v-if="tasksToShow.length" class="w-4 h-4 mx-3 relative" v-click-outside="clickOutsideObj">
-    <button type="button" :disabled="disabled" class="w-10 sm:w-full relative h-full cursor-pointer" aria-haspopup="listbox" :aria-expanded="showMenu" @click.stop.prevent="clickShowMenu">
+  <div v-if="tasksToShow.length" class="w-8 h-8 mx-1 relative" v-click-outside="clickOutsideObj">
+    <button type="button" :disabled="disabled" class="w-full h-full relative cursor-pointer" aria-haspopup="listbox" :aria-expanded="showMenu" @click.stop.prevent="clickShowMenu">
       <div class="flex h-full items-center justify-center">
         <ui-tooltip v-if="tasksRunning" :text="$strings.LabelTasks" direction="bottom" class="flex items-center">
           <widgets-loading-spinner />
@@ -9,8 +9,8 @@
           <span class="material-symbols text-1.5xl" :aria-label="$strings.LabelActivities" role="button">notifications</span>
         </ui-tooltip>
       </div>
-      <div v-if="showUnseenSuccessIndicator" class="w-2 h-2 rounded-full bg-success pointer-events-none absolute -top-1 -right-0.5" />
-      <div v-if="showUnseenSuccessIndicator" class="w-2 h-2 rounded-full bg-success/50 pointer-events-none absolute animate-ping -top-1 -right-0.5" />
+      <div v-if="showUnseenSuccessIndicator" class="w-2 h-2 rounded-full bg-success pointer-events-none absolute top-0.5 right-1" />
+      <div v-if="showUnseenSuccessIndicator" class="w-2 h-2 rounded-full bg-success/50 pointer-events-none absolute animate-ping top-0.5 right-1" />
     </button>
     <transition name="menu">
       <div class="sm:w-80 w-full relative">

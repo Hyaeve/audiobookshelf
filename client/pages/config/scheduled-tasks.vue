@@ -24,17 +24,32 @@
         <div v-if="selectedTask && selectedTask.key === 'bookMatch'" class="book-match-settings-grid">
           <section class="flex flex-col">
             <h3 class="text-base font-semibold mb-4">任务设置</h3>
-            <label class="block text-sm font-semibold mb-2" for="book-match-cron">Cron 表达式</label>
-            <input id="book-match-cron" v-model="draftCron" type="text" class="w-full bg-primary border border-gray-600 rounded-md px-3 py-2" placeholder="例如：0 3 * * *" />
+            <div class="scheduled-task-field-grid">
+              <div>
+                <label class="block text-sm font-semibold mb-2" for="book-match-cron">Cron 表达式</label>
+                <input id="book-match-cron" v-model="draftCron" type="text" class="w-full bg-primary border border-gray-600 rounded-md px-3 py-2" placeholder="例如：0 3 * * *" />
+              </div>
+              <div>
+                <label class="block text-sm font-semibold mb-2" for="book-match-hours">时间限制（h）</label>
+                <input id="book-match-hours" v-model.number="draftMaxHours" type="number" min="0.5" step="0.5" class="w-full bg-primary border border-gray-600 rounded-md px-3 py-2" />
+              </div>
+            </div>
             <label class="block text-sm font-semibold mb-2 mt-4">匹配媒体库</label>
             <div class="max-h-40 overflow-y-auto bg-primary border border-gray-600 rounded-md p-2 space-y-1">
               <label v-for="library in bookLibraries" :key="library.id" class="flex items-center text-sm py-1"><input v-model="draftLibraryIds" type="checkbox" :value="library.id" class="mr-2" /><span>{{ library.name }}</span></label>
               <p v-if="!bookLibraries.length" class="text-sm text-gray-400">暂无图书媒体库</p>
             </div>
-            <label class="block text-sm font-semibold mb-2 mt-4" for="book-match-hours">时间限制（h）</label>
-            <input id="book-match-hours" v-model.number="draftMaxHours" type="number" min="0.5" step="0.5" class="w-full bg-primary border border-gray-600 rounded-md px-3 py-2" />
-            <div class="book-match-toggles flex items-center mt-auto pt-5">
-              <div class="flex items-center mr-8">
+            <div class="mt-4">
+              <ui-tooltip text="匹配成功时允许覆盖的元数据字段，默认全部纳入。删除某项后，书籍已有该字段时不再覆盖；若书籍原本为空，仍然会写入匹配到的内容。">
+                <span class="text-sm font-semibold">
+                  元数据匹配
+                  <span class="material-symbols icon-text text-sm">info</span>
+                </span>
+              </ui-tooltip>
+              <ui-multi-select-dropdown v-model="draftAiOverrideFields" :items="metadataFieldItems" class="mt-1" />
+            </div>
+            <div class="book-match-toggles flex flex-col mt-auto pt-5 space-y-2">
+              <div class="flex items-center">
                 <input id="book-match-global" v-model="draftAiGlobal" type="checkbox" class="mr-2 shrink-0" />
                 <ui-tooltip text="开启后处理所选媒体库中的全部图书，并以覆盖模式写入匹配元数据；关闭时仅处理未匹配图书，已有 ISBN、ASIN 或匹配成功记录的图书会跳过。">
                   <label class="text-sm font-semibold cursor-pointer" for="book-match-global">
@@ -72,12 +87,28 @@
           </section>
         </div>
         <div v-else>
-          <label class="block text-sm font-semibold mb-2" for="scheduled-task-cron">Cron 表达式</label>
-          <input id="scheduled-task-cron" v-model="draftCron" type="text" class="w-full bg-primary border border-gray-600 rounded-md px-3 py-2" placeholder="例如：0 3 * * *" />
+          <div class="scheduled-task-field-grid">
+            <div>
+              <label class="block text-sm font-semibold mb-2" for="scheduled-task-cron">Cron 表达式</label>
+              <input id="scheduled-task-cron" v-model="draftCron" type="text" class="w-full bg-primary border border-gray-600 rounded-md px-3 py-2" placeholder="例如：0 3 * * *" />
+            </div>
+            <div v-if="selectedTask && selectedTask.hasMaxHours">
+              <label class="block text-sm font-semibold mb-2" for="scheduled-task-hours">时间限制（h）</label>
+              <input id="scheduled-task-hours" v-model.number="draftMaxHours" type="number" min="0.5" step="0.5" class="w-full bg-primary border border-gray-600 rounded-md px-3 py-2" />
+            </div>
+          </div>
           <div v-if="selectedTask && (selectedTask.key === 'scan' || selectedTask.key === 'bookMetadata' || selectedTask.key === 'metadata')" class="mt-5">
             <label class="block text-sm font-semibold mb-2">{{ selectedTask.key === 'scan' ? '扫描媒体库' : selectedTask.key === 'bookMetadata' ? '补全媒体库' : '预读媒体库' }}</label>
             <div class="max-h-40 overflow-y-auto bg-primary border border-gray-600 rounded-md p-2 space-y-1"><label v-for="library in selectedTask.key === 'scan' ? libraries : bookLibraries" :key="library.id" class="flex items-center text-sm py-1"><input v-model="draftLibraryIds" type="checkbox" :value="library.id" class="mr-2" /><span>{{ library.name }}</span></label></div>
-            <label class="block text-sm font-semibold mb-2 mt-4">时间限制（h）</label><input v-model.number="draftMaxHours" type="number" min="0.5" step="0.5" class="w-full bg-primary border border-gray-600 rounded-md px-3 py-2" />
+            <div v-if="selectedTask.key === 'bookMetadata'" class="mt-4">
+              <ui-tooltip text="需要补全的元数据字段，默认全部纳入。只会向选中且当前为空的字段写入内容，不会覆盖已有值。">
+                <span class="text-sm font-semibold">
+                  元数据补全
+                  <span class="material-symbols icon-text text-sm">info</span>
+                </span>
+              </ui-tooltip>
+              <ui-multi-select-dropdown v-model="draftBookMetadataFields" :items="metadataFieldItems" class="mt-1" />
+            </div>
             <template v-if="selectedTask.key === 'metadata'">
               <label class="block text-sm font-semibold mb-2 mt-4">扫描 QPS</label><input v-model.number="draftQps" type="number" min="0.1" max="10" step="0.1" class="w-full bg-primary border border-gray-600 rounded-md px-3 py-2" />
               <label class="block text-sm font-semibold mb-2 mt-4">每隔多少个文件暂停 5 分钟</label><input v-model.number="draftBatchSize" type="number" min="500" step="500" class="w-full bg-primary border border-gray-600 rounded-md px-3 py-2" />
@@ -89,11 +120,6 @@
             <div class="max-h-40 overflow-y-auto bg-primary border border-gray-600 rounded-md p-2 space-y-1"><label v-for="library in libraries" :key="library.id" class="flex items-center text-sm py-1"><input v-model="draftLibraryIds" type="checkbox" :value="library.id" class="mr-2" /><span>{{ library.name }}</span></label></div>
             <p class="mt-3 text-sm text-gray-300">只删除所选媒体库中已标记为丢失的项目，不删除文件系统中的任何文件。</p>
           </div>
-          <div v-else-if="selectedTask && selectedTask.hasMaxHours" class="mt-5">
-            <label class="block text-sm font-semibold mb-2">时间限制（h）</label><input v-model.number="draftMaxHours" type="number" min="0.5" step="0.5" class="w-full bg-primary border border-gray-600 rounded-md px-3 py-2" />
-            <label class="block text-sm font-semibold mb-2 mt-4">扫描 QPS</label><input v-model.number="draftQps" type="number" min="0.1" max="10" step="0.1" class="w-full bg-primary border border-gray-600 rounded-md px-3 py-2" />
-            <label class="block text-sm font-semibold mb-2 mt-4">每隔多少个文件暂停 5 分钟</label><input v-model.number="draftBatchSize" type="number" min="500" step="500" class="w-full bg-primary border border-gray-600 rounded-md px-3 py-2" />
-          </div>
         </div>
         <div class="flex justify-end mt-6"><ui-btn color="bg-primary" class="mr-2" @click="showSettings = false">取消</ui-btn><ui-btn color="bg-success" :loading="saving" @click="saveSettings">保存</ui-btn></div>
       </div>
@@ -104,15 +130,38 @@
 <script>
 const LAST_RUN_STORAGE_KEY = 'absScheduledTaskLastRuns'
 
+// Keep in sync with server/utils/bookMetadataFields.js
+const METADATA_FIELD_OPTIONS = [
+  { value: 'title', text: '标题' },
+  { value: 'subtitle', text: '副标题' },
+  { value: 'description', text: '简介' },
+  { value: 'authors', text: '作者' },
+  { value: 'narrators', text: '演播者' },
+  { value: 'series', text: '系列' },
+  { value: 'genres', text: '流派' },
+  { value: 'tags', text: '标签' },
+  { value: 'publisher', text: '出版商' },
+  { value: 'publishedYear', text: '出版年份' },
+  { value: 'language', text: '语言' },
+  { value: 'explicit', text: '露骸内容标记' },
+  { value: 'abridged', text: '删节标记' },
+  { value: 'asin', text: 'ASIN' },
+  { value: 'isbn', text: 'ISBN' },
+  { value: 'coverPath', text: '封面' }
+]
+
+const METADATA_FIELD_KEYS = METADATA_FIELD_OPTIONS.map((option) => option.value)
+
 export default {
   data() {
-    return { showSettings: false, saving: false, selectedTask: null, showAiKey: false, draftCron: null, draftMaxHours: 1, draftQps: 1, draftBatchSize: 5000, draftLibraryIds: [], draftAiGlobal: false, draftAiOnScan: false, draftAiUrl: '', draftAiKey: '', draftAiModel: '', draftAiConfidence: 0.9, running: {}, lastRuns: {} }
+    return { showSettings: false, saving: false, selectedTask: null, showAiKey: false, draftCron: null, draftMaxHours: 1, draftQps: 1, draftBatchSize: 5000, draftLibraryIds: [], draftAiGlobal: false, draftAiOnScan: false, draftAiUrl: '', draftAiKey: '', draftAiModel: '', draftAiConfidence: 0.9, draftAiOverrideFields: [], draftBookMetadataFields: [], running: {}, lastRuns: {} }
   },
   computed: {
     tasks() { return this.$store.state.tasks.tasks || [] },
     libraries() { return this.$store.state.libraries.libraries || [] },
     bookLibraries() { return this.libraries.filter((library) => library.mediaType === 'book') },
     serverSettings() { return this.$store.state.serverSettings || {} },
+    metadataFieldItems() { return METADATA_FIELD_OPTIONS },
     latestCompletedBookMatchTask() {
       return this.tasks
         .filter((task) => task.action === 'ai-book-match' && task.isFinished)
@@ -130,8 +179,19 @@ export default {
   },
   mounted() {
     try { this.lastRuns = JSON.parse(localStorage.getItem(LAST_RUN_STORAGE_KEY) || '{}') } catch (error) { this.lastRuns = {} }
-    if (!this.lastRuns.bookMatch && this.serverSettings.aiBookMatchLastRun) this.$set(this.lastRuns, 'bookMatch', { ...this.serverSettings.aiBookMatchLastRun })
-    if (!this.lastRuns.bookMetadata && this.serverSettings.bookMetadataCompletionLastRun) this.$set(this.lastRuns, 'bookMetadata', { ...this.serverSettings.bookMetadataCompletionLastRun })
+    // Server side last-run records win over the local copy so scheduled runs that
+    // happened while nobody had this page open are shown too.
+    Object.entries({
+      scan: this.serverSettings.scheduledLibraryScanLastRun,
+      bookMatch: this.serverSettings.aiBookMatchLastRun,
+      bookMetadata: this.serverSettings.bookMetadataCompletionLastRun,
+      metadata: this.serverSettings.strmMetadataCompletionLastRun,
+      missing: this.serverSettings.missingItemsCleanupLastRun
+    }).forEach(([key, lastRun]) => {
+      if (!lastRun) return
+      if (Number(this.lastRuns[key]?.finishedAt) >= Number(lastRun.finishedAt)) return
+      this.$set(this.lastRuns, key, { ...lastRun })
+    })
     this.$eventBus.$on('task-finished', this.scheduledTaskFinished)
   },
   beforeDestroy() { this.$eventBus.$off('task-finished', this.scheduledTaskFinished) },
@@ -152,10 +212,12 @@ export default {
       const elapsedMs = Math.max(0, Date.now() - Number(lastRun.startedAt))
       const timeText = elapsedMs < 3600000 ? `${Math.max(1, Math.floor(elapsedMs / 60000))} 分钟前` : elapsedMs < 86400000 ? `${Math.floor(elapsedMs / 3600000)} 小时前` : `${Math.floor(elapsedMs / 86400000)} 天前`
       const durationMinutes = Math.max(1, Math.ceil(Number(lastRun.durationMs) / 60000))
-      if (task.key === 'missing') return `上次执行：${timeText}，耗时 ${durationMinutes} 分钟，清理了 ${Number(lastRun.removed) || 0} 项`
-      if (task.key === 'bookMatch') return `上次执行：${timeText}，耗时 ${durationMinutes} 分钟，匹配了 ${Number(lastRun.matched) || 0} 本图书`
-      if (task.key === 'bookMetadata') return `上次执行：${timeText}，耗时 ${durationMinutes} 分钟，更新了 ${Number(lastRun.updated) || 0} 本图书`
-      return `上次执行：${timeText}，耗时 ${durationMinutes} 分钟`
+      // The prefix tells whether the last run came from the cron schedule or the play button
+      const prefix = lastRun.scheduledTask === true ? '上次计划执行' : '上次手动执行'
+      if (task.key === 'missing') return `${prefix}：${timeText}，耗时 ${durationMinutes} 分钟，清理了 ${Number(lastRun.removed) || 0} 项`
+      if (task.key === 'bookMatch') return `${prefix}：${timeText}，耗时 ${durationMinutes} 分钟，匹配了 ${Number(lastRun.matched) || 0} 本图书`
+      if (task.key === 'bookMetadata') return `${prefix}：${timeText}，耗时 ${durationMinutes} 分钟，更新了 ${Number(lastRun.updated) || 0} 本图书`
+      return `${prefix}：${timeText}，耗时 ${durationMinutes} 分钟`
     },
     async openSettings(task) {
       this.selectedTask = task
@@ -170,6 +232,8 @@ export default {
       this.draftAiKey = ''
       this.draftAiModel = this.serverSettings.aiBookMatchModel || ''
       this.draftAiConfidence = Number(this.serverSettings.aiBookMatchConfidence) || 0.9
+      this.draftAiOverrideFields = this.normalizeFieldSelection(this.serverSettings.aiBookMatchOverrideFields)
+      this.draftBookMetadataFields = this.normalizeFieldSelection(this.serverSettings.bookMetadataCompletionFields)
       this.showAiKey = false
       this.showSettings = true
       if (task.key === 'bookMatch') {
@@ -192,10 +256,11 @@ export default {
         this.$set(this.running, key, false)
         return
       }
-      const summary = { startedAt, finishedAt, durationMs: Number(taskResult.durationMs) || Math.max(0, finishedAt - startedAt), removed: Number(taskResult.removed) || 0, matched: Number(taskResult.matched) || 0, updated: Number(taskResult.updated) || 0 }
+      const scheduledTask = taskResult.scheduledTask ?? task.data?.scheduledTask ?? false
+      const summary = { startedAt, finishedAt, durationMs: Number(taskResult.durationMs) || Math.max(0, finishedAt - startedAt), scheduledTask: scheduledTask === true, removed: Number(taskResult.removed) || 0, matched: Number(taskResult.matched) || 0, updated: Number(taskResult.updated) || 0 }
       this.$set(this.lastRuns, key, summary)
-      if (key === 'bookMatch') this.$store.commit('setServerSettings', { ...this.serverSettings, aiBookMatchLastRun: summary })
-      if (key === 'bookMetadata') this.$store.commit('setServerSettings', { ...this.serverSettings, bookMetadataCompletionLastRun: summary })
+      const lastRunSettingKey = { scan: 'scheduledLibraryScanLastRun', bookMatch: 'aiBookMatchLastRun', bookMetadata: 'bookMetadataCompletionLastRun', metadata: 'strmMetadataCompletionLastRun', missing: 'missingItemsCleanupLastRun' }[key]
+      if (lastRunSettingKey) this.$store.commit('setServerSettings', { ...this.serverSettings, [lastRunSettingKey]: summary })
       this.$set(this.running, key, false)
       localStorage.setItem(LAST_RUN_STORAGE_KEY, JSON.stringify(this.lastRuns))
     },
@@ -206,6 +271,10 @@ export default {
     async stopTask(task) {
       this.$set(this.running, task.key + 'Stopping', true)
       try { const result = await this.$axios.$post(`/api/${this.actionFor(task)}/stop`); if (!result.stopped) this.$set(this.running, task.key, false) } catch (error) { this.$toast.error('停止任务失败') } finally { this.$set(this.running, task.key + 'Stopping', false) }
+    },
+    normalizeFieldSelection(fields) {
+      if (!Array.isArray(fields)) return [...METADATA_FIELD_KEYS]
+      return METADATA_FIELD_KEYS.filter((field) => fields.includes(field))
     },
     draftNumber(value) {
       const number = typeof value === 'number' ? value : Number(String(value ?? '').trim())
@@ -247,9 +316,9 @@ export default {
         let payload
         if (taskKey === 'scan') payload = { scheduledLibraryScanCronExpression: cronExpression, scheduledLibraryScanLibraryIds: this.draftLibraryIds, scheduledLibraryScanMaxHours: numbers.maxHours }
         else if (taskKey === 'bookMatch') {
-          payload = { aiBookMatchCronExpression: cronExpression, aiBookMatchLibraryIds: this.draftLibraryIds, aiBookMatchGlobal: this.draftAiGlobal, aiBookMatchOnScan: this.draftAiOnScan, aiBookMatchMaxHours: numbers.maxHours, aiBookMatchApiUrl: (this.draftAiUrl || '').trim() || null, aiBookMatchModel: (this.draftAiModel || '').trim() || null, aiBookMatchConfidence: numbers.confidence }
+          payload = { aiBookMatchCronExpression: cronExpression, aiBookMatchLibraryIds: this.draftLibraryIds, aiBookMatchGlobal: this.draftAiGlobal, aiBookMatchOnScan: this.draftAiOnScan, aiBookMatchMaxHours: numbers.maxHours, aiBookMatchApiUrl: (this.draftAiUrl || '').trim() || null, aiBookMatchModel: (this.draftAiModel || '').trim() || null, aiBookMatchConfidence: numbers.confidence, aiBookMatchOverrideFields: this.normalizeFieldSelection(this.draftAiOverrideFields) }
           if ((this.draftAiKey || '').trim()) payload.aiBookMatchApiKey = this.draftAiKey.trim()
-        } else if (taskKey === 'bookMetadata') payload = { bookMetadataCompletionCronExpression: cronExpression, bookMetadataCompletionLibraryIds: this.draftLibraryIds, bookMetadataCompletionMaxHours: numbers.maxHours }
+        } else if (taskKey === 'bookMetadata') payload = { bookMetadataCompletionCronExpression: cronExpression, bookMetadataCompletionLibraryIds: this.draftLibraryIds, bookMetadataCompletionMaxHours: numbers.maxHours, bookMetadataCompletionFields: this.normalizeFieldSelection(this.draftBookMetadataFields) }
         else if (taskKey === 'metadata') payload = { strmMetadataCompletionCronExpression: cronExpression, strmMetadataCompletionLibraryIds: this.draftLibraryIds, strmMetadataCompletionMaxHours: numbers.maxHours, strmMetadataCompletionQps: numbers.qps, strmMetadataCompletionBatchSize: numbers.batchSize }
         else payload = { missingItemsCleanupCronExpression: cronExpression, missingItemsCleanupLibraryIds: this.draftLibraryIds }
         const response = await this.$axios.$patch('/api/settings', payload)
@@ -272,6 +341,8 @@ export default {
 .ai-key-visibility-button { position: absolute; top: 0; right: 0; height: 100%; width: 2.75rem; display: flex; align-items: center; justify-content: center; color: var(--abs-theme-muted); }
 .ai-key-visibility-button:hover { color: var(--abs-theme-text); }
 .ai-key-visibility-button .material-symbols { font-size: 1.25rem; }
+.scheduled-task-field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+@media (max-width: 640px) { .scheduled-task-field-grid { grid-template-columns: 1fr; } }
 .book-match-settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.5rem; align-items: stretch; }
 @media (max-width: 768px) { .book-match-settings-grid { grid-template-columns: 1fr; } }
 .scheduled-task-progress { height: 0.45rem; width: 100%; background: rgba(255, 255, 255, 0.22); border-radius: 999px; overflow: hidden; }

@@ -11,6 +11,7 @@ const libraryItemFilters = require('../utils/queries/libraryItemFilters')
 const cron = require('../libs/nodeCron')
 const { isObject, getTitleIgnorePrefix } = require('../utils/index')
 const { sanitizeFilename } = require('../utils/fileUtils')
+const { isValidBookMetadataFields, normalizeBookMetadataFields } = require('../utils/bookMetadataFields')
 
 const TaskManager = require('../managers/TaskManager')
 const adminStats = require('../utils/queries/adminStats')
@@ -203,6 +204,14 @@ class MiscController {
     }
     if (settingsUpdate.aiBookMatchGlobal !== undefined && typeof settingsUpdate.aiBookMatchGlobal !== 'boolean') return res.status(400).send('AI book match global setting must be a boolean')
     if (settingsUpdate.aiBookMatchOnScan !== undefined && typeof settingsUpdate.aiBookMatchOnScan !== 'boolean') return res.status(400).send('AI book match on scan setting must be a boolean')
+    if (settingsUpdate.aiBookMatchOverrideFields !== undefined) {
+      if (!isValidBookMetadataFields(settingsUpdate.aiBookMatchOverrideFields)) return res.status(400).send('Invalid metadata field in AI book match override settings')
+      settingsUpdate.aiBookMatchOverrideFields = normalizeBookMetadataFields(settingsUpdate.aiBookMatchOverrideFields)
+    }
+    if (settingsUpdate.bookMetadataCompletionFields !== undefined) {
+      if (!isValidBookMetadataFields(settingsUpdate.bookMetadataCompletionFields)) return res.status(400).send('Invalid metadata field in book metadata completion settings')
+      settingsUpdate.bookMetadataCompletionFields = normalizeBookMetadataFields(settingsUpdate.bookMetadataCompletionFields)
+    }
     if (settingsUpdate.scheduledLibraryScanLibraryIds !== undefined) {
       if (!Array.isArray(settingsUpdate.scheduledLibraryScanLibraryIds)) return res.status(400).send('Library scan library IDs must be an array')
       const libraries = await Database.libraryModel.findAll({ attributes: ['id'] })

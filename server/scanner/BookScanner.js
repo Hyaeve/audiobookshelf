@@ -561,8 +561,13 @@ class BookScanner {
       }
     }
 
+    // Local feature: when the scan-time book match option covers this library, the book
+    // matching flow fully replaces it, so skip the scanner cover search here.
+    // Required lazily because AiBookMatchManager depends on Scanner -> LibraryScanner -> this module.
+    const bookMatchHandlesScan = require('../managers/AiBookMatchManager').willHandleScanMatch(libraryItemData.libraryId)
+
     // If cover not found then search for cover if enabled in settings
-    if (!bookObject.coverPath && Database.serverSettings.scannerFindCovers) {
+    if (!bookObject.coverPath && Database.serverSettings.scannerFindCovers && !bookMatchHandlesScan) {
       const authorName = bookMetadata.authors.join(', ')
       bookObject.coverPath = await this.searchForCover(libraryItemObj.id, libraryItemDir, bookObject.title, authorName, libraryScan)
     }

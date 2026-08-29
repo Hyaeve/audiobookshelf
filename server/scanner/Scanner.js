@@ -43,11 +43,40 @@ function waitForBookSearch(searchPromise, isCancelled) {
  * @property {string} [asin] - This override is currently unused in Abs clients
  * @property {boolean} [overrideCover]
  * @property {boolean} [overrideDetails]
+ * @property {string[]} [overrideFields] - Local feature: only these metadata fields may overwrite an existing value
+ * @property {string[]} [allowedFields] - Local feature: only these metadata fields may be written at all
  * @property {() => boolean} [isCancelled]
  */
 
 class Scanner {
   constructor() {}
+
+  /**
+   * Local feature: the scheduled tasks can restrict which metadata fields are written.
+   * allowedFields limits which fields may be written at all (used by 补全元数据).
+   *
+   * @param {QuickMatchOptions} options
+   * @param {string} field
+   * @returns {boolean}
+   */
+  isFieldAllowed(options, field) {
+    if (!Array.isArray(options?.allowedFields)) return true
+    return options.allowedFields.includes(field)
+  }
+
+  /**
+   * Local feature: overrideFields limits which fields may overwrite an existing value
+   * (used by 书籍匹配). Fields left out are still filled when the book has no value.
+   *
+   * @param {QuickMatchOptions} options
+   * @param {string} field
+   * @returns {boolean}
+   */
+  canOverrideField(options, field) {
+    if (!options?.overrideDetails) return false
+    if (!Array.isArray(options.overrideFields)) return true
+    return options.overrideFields.includes(field)
+  }
 
   /**
    *
@@ -160,7 +189,8 @@ class Scanner {
     let hasUpdated = false
     const changedFields = []
     const isScheduled = options.scheduledTask === true
-    if (matchData.cover && (!libraryItem.media.coverPath || options.overrideCover) && (!isScheduled || !isMetadataFieldLocked(libraryItem, 'coverPath'))) {
+    const canOverrideCover = options.overrideCover && (!Array.isArray(options.overrideFields) || options.overrideFields.includes('coverPath'))
+    if (matchData.cover && this.isFieldAllowed(options, 'coverPath') && (!libraryItem.media.coverPath || canOverrideCover) && (!isScheduled || !isMetadataFieldLocked(libraryItem, 'coverPath'))) {
       Logger.debug(`[Scanner] Updating cover "${matchData.cover}"`)
       const coverResult = await CoverManager.downloadCoverFromUrlNew(matchData.cover, libraryItem.id, libraryItem.isFile ? null : libraryItem.path)
       if (coverResult.error) {
@@ -256,16 +286,17 @@ class Scanner {
     const updatePayload = {}
 
     for (const key in matchData) {
-      if (matchData[key] && detailKeysToUpdate.includes(key) && (!isScheduled || !isMetadataFieldLocked(libraryItem, key === 'narrator' ? 'narrators' : key))) {
+      const fieldKey = key === 'narrator' ? 'narrators' : key
+      if (matchData[key] && detailKeysToUpdate.includes(key) && this.isFieldAllowed(options, fieldKey) && (!isScheduled || !isMetadataFieldLocked(libraryItem, fieldKey))) {
         if (key === 'narrator') {
-          if (!libraryItem.media.narrators?.length || options.overrideDetails) {
+          if (!libraryItem.media.narrators?.length || this.canOverrideField(options, 'narrators')) {
             updatePayload.narrators = matchData[key]
               .split(',')
               .map((v) => v.trim())
               .filter((v) => !!v)
           }
         } else if (key === 'genres') {
-          if (!libraryItem.media.genres.length || options.overrideDetails) {
+          if (!libraryItem.media.genres.length || this.canOverrideField(options, 'genres')) {
             let genresArray = []
             if (Array.isArray(matchData[key])) genresArray = [...matchData[key]]
             else {
@@ -279,7 +310,7 @@ class Scanner {
             updatePayload[key] = genresArray
           }
         } else if (key === 'tags') {
-          if (!libraryItem.media.tags.length || options.overrideDetails) {
+          if (!libraryItem.media.tags.length || this.canOverrideField(options, 'tags')) {
             let tagsArray = []
             if (Array.isArray(matchData[key])) tagsArray = [...matchData[key]]
             else
@@ -289,7 +320,7 @@ class Scanner {
                 .filter((v) => !!v)
             updatePayload[key] = tagsArray
           }
-        } else if (!libraryItem.media[key] || options.overrideDetails) {
+        } else if (!libraryItem.media[key] || this.canOverrideField(options, key)) {
           updatePayload[key] = matchData[key]
         }
       }
@@ -297,7 +328,7 @@ class Scanner {
 
     // Add or set author if not set
     let hasAuthorUpdates = false
-    if (matchData.author && (!libraryItem.media.authorName || options.overrideDetails) && (!isScheduled || !isMetadataFieldLocked(libraryItem, 'authors'))) {
+    if (matchData.author && this.isFieldAllowed(options, 'authors') && (!libraryItem.media.authorName || this.canOverrideField(options, 'authors')) && (!isScheduled || !isMetadataFieldLocked(libraryItem, 'authors'))) {
       if (!Array.isArray(matchData.author)) {
         matchData.author = matchData.author
           .split(',')
@@ -350,7 +381,7 @@ class Scanner {
 
     // Add or set series if not set
     let hasSeriesUpdates = false
-    if (matchData.series && (!libraryItem.media.seriesName || options.overrideDetails) && (!isScheduled || !isMetadataFieldLocked(libraryItem, 'series'))) {
+    if (matchData.series && this.isFieldAllowed(options, 'series') && (!libraryItem.media.seriesName || this.canOverrideField(options, 'series')) && (!isScheduled || !isMetadataFieldLocked(libraryItem, 'series'))) {
       if (!Array.isArray(matchData.series)) matchData.series = [{ series: matchData.series, sequence: matchData.sequence }]
       const seriesIdsRemoved = []
       for (const seriesMatchItem of matchData.series) {

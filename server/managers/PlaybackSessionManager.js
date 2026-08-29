@@ -20,10 +20,10 @@ const DeviceInfo = require('../objects/DeviceInfo')
 const Stream = require('../objects/Stream')
 
 // Playback-triggered and manual STRM media pre-read share the library level
-// "strmMetadataQps" setting and a fixed 3000 track / 3 minute pause window.
+// "strmMetadataQps" setting and a fixed 3000 track / 5 minute pause window.
 const DEFAULT_STRM_METADATA_QPS = 2.0
 const STRM_METADATA_BATCH_SIZE = 3000
-const STRM_METADATA_PAUSE_MINUTES = 3
+const STRM_METADATA_PAUSE_MINUTES = 5
 
 class PlaybackSessionManager {
   constructor() {
@@ -991,7 +991,7 @@ class PlaybackSessionManager {
     return task
   }
 
-  async completeScheduledStrmMetadata(maxHours = 1, libraryIds = []) {
+  async completeScheduledStrmMetadata(maxHours = 1, libraryIds = [], options = {}) {
     if (this.strmScheduledCompletionTask) return this.strmScheduledCompletionTask
 
     const cancellation = { requested: false }
@@ -1004,7 +1004,7 @@ class PlaybackSessionManager {
       task = this.createStrmPreloadTask({
         text: '计划任务媒体预读',
         key: 'MessageTaskStrmPreloadSourceScheduled'
-      }, { scheduledTask: true, totalBooks: 0, updatedBooks: 0, totalTracks: 0, scannedTracks: 0 })
+      }, { scheduledTask: options.scheduledTask !== false, totalBooks: 0, updatedBooks: 0, totalTracks: 0, scannedTracks: 0 })
       const selectedLibraryIds = Array.isArray(libraryIds) ? libraryIds : []
       const items = selectedLibraryIds.length
         ? await Database.libraryItemModel.findAllExpandedWhere({ mediaType: 'book', libraryId: selectedLibraryIds })
@@ -1056,16 +1056,9 @@ class PlaybackSessionManager {
       const finishedAt = Date.now()
       const cancelled = this.strmScheduledCompletionCancelRequested
       Logger.info(`[PlaybackSessionManager] 媒体预读任务结束，时间 ${new Date(finishedAt).toISOString()}，处理书籍：${items.length}，更新书籍：${updated}，已取消：${cancelled}`)
-      task.data.result = { books: items.length, updated, cancelled }
+      task.data.result = { books: items.length, updated, cancelled, scheduledTask: options.scheduledTask !== false, startedAt, finishedAt, durationMs: finishedAt - startedAt }
       this.finishStrmPreloadTask(task)
-      return {
-        books: items.length,
-        updated,
-        cancelled,
-        startedAt,
-        finishedAt,
-        durationMs: finishedAt - startedAt
-      }
+      return { ...task.data.result }
     })()
       .catch((error) => {
         Logger.error(`[PlaybackSessionManager] 计划媒体预读失败`, error)

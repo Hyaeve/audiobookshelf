@@ -4,6 +4,7 @@ const Database = require('../Database')
 const BookFinder = require('../finders/BookFinder')
 const { getMetadataLocks } = require('../utils/metadataLocks')
 const Scanner = require('../scanner/Scanner')
+const { normalizeBookMetadataFields } = require('../utils/bookMetadataFields')
 const LibraryScanner = require('../scanner/LibraryScanner')
 
 const AUDIT_KEY = 'aiBookMatch'
@@ -28,6 +29,14 @@ const MATCH_RULE_LABELS = {
   'ai-title-author': 'AI 书名+人物',
   'ai-title': 'AI 仅书名',
   'full-name': '全称'
+}
+
+// Readable Chinese text for the match result written to the logs
+const MATCH_STATUS_LABELS = {
+  matched: '匹配成功',
+  unmatched: '未找到匹配',
+  'needs-review': '待复核',
+  skipped: '已跳过'
 }
 
 class AiBookMatchManager {
@@ -221,6 +230,16 @@ class AiBookMatchManager {
 
   getMatchRuleLabel(rule) {
     return MATCH_RULE_LABELS[rule] || rule || '-'
+  }
+
+  /**
+   * Readable Chinese label for a match result status.
+   *
+   * @param {string} status
+   * @returns {string}
+   */
+  getMatchStatusLabel(status) {
+    return MATCH_STATUS_LABELS[status] || status || '-'
   }
 
   /**
@@ -553,17 +572,30 @@ class AiBookMatchManager {
   }
 
   /**
+   * Whether the "入库匹配" option takes over the scan-time match for this library.
+   * When it does the scanner skips its own provider cover search so the book
+   * match flow is the only step writing metadata for the new item.
+   *
+   * @param {string} libraryId
+   * @returns {boolean}
+   */
+  willHandleScanMatch(libraryId) {
+    const settings = Database.serverSettings
+    if (settings?.aiBookMatchOnScan !== true) return false
+    const selectedLibraryIds = Array.isArray(settings.aiBookMatchLibraryIds) ? settings.aiBookMatchLibraryIds : []
+    if (selectedLibraryIds.length && !selectedLibraryIds.includes(libraryId)) return false
+    return true
+  }
+
+  /**
    * Queue a newly scanned book for the shared book-match flow.
    * Only used by the "入库匹配" option; jobs run one book at a time.
    *
    * @param {import('../models/LibraryItem')} libraryItem
    */
   enqueueScanMatch(libraryItem) {
-    const settings = Database.serverSettings
-    if (settings?.aiBookMatchOnScan !== true) return false
     if (!libraryItem?.id || libraryItem.mediaType !== 'book') return false
-    const selectedLibraryIds = Array.isArray(settings.aiBookMatchLibraryIds) ? settings.aiBookMatchLibraryIds : []
-    if (selectedLibraryIds.length && !selectedLibraryIds.includes(libraryItem.libraryId)) return false
+    if (!this.willHandleScanMatch(libraryItem.libraryId)) return false
     if (this.scanMatchQueuedIds.has(libraryItem.id)) return false
     this.scanMatchQueuedIds.add(libraryItem.id)
     this.scanMatchQueue.push({ id: libraryItem.id, libraryId: libraryItem.libraryId, title: libraryItem.media?.title || libraryItem.title || libraryItem.relPath })
@@ -592,9 +624,10 @@ class AiBookMatchManager {
             // New items are matched regardless of folder-parsed metadata; this option replaces the scan-time match step
             globalMatch: true,
             overrideCover: true,
-            overrideDetails: true
+            overrideDetails: true,
+            overrideFields: normalizeBookMetadataFields(Database.serverSettings.aiBookMatchOverrideFields)
           })
-          Logger.info(`[AiBookMatchManager] 入库匹配：媒体库 "${library.name}"，原名称 "${job.title}"，规则：${this.getMatchRuleLabel(matchResult.rule)}，搜索标题 "${matchResult.searchTitle || '-'}"，搜索作者 "${matchResult.searchAuthor || '-'}"，结果：${matchResult.status}${matchResult.candidateTitle ? `，匹配为 "${matchResult.candidateTitle}"` : ''}${matchResult.reason ? `，原因：${matchResult.reason}` : ''}`)
+          Logger.info(`[AiBookMatchManager] 入库匹配：媒体库 "${library.name}"，原名称 "${job.title}"，规则：${this.getMatchRuleLabel(matchResult.rule)}，搜索标题 "${matchResult.searchTitle || '-'}"，搜索作者 "${matchResult.searchAuthor || '-'}"，结果：${this.getMatchStatusLabel(matchResult.status)}${matchResult.candidateTitle ? `，匹配为 "${matchResult.candidateTitle}"` : ''}${matchResult.reason ? `，原因：${matchResult.reason}` : ''}`)
         } catch (error) {
           const localTitle = this.extractLocalTitleWithRule(job.title || '')
           Logger.warn(`[AiBookMatchManager] 入库匹配失败："${job.title}"，规则：${this.getMatchRuleLabel(localTitle.rule)}，搜索标题 "${localTitle.title || '-'}"，原因：${error.message}`)
