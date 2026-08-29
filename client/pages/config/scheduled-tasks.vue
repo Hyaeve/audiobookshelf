@@ -46,7 +46,7 @@
                   <span class="material-symbols icon-text text-sm">info</span>
                 </span>
               </ui-tooltip>
-              <ui-multi-select-dropdown v-model="draftAiOverrideFields" :items="metadataFieldItems" class="mt-1" />
+              <widgets-metadata-field-selector v-model="draftAiOverrideFields" :items="metadataFieldItems" class="mt-1" />
             </div>
             <div class="book-match-toggles flex flex-col mt-auto pt-5 space-y-2">
               <div class="flex items-center">
@@ -107,7 +107,7 @@
                   <span class="material-symbols icon-text text-sm">info</span>
                 </span>
               </ui-tooltip>
-              <ui-multi-select-dropdown v-model="draftBookMetadataFields" :items="metadataFieldItems" class="mt-1" />
+              <widgets-metadata-field-selector v-model="draftBookMetadataFields" :items="metadataFieldItems" class="mt-1" />
             </div>
             <template v-if="selectedTask.key === 'metadata'">
               <label class="block text-sm font-semibold mb-2 mt-4">扫描 QPS</label><input v-model.number="draftQps" type="number" min="0.1" max="10" step="0.1" class="w-full bg-primary border border-gray-600 rounded-md px-3 py-2" />
