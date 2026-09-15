@@ -357,9 +357,22 @@ export default {
   resize: vertical;
   overflow: auto;
   padding-right: 2.75rem;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(156, 163, 175, 0.45) transparent;
+}
+:deep(trix-editor::-webkit-scrollbar) {
+  width: 6px;
+  height: 6px;
+}
+:deep(trix-editor::-webkit-scrollbar-thumb) {
+  background-color: rgba(156, 163, 175, 0.45);
+  border-radius: 999px;
+}
+:deep(trix-editor::-webkit-scrollbar-track) {
+  background: transparent;
 }
 :deep(trix-editor::-webkit-scrollbar-corner) {
-  background-color: rgb(35, 35, 35);
+  background-color: transparent;
 }
 :deep(trix-editor::-webkit-resizer) {
   background-color: transparent;

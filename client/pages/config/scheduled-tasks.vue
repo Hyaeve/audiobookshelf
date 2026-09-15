@@ -19,7 +19,7 @@
     </div>
 
     <modals-modal v-model="showSettings" name="scheduled-task-settings" :width="selectedTask && selectedTask.key === 'bookMatch' ? 920 : 560" :height="'unset'" :processing="saving">
-      <div class="p-5 bg-bg rounded-md">
+      <div class="scheduled-task-settings-panel p-5 bg-bg rounded-md">
         <h2 class="text-xl font-semibold mb-5">{{ selectedTask ? selectedTask.title + '设置' : '计划任务设置' }}</h2>
         <div v-if="selectedTask && selectedTask.key === 'bookMatch'" class="book-match-settings-grid">
           <section class="flex flex-col">
@@ -347,4 +347,11 @@ export default {
 .scheduled-task-stop { color: var(--abs-theme-accent); background: transparent; }
 .scheduled-task-action:hover:not(:disabled) { color: var(--abs-theme-accent); transform: translateY(-1px); }
 .scheduled-task-action:disabled { opacity: 0.55; }
+.scheduled-task-settings-panel { max-height: 90vh; overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgba(156, 163, 175, 0.45) transparent; }
+.scheduled-task-settings-panel::-webkit-scrollbar,
+.scheduled-task-settings-panel .overflow-y-auto::-webkit-scrollbar { width: 6px; height: 6px; }
+.scheduled-task-settings-panel::-webkit-scrollbar-thumb,
+.scheduled-task-settings-panel .overflow-y-auto::-webkit-scrollbar-thumb { background-color: rgba(156, 163, 175, 0.45); border-radius: 999px; }
+.scheduled-task-settings-panel::-webkit-scrollbar-track,
+.scheduled-task-settings-panel .overflow-y-auto::-webkit-scrollbar-track { background: transparent; }
 </style>
