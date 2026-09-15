@@ -148,13 +148,13 @@
 - [`matchLibraryItem`](../server/managers/AiBookMatchManager.js:480) 仍保留同一候选判断作为防御性保护，防止其他调用入口绕过计划任务批次预过滤。
 - 每次失败、低置信度或成功判断都持久化到已有 `LibraryItem.extraData.aiBookMatch`，记录 `status`、`source`、`model`、`rule`、`confidence`、`candidate`、`updatedAt`、`reason` 等审计信息，不新增数据库表或列。AI 提取失败会记录具体原因并标记待复核；没有 provider 候选的 `unmatched` 会保留实际搜索标题和作者，便于后续排查。
 - 四类计划任务都会写入可读的执行日志：媒体库扫描记录目标媒体库和扫描开始/完成；书籍匹配记录媒体库、原名称、命中的提取规则、搜索标题和作者、匹配结果及候选书名，结果状态使用“匹配成功”“未找到匹配”“待复核”“已跳过”等中文文案，不直接显示内部状态码；媒体预读记录书名、待预读音轨数和成功/失败结果；清理丢失项目记录媒体库名称和被清理项目名称。日志正文不重复写时间，也不使用媒体库 ID，时间由日志系统自动标注。书籍匹配选择多个媒体库时按设置顺序逐个处理，单个媒体库内按书籍顺序逐本处理，不并行执行；媒体预读通过媒体库 ID 到名称的映射输出媒体库名称。入库匹配的日志前缀为 `[AiBookMatchManager] 入库匹配`，同样输出媒体库名称、原名称和提取规则。
-- 配置字段为 `aiBookMatchCronExpression`、`aiBookMatchLibraryIds`、`aiBookMatchGlobal`、`aiBookMatchOnScan`、`aiBookMatchMaxHours`、`aiBookMatchApiUrl`、`aiBookMatchApiKey`、`aiBookMatchModel` 和 `aiBookMatchConfidence`，其中 `aiBookMatchGlobal` 与 `aiBookMatchOnScan` 默认 `false`。密钥只对管理员通过 [`getAiBookMatchSettings()`](../server/controllers/MiscController.js:133) 按需读取，普通浏览器设置仍不会返回密钥；页面打开书籍匹配设置时加载已保存密钥，输入框默认以密码形式显示，右侧按钮可切换明文显示与密码隐藏状态，关闭并重新打开设置时恢复隐藏。留空时不覆盖已保存值。最后一次执行摘要持久化在 `aiBookMatchLastRun`，因此即使 cron 在浏览器未打开时运行，下次进入页面仍能显示上次执行时间、耗时和匹配数量。
+- 配置字段为 `aiBookMatchCronExpression`、`aiBookMatchLibraryIds`、`aiBookMatchGlobal`、`aiBookMatchOnScan`、`aiBookMatchMaxHours`、`aiBookMatchApiUrl`、`aiBookMatchApiKey`、`aiBookMatchModel` 和 `aiBookMatchConfidence`，其中 `aiBookMatchGlobal` 与 `aiBookMatchOnScan` 默认 `false`。密钥只对管理员通过 [`getAiBookMatchSettings()`](../server/controllers/MiscController.js:140) 按需读取，普通浏览器设置仍不会返回密钥；页面打开书籍匹配设置时加载已保存密钥，输入框默认以密码形式显示，右侧按钮可切换明文显示与密码隐藏状态，关闭并重新打开设置时恢复隐藏。留空时不覆盖已保存值。最后一次执行摘要持久化在 `aiBookMatchLastRun`，因此即使 cron 在浏览器未打开时运行，下次进入页面仍能显示上次执行时间、耗时和匹配数量。
 - 补全元数据配置字段为 `bookMetadataCompletionCronExpression`、`bookMetadataCompletionLibraryIds`、`bookMetadataCompletionMaxHours` 和 `bookMetadataCompletionLastRun`，运行/停止接口为 `/api/book-metadata-completion/run` 与 `/api/book-metadata-completion/stop`。任务结果包含处理数、更新数、未找到候选数和跳过数；停止接口设置取消标志后，当前搜索最多等待取消轮询间隔即可退出。
 - 页面提供“媒体库扫描”“媒体预读”“清理丢失项目”等紧凑横条，媒体库扫描排在第一位；每条依次显示大字功能标题、已运行后的上次运行摘要和小字描述，右侧显示立即执行、运行中的普通停止图标与竖三点图标。停止图标不使用背景填充、高亮或额外描边框，点击热区仍保持足够大小；停止按钮调用对应停止 API，服务端立即设置取消标志，provider 搜索等待通过取消竞速及时退出，扫描/媒体预读/清理任务在当前安全边界结束后停止。
-- 三条横条均支持 cron 表达式；不设置 cron 表达式即为不开启，默认不开启。保存时空字符串与纯空格会被规范化为 `null`（前端 [`saveSettings`](../client/pages/config/scheduled-tasks.vue:304) 与服务端 [`updateServerSettings`](../server/controllers/MiscController.js:147) 双重处理），服务端 cron 合法性校验必须使用**规范化之后**的 `settingsUpdate[key]`（不能使用规范化前的局部变量，否则空串会被判为非法 cron 而返回 400），cron 变更后立即重建对应定时任务（[`updateStrmMetadataCron`](../server/managers/CronManager.js:170)、[`updateMissingItemsCleanupCron`](../server/managers/CronManager.js:215)、[`updateScheduledLibraryScanCron`](../server/managers/CronManager.js:453)，表达式为空时停止并清空定时任务）。
+- 三条横条均支持 cron 表达式；不设置 cron 表达式即为不开启，默认不开启。保存时空字符串与纯空格会被规范化为 `null`（前端 [`saveSettings`](../client/pages/config/scheduled-tasks.vue:304) 与服务端 [`updateServerSettings`](../server/controllers/MiscController.js:154) 双重处理），服务端 cron 合法性校验必须使用**规范化之后**的 `settingsUpdate[key]`（不能使用规范化前的局部变量，否则空串会被判为非法 cron 而返回 400），cron 变更后立即重建对应定时任务（[`updateStrmMetadataCron`](../server/managers/CronManager.js:170)、[`updateMissingItemsCleanupCron`](../server/managers/CronManager.js:215)、[`updateScheduledLibraryScanCron`](../server/managers/CronManager.js:453)，表达式为空时停止并清空定时任务）。
 - 三项任务接口立即返回 HTTP 202，任务 Socket 事件负责反馈运行状态和完成结果。页面按任务 action 查找未完成任务，手动执行和 cron 执行均显示运行状态与停止按钮；全局布局收到 `task_finished` 后先写入任务 store，再通过 `$eventBus` 转发完成事件，计划任务页优先读取 `task.data.result` 中的服务端摘要并按完成时间去重，同步浏览器本地记录，书籍匹配横条显示“上次计划执行：时间，耗时 时长，匹配了 N 本图书”（清理任务额外显示清理了 N 项）。
 - 五条横条的“上次执行”那一行同时反映手动点击和 cron 自动执行，并按最后一次的触发来源显示“上次计划执行”或“上次手动执行”。实现上五个任务的摘要都带 `scheduledTask` 布尔并落库：服务端新增 `scheduledLibraryScanLastRun`、`strmMetadataCompletionLastRun`、`missingItemsCleanupLastRun` 三个设置字段（原先只有 `aiBookMatchLastRun` 与 `bookMetadataCompletionLastRun`），[`mounted`](../client/pages/config/scheduled-tasks.vue:176) 把五个字段一并回填，服务端记录比本地 `localStorage` 新时以服务端为准，因此 cron 在无人打开页面时跑过也能显示。[`lastRunText`](../client/pages/config/scheduled-tasks.vue:205) 根据 `lastRun.scheduledTask` 选择前缀。
-- 媒体库扫描（`scheduled-library-scan`）支持选择要扫描的媒体库（多选，不选则不扫描任何库）和时间限制（界面标签“时间限制（h）”，最小 0.5 小时、步长 0.5 小时，服务端校验）；执行时按选定顺序串行扫描，同时只扫描一个媒体库，受截止时间限制，超时或停止后立即结束并只在完成数中统计真正扫描完的库；停止入口为 `/api/scheduled-library-scan/stop`。配置字段为 `scheduledLibraryScanCronExpression`、`scheduledLibraryScanLibraryIds`、`scheduledLibraryScanMaxHours`，保存在服务端设置中（[`ServerSettings.js`](../server/objects/settings/ServerSettings.js:70)）。日志正文使用媒体库名称，不重复输出日志系统已经提供的时间戳。
+- 媒体库扫描（`scheduled-library-scan`）支持选择要扫描的媒体库（多选，不选则不扫描任何库）和时间限制（界面标签“时间限制（h）”，最小 0.5 小时、步长 0.5 小时，服务端校验）；执行时按选定顺序串行扫描，同时只扫描一个媒体库，受截止时间限制，超时或停止后立即结束并只在完成数中统计真正扫描完的库；停止入口为 `/api/scheduled-library-scan/stop`。配置字段为 `scheduledLibraryScanCronExpression`、`scheduledLibraryScanLibraryIds`、`scheduledLibraryScanMaxHours`，保存在服务端设置中（[`ServerSettings.js`](../server/objects/settings/ServerSettings.js:119)）。日志正文使用媒体库名称，不重复输出日志系统已经提供的时间戳。
 - 媒体预读跳过已完成的 STRM 书籍；计划任务只处理媒体信息不完整的书籍，部分完成的书籍仅将缺失信息的 STRM 音轨交给真实目标探测和扫描流程。计划任务进入全局预读队列的优先级低于播放触发和手动预读；停止计划任务时，尚未开始的排队书籍会在轮到时跳过，当前音轨探测完成后协作式退出。
 - 媒体预读支持 cron 表达式、图书媒体库多选和时间限制，未选择媒体库时不处理任何书籍；时间限制使用可直接输入的数字步进框，界面标签统一为“时间限制（h）”，最小 0.5 小时、步长 0.5 小时；服务端校验 cron、媒体库 ID 和步长。媒体库选择设置字段为 `strmMetadataCompletionLibraryIds`。计划任务 QPS 设置字段为 `strmMetadataCompletionQps`，默认 1.0，范围 0.1 至 10.0、步长 0.1。计划任务批量暂停设置字段为 `strmMetadataCompletionBatchSize`，默认 5000、最小 500、步长 500；达到配置阈值后暂停 5 分钟，并受单次小时数截止时间限制。计划任务的 QPS 与批量阈值与媒体库设置中的 `strmMetadataQps` 完全独立，后者只作用于播放触发预读和手动预读。
 - 清理丢失项目支持独立 cron 表达式、媒体库多选和立即执行；配置字段为 `missingItemsCleanupLibraryIds`，未选择媒体库时不清理任何项目。任务只清理所选媒体库中扫描后标记 `isMissing` 的项目，不处理仅标记 `isInvalid` 的项目。
@@ -219,6 +219,49 @@
 - 活动铃铛的未读小红点原本用 `-top-1 -right-0.5` 贴在 `w-4 h-4` 小盒子外侧，容器改为 `w-8 h-8` 后改成 `top-0.5 right-1`，保持在图标右上角。改动只涉及容器尺寸和定位类名，下拉菜单、任务列表、点击展开逻辑均未变。
 - 书籍匹配和入库匹配的日志结果状态改为中文：`matched` / `unmatched` / `needs-review` / `skipped` 分别显示为“匹配成功”“未找到匹配”“待复核”“已跳过”，映射表 [`MATCH_STATUS_LABELS`](../server/managers/AiBookMatchManager.js:35) 与读取方法 [`getMatchStatusLabel`](../server/managers/AiBookMatchManager.js:241) 同时供 [`CronManager.runAiBookMatch`](../server/managers/CronManager.js:245) 的逐本日志和 [`processScanMatchQueue`](../server/managers/AiBookMatchManager.js:606) 的入库匹配日志使用。审计里持久化的 `status` 仍是英文键，不受影响。
 
+### 12. 2026-09-15 上游快照合入与设置白名单适配
+
+- 比较基线为 `C:\Develop\audiobookshelf-原项目`，本次来源为 `C:\Develop\audiobookshelf-2026.9.15原`。两份快照的版本号均为 `2.36.0`，因此记录来源目录和日期，不把本次描述为升级到新的发布版本。用户确认后，仅合入 5 个后端文件与 17 个翻译文件；没有整目录覆盖二改工程。
+- 后端合入范围：`server/Server.js`、`server/controllers/MiscController.js`、`server/controllers/ShareController.js`、`server/managers/CacheManager.js`、`server/objects/settings/ServerSettings.js`。没有修改数据库迁移、依赖清单与锁文件、Dockerfile、现有镜像发布流程或版本号。
+- `Server.js` 接入上游的 `RouterBasePath` 类型检查和启动日志，以及实验性 Next.js 客户端的路径前缀修复：仅在设置了 `REACT_CLIENT_PATH` 且已准备好的 Next 服务具有 `basePath` 时补回 Express 移除的前缀，保留查询字符串，挂载根路径不额外增加尾斜杠。无 Next `basePath` 时保持原路径；当前 Vue/Nuxt 前端没有替换成 React。
+- `MiscController.handleUpload` 捕获创建上传目录失败，记录错误并结束请求返回 HTTP 500。`updateAuthSettings` 在写入登录页自定义消息前调用现有 HTML 清理器，清理后为空则存为 `null`；认证设置仍走 `/api/auth-settings`，不通过普通设置接口更新。
+- `ShareController` 的分享封面、音轨、下载、进度四个接口，在分享不存在时从只设置 `res.status(404)` 改为 `res.sendStatus(404)`，确保响应结束。
+- `CacheManager.handleCoverCache` / `handleAuthorCache` 接入格式白名单，仅接受小写 `webp`、`jpeg`、`png`；其他格式（包括 `jpg` 别名）返回 HTTP 400，不进入缓存路径和图片处理流程。默认格式不变，`raw` 原图路径不受此缓存校验影响。
+
+#### 必须保留的二改适配
+
+上游新增普通设置白名单：`MiscController.updateServerSettings` 先构造 `filteredUpdate`，`ServerSettings.update` 再次按同一个 `PATCHABLE_SETTINGS_KEYS` 集合过滤。上游原集合只有 20 项，直接合入会静默丢弃所有计划任务配置，导致前端显示“设置已保存”但实际没有更新。**本地在同一集合中明确追加以下 24 项，不取消或绕过上游白名单。**
+
+| 功能 | 普通设置接口允许更新的本地字段 |
+| --- | --- |
+| 媒体库扫描（3 项） | `scheduledLibraryScanCronExpression`、`scheduledLibraryScanLibraryIds`、`scheduledLibraryScanMaxHours` |
+| 书籍匹配（10 项） | `aiBookMatchCronExpression`、`aiBookMatchGlobal`、`aiBookMatchOnScan`、`aiBookMatchLibraryIds`、`aiBookMatchMaxHours`、`aiBookMatchOverrideFields`、`aiBookMatchApiUrl`、`aiBookMatchApiKey`、`aiBookMatchModel`、`aiBookMatchConfidence` |
+| 补全元数据（4 项） | `bookMetadataCompletionCronExpression`、`bookMetadataCompletionLibraryIds`、`bookMetadataCompletionMaxHours`、`bookMetadataCompletionFields` |
+| 媒体预读（5 项） | `strmMetadataCompletionCronExpression`、`strmMetadataCompletionLibraryIds`、`strmMetadataCompletionMaxHours`、`strmMetadataCompletionQps`、`strmMetadataCompletionBatchSize` |
+| 清理丢失项目（2 项） | `missingItemsCleanupCronExpression`、`missingItemsCleanupLibraryIds` |
+
+- 五个 `*LastRun` 是服务端产生的运行结果，不能加入此白名单；仍由 `CronManager` 直接赋值并调用 `Database.updateServerSettings()` 保存。`tokenSecret`、`backupPath`、认证配置、排序前缀及未知字段同样不能通过普通设置接口写入。排序前缀保留专用接口。
+- 白名单只控制可写键，不代替值校验。保留原有 cron 空白归一化、媒体库 ID / 媒体类型校验、时间限制 / QPS / 批量阈值校验、布尔开关校验、AI 配置类型校验和元数据字段校验。五类 cron 重建回调及备份回调统一依据 `filteredUpdate` 判断。
+- AI 密钥允许管理员保存，但 `toJSONForBrowser` 继续移除密钥、只提供已配置标识；查看密钥仍走受管理员权限限制的专用接口。`false`、空元数据数组及清空 cron 的 `null` 必须可保存、可重载。
+- 上游的 HTML 清理工具导入与本地 `bookMetadataFields` 导入同时保留。新增计划任务字段时，须同时维护构造、反序列化、序列化、值校验、`PATCHABLE_SETTINGS_KEYS` 与回归测试，否则仍可能发生静默保存失败。
+
+#### 翻译、保留项与验证
+
+- 翻译合入范围：`be`、`bn`、`cs`、`de`、`el`、`fi`、`fr`、`hr`、`hu`、`it`、`lt`、`nl`、`pl`、`pt-br`、`ru`、`zh-cn`、`zh-tw`。按 JSON 键合入 197 条新增翻译和 37 条修改；简体中文只改两处标点，保留本地 21 个新增键及既有定制文案。键序保持纯代码点升序，文件保持 2 空格缩进、LF 行尾。
+- 未引入 `.github/workflows/translate-credits.yml`：它是面向上游 `master` 分支的翻译贡献者名单工作流，不是运行功能，也不替换本项目 `main` 分支的构建发布流程。
+- 保留现有 STRM 扫描不探测目标、全局单书预读队列、播放 > 手动 > 计划优先级、每 50 条成功音轨保存和正常结束/取消时强制保存。手动及播放触发预读仍使用媒体库 QPS、每 3000 个文件暂停 **5 分钟**；计划任务预读仍使用独立配置。AI 提取优先级、入库接管、元数据锁、元数据选择与主题界面均未改动。
+- 新增回归测试：[`test/server/controllers/MiscController.test.js`](../test/server/controllers/MiscController.test.js) 覆盖 24 个自定义配置、五类任务保存/序列化重载/对应 cron 回调、空值与关闭状态、非法参数、管理员权限、密钥隐藏、内部字段过滤、认证 HTML 清理、上传目录失败；[`test/server/controllers/ShareController.test.js`](../test/server/controllers/ShareController.test.js) 覆盖四类分享 404 响应；[`test/server/managers/CacheManager.test.js`](../test/server/managers/CacheManager.test.js) 覆盖允许及拒绝的图片格式。新增共 63 项。
+- 验证结果：后端完整测试 **470 passing**；`client` 下 `npm run generate` 成功生成生产页面（存在 PostCSS 配置、资源体积和 `fs.existsSync` 弃用警告，未为此改动依赖或构建配置）；43 个语言 JSON 文件的键序检查通过。
+- 另用临时目录、独立数据库及仅监听 `127.0.0.1` 的服务完成接口冒烟验证：初始化测试账号和空媒体库，逐项保存五类计划任务共 24 个配置字段，检查非法 QPS 拒绝、运行记录不可覆盖及密钥隐藏；重启该测试服务后，全部配置仍可读取，认证消息已清理，管理员专用接口仍可取回测试密钥。生成后的计划任务页面可通过带 `/audiobookshelf` 前缀的路由访问。测试服务和临时数据已清理，未使用生产数据库、真实网盘或真实 AI 接口；实验性 Next.js 客户端未作运行验证。
+- 后续解耦时，区分上游原生修复与本地追加项：上游修复可随新基线保留，设置集合中额外的 24 项、对应值校验、序列化和定时任务回调属于二改，必须在升级后重新核对。不要因为三方合并没有文本冲突就省略设置保存测试。
+
+### 13. 2026-09-15 书籍简介输入框拉伸图标修复
+
+- 修改位置：`client/components/widgets/BookDetailsEdit.vue` 中的 `:deep(trix-editor::-webkit-resizer)`，仅作用于编辑书籍窗口的简介输入框。
+- 原图标使用线性渐变色带绘制斜线，长短差异不够明显；改为内嵌 SVG 的两条平行斜线，明确采用上长下短的形状，上方线段长度为下方的两倍。
+- 保留原有灰色、右下角位置及 `12px × 12px` 图标尺寸；只替换背景图，不增加遮挡层，不改变 `resize: vertical`、滚动、拖动区域或简介编辑与保存逻辑。
+- 后续合入上游时保留该组件的局部 resizer 样式即可，无需改动通用富文本组件或引入额外图标依赖；不支持此伪元素的浏览器继续使用原生调整器。
+
 ## 代码锚点
 
 ### 后端 STRM 与补全队列
@@ -251,10 +294,10 @@
 - [`server/models/Library.js`](../server/models/Library.js:18)：`LibrarySettingsObject` typedef 中的 `strmMetadataQps`；[`getDefaultLibrarySettingsForMediaType`](../server/models/Library.js:58) 只在 book 分支写入默认 `2.0`。
 - [`server/controllers/LibraryController.js`](../server/controllers/LibraryController.js:113)：创建媒体库时校验 `strmMetadataQps`（有限数、0.1–10、0.1 步长，取整到 0.1）。
 - [`server/controllers/LibraryController.js`](../server/controllers/LibraryController.js:363)：更新媒体库时的同一套校验，含 `hasUpdates` 与调试日志。
-- [`server/objects/settings/ServerSettings.js`](../server/objects/settings/ServerSettings.js:49)：计划任务设置字段默认值：cron 默认 `null`（不开启）、`strmMetadataCompletionLibraryIds` 默认空数组（不处理任何媒体库）、`strmMetadataCompletionQps` 默认 1.0、`strmMetadataCompletionBatchSize` 默认 5000。
-- [`server/objects/settings/ServerSettings.js`](../server/objects/settings/ServerSettings.js:75)：媒体库扫描设置字段：`scheduledLibraryScanCronExpression`（默认 null）、`scheduledLibraryScanLibraryIds`（默认空数组）、`scheduledLibraryScanMaxHours`（默认 1）。
-- [`server/controllers/MiscController.js`](../server/controllers/MiscController.js:147)：cron 表达式 trim + 空转 `null` + 合法性校验；QPS、批量、时间步长、媒体库 ID 校验。
-- [`server/controllers/MiscController.js`](../server/controllers/MiscController.js:721)：运行/停止 API 和管理员权限校验（`runMissingItemsCleanup`、`stopMissingItemsCleanup`、`runStrmMetadataCompletion`、`stopStrmMetadataCompletion`、`runScheduledLibraryScan`、`stopScheduledLibraryScan`）。
+- [`server/objects/settings/ServerSettings.js`](../server/objects/settings/ServerSettings.js:98)：计划任务设置字段默认值：cron 默认 `null`（不开启）、`strmMetadataCompletionLibraryIds` 默认空数组（不处理任何媒体库）、`strmMetadataCompletionQps` 默认 1.0、`strmMetadataCompletionBatchSize` 默认 5000。
+- [`server/objects/settings/ServerSettings.js`](../server/objects/settings/ServerSettings.js:124)：媒体库扫描设置字段：`scheduledLibraryScanCronExpression`（默认 null）、`scheduledLibraryScanLibraryIds`（默认空数组）、`scheduledLibraryScanMaxHours`（默认 1）。
+- [`server/controllers/MiscController.js`](../server/controllers/MiscController.js:154)：cron 表达式 trim + 空转 `null` + 合法性校验；QPS、批量、时间步长、媒体库 ID 校验。
+- [`server/controllers/MiscController.js`](../server/controllers/MiscController.js:735)：运行/停止 API 和管理员权限校验（`runMissingItemsCleanup`、`stopMissingItemsCleanup`、`runStrmMetadataCompletion`、`stopStrmMetadataCompletion`、`runScheduledLibraryScan`、`stopScheduledLibraryScan`）。
 - [`server/managers/CronManager.js`](../server/managers/CronManager.js:170)：媒体预读 cron 生命周期（表达式为空时停止注册）。
 - [`server/managers/CronManager.js`](../server/managers/CronManager.js:215)：清理丢失项目 cron 生命周期。
 - [`server/managers/CronManager.js`](../server/managers/CronManager.js:453)：媒体库扫描 cron 生命周期与 [`runScheduledLibraryScan`](../server/managers/CronManager.js:469) 串行扫描执行（按选定顺序、截止时间、库级取消）。
@@ -286,8 +329,8 @@
 - [`processScanMatchQueue`](../server/managers/AiBookMatchManager.js:606)：串行处理队列，一次只匹配一本书；先轮询 [`LibraryScanner.isLibraryScanning`](../server/scanner/LibraryScanner.js:33) 等待所属媒体库扫描结束，再用 `getExpandedById` 重新读取书籍并调用 `matchLibraryItem`，单本失败只记警告不中断队列。
 - [`setApiRouterContext`](../server/managers/AiBookMatchManager.js:642)：接收 `ApiRouter` 实例，供入库匹配复用 `checkRemoveAuthorsWithNoBooks` 与 `checkRemoveEmptySeries`。
 - [`server/scanner/LibraryItemScanner.js`](../server/scanner/LibraryItemScanner.js:197)：**唯一的上游耦合点**。在 `scanNewLibraryItem` 创建成功日志之后增加一行 `require('../managers/AiBookMatchManager').enqueueScanMatch(newLibraryItem)`。必须使用懒加载 `require`，因为 `AiBookMatchManager` → `Scanner` → `LibraryScanner` → `LibraryItemScanner` 构成循环依赖；改为顶部 `require` 会得到空对象。完整扫描与 watcher 增量扫描都经过该方法，所以两条扫描路径行为一致。
-- [`server/objects/settings/ServerSettings.js`](../server/objects/settings/ServerSettings.js:61)：`aiBookMatchOnScan` 默认值 `false`；[反序列化](../server/objects/settings/ServerSettings.js:153) 使用 `=== true` 严格布尔；[`toJSON`](../server/objects/settings/ServerSettings.js:267) 输出该字段（浏览器序列化无需额外处理，只有 API 密钥仍被删除）。
-- [`server/controllers/MiscController.js`](../server/controllers/MiscController.js:206)：`aiBookMatchOnScan` 的布尔类型校验，紧邻既有 `aiBookMatchGlobal` 校验。该字段不影响 cron，无需触发 `updateAiBookMatchCron`。
+- [`server/objects/settings/ServerSettings.js`](../server/objects/settings/ServerSettings.js:110)：`aiBookMatchOnScan` 默认值 `false`；[反序列化](../server/objects/settings/ServerSettings.js:202) 使用 `=== true` 严格布尔；[`toJSON`](../server/objects/settings/ServerSettings.js:316) 输出该字段（浏览器序列化无需额外处理，只有 API 密钥仍被删除）。
+- [`server/controllers/MiscController.js`](../server/controllers/MiscController.js:213)：`aiBookMatchOnScan` 的布尔类型校验，紧邻既有 `aiBookMatchGlobal` 校验。该字段不影响 cron，无需触发 `updateAiBookMatchCron`。
 - [`server/routers/ApiRouter.js`](../server/routers/ApiRouter.js:14)：新增 `AiBookMatchManager` 顶部引入；[构造函数末尾](../server/routers/ApiRouter.js:67) 调用 `AiBookMatchManager.setApiRouterContext(this)`，与既有 `cronManager?.setApiRouterContext?.(this)` 并列。
 - [`server/managers/CronManager.js`](../server/managers/CronManager.js:245)：`runAiBookMatch` 删除了“未配置 AI 直接抛错”的前置判断；[启动日志](../server/managers/CronManager.js:263) 增加 AI 配置状态与覆盖元数据字段，[逐本日志](../server/managers/CronManager.js:308) 增加 `提取规则` 字段和中文结果状态，日志前缀由“AI书籍匹配”统一改为“书籍匹配”。
 - [`client/pages/config/scheduled-tasks.vue`](../client/pages/config/scheduled-tasks.vue:51)：书籍匹配设置左栏底部的 `book-match-toggles` 容器，“全局匹配”与“入库匹配”自上而下堆叠并左对齐，各自用 `ui-tooltip` 包裹 `<label>` + `info` 图标提供悬浮说明；容器靠 `flex flex-col mt-auto space-y-2` 贴到左栏底部，左栏 `section` 需保留 `flex flex-col`，`.book-match-settings-grid` 需保留 `align-items: stretch` 才能让两栏等高、`mt-auto` 生效；[`data`](../client/pages/config/scheduled-tasks.vue:152) 新增 `draftAiOnScan`、`draftAiOverrideFields`、`draftBookMetadataFields`，[`openSettings`](../client/pages/config/scheduled-tasks.vue:218) 读取 `aiBookMatchOnScan` 与两组字段选择，[`saveSettings`](../client/pages/config/scheduled-tasks.vue:304) 把它们并入对应任务的 PATCH 载荷；字段选择在提交前统一走 [`normalizeFieldSelection`](../client/pages/config/scheduled-tasks.vue:271) 过滤未知键并排序。
@@ -434,7 +477,7 @@ npm test
 node -e "const fs=require('fs');for(const f of fs.readdirSync('client/strings')){if(!f.endsWith('.json'))continue;const k=Object.keys(JSON.parse(fs.readFileSync('client/strings/'+f,'utf8')));let n=0;for(let i=1;i<k.length;i++)if(k[i]<k[i-1])n++;console.log(f,'violations='+n)}"
 ```
 
-当前已验证后端完整测试通过（407 passing），包含 STRM 分组、本地路径安全校验和元数据字段白名单测试。前端构建可使用项目已有命令：
+当前已验证后端完整测试通过（470 passing），包含 STRM 分组、本地路径安全校验、元数据字段白名单和上游设置白名单适配回归测试。前端构建可使用项目已有命令：
 
 ```text
 cd client

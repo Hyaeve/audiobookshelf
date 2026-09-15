@@ -10,7 +10,9 @@ const Watcher = require('../Watcher')
 const libraryItemFilters = require('../utils/queries/libraryItemFilters')
 const cron = require('../libs/nodeCron')
 const { isObject, getTitleIgnorePrefix } = require('../utils/index')
+const ServerSettings = require('../objects/settings/ServerSettings')
 const { sanitizeFilename } = require('../utils/fileUtils')
+const { sanitize } = require('../utils/htmlSanitizer')
 const { isValidBookMetadataFields, normalizeBookMetadataFields } = require('../utils/bookMetadataFields')
 
 const TaskManager = require('../managers/TaskManager')
@@ -79,7 +81,12 @@ class MiscController {
     const cleanedOutputDirectoryParts = outputDirectoryParts.filter(Boolean).map((part) => sanitizeFilename(part))
     const outputDirectory = Path.join(...[folder.path, ...cleanedOutputDirectoryParts])
 
-    await fs.ensureDir(outputDirectory)
+    try {
+      await fs.ensureDir(outputDirectory)
+    } catch (error) {
+      Logger.error('[MiscController] Failed to create upload directory', outputDirectory, error)
+      return res.sendStatus(500)
+    }
 
     Logger.info(`Uploading ${files.length} files to`, outputDirectory)
 
@@ -255,31 +262,38 @@ class MiscController {
       Logger.warn('Cannot disable iframe when ALLOW_IFRAME is enabled in environment')
       return res.status(400).send('Cannot disable iframe when ALLOW_IFRAME is enabled in environment')
     }
-    if (settingsUpdate.allowedOrigins && !Array.isArray(settingsUpdate.allowedOrigins)) {
+    const filteredUpdate = {}
+    for (const key in settingsUpdate) {
+      if (ServerSettings.patchableSettingsKeys.has(key)) {
+        filteredUpdate[key] = settingsUpdate[key]
+      }
+    }
+
+    if (filteredUpdate.allowedOrigins && !Array.isArray(filteredUpdate.allowedOrigins)) {
       return res.status(400).send('allowedOrigins must be an array')
     }
 
-    const madeUpdates = Database.serverSettings.update(settingsUpdate)
+    const madeUpdates = Database.serverSettings.update(filteredUpdate)
     if (madeUpdates) {
       await Database.updateServerSettings()
 
       // If backup schedule is updated - update backup manager
-      if (settingsUpdate.backupSchedule !== undefined) {
+      if (filteredUpdate.backupSchedule !== undefined) {
         this.backupManager.updateCronSchedule()
       }
-      if (settingsUpdate.strmMetadataCompletionCronExpression !== undefined || settingsUpdate.strmMetadataCompletionLibraryIds !== undefined || settingsUpdate.strmMetadataCompletionMaxHours !== undefined || settingsUpdate.strmMetadataCompletionQps !== undefined || settingsUpdate.strmMetadataCompletionBatchSize !== undefined) {
+      if (filteredUpdate.strmMetadataCompletionCronExpression !== undefined || filteredUpdate.strmMetadataCompletionLibraryIds !== undefined || filteredUpdate.strmMetadataCompletionMaxHours !== undefined || filteredUpdate.strmMetadataCompletionQps !== undefined || filteredUpdate.strmMetadataCompletionBatchSize !== undefined) {
         this.cronManager.updateStrmMetadataCron()
       }
-      if (settingsUpdate.missingItemsCleanupCronExpression !== undefined || settingsUpdate.missingItemsCleanupLibraryIds !== undefined) {
+      if (filteredUpdate.missingItemsCleanupCronExpression !== undefined || filteredUpdate.missingItemsCleanupLibraryIds !== undefined) {
         this.cronManager.updateMissingItemsCleanupCron()
       }
-      if (settingsUpdate.scheduledLibraryScanCronExpression !== undefined || settingsUpdate.scheduledLibraryScanLibraryIds !== undefined || settingsUpdate.scheduledLibraryScanMaxHours !== undefined) {
+      if (filteredUpdate.scheduledLibraryScanCronExpression !== undefined || filteredUpdate.scheduledLibraryScanLibraryIds !== undefined || filteredUpdate.scheduledLibraryScanMaxHours !== undefined) {
         this.cronManager.updateScheduledLibraryScanCron()
       }
-      if (settingsUpdate.aiBookMatchCronExpression !== undefined || settingsUpdate.aiBookMatchLibraryIds !== undefined || settingsUpdate.aiBookMatchMaxHours !== undefined) {
+      if (filteredUpdate.aiBookMatchCronExpression !== undefined || filteredUpdate.aiBookMatchLibraryIds !== undefined || filteredUpdate.aiBookMatchMaxHours !== undefined) {
         this.cronManager.updateAiBookMatchCron()
       }
-      if (settingsUpdate.bookMetadataCompletionCronExpression !== undefined || settingsUpdate.bookMetadataCompletionLibraryIds !== undefined || settingsUpdate.bookMetadataCompletionMaxHours !== undefined) {
+      if (filteredUpdate.bookMetadataCompletionCronExpression !== undefined || filteredUpdate.bookMetadataCompletionLibraryIds !== undefined || filteredUpdate.bookMetadataCompletionMaxHours !== undefined) {
         this.cronManager.updateBookMetadataCompletionCron()
       }
     }
@@ -915,6 +929,7 @@ class MiscController {
         }
         let updatedValue = settingsUpdate[key]
         if (updatedValue === '' && key != 'authOpenIDSubfolderForRedirectURLs') updatedValue = null
+        if (key === 'authLoginCustomMessage' && updatedValue) updatedValue = sanitize(updatedValue) || null
         let currentValue = currentAuthenticationSettings[key]
         if (currentValue === '' && key != 'authOpenIDSubfolderForRedirectURLs') currentValue = null
 

@@ -363,7 +363,7 @@ export default {
 }
 :deep(trix-editor::-webkit-resizer) {
   background-color: transparent;
-  background-image: linear-gradient(135deg, transparent 0 56%, rgb(156, 163, 175) 57% 62%, transparent 63% 70%, rgb(156, 163, 175) 71% 76%, transparent 77% 100%);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2 10L10 2M6 10L10 6' fill='none' stroke='%239ca3af' stroke-width='1.2' stroke-linecap='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right bottom;
   background-size: 12px 12px;
