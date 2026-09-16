@@ -16,6 +16,9 @@ function createMetadataHttpClient(getProxyUrl = () => require('../Database').ser
     if (!proxyUrl) {
       cachedUrl = null
       cachedAgents = null
+      config.proxy = false
+      config.httpAgent = directAgents.http
+      config.httpsAgent = directAgents.https
       return config
     }
     const target = new URL(config.url, config.baseURL)

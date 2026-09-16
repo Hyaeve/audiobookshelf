@@ -137,8 +137,34 @@ describe('Metadata HTTP client proxy transport', () => {
     )
     expect((await client.get(targetUrl, { timeout: 2000 })).data.route).to.equal('proxy')
     configuredUrl = ''
-    expect((await client.get(targetUrl, { proxy: false, timeout: 2000 })).data.route).to.equal('direct')
+    expect((await client.get(targetUrl, { timeout: 2000 })).data.route).to.equal('direct')
     expect({ proxy: axios.defaults.proxy, httpAgent: axios.defaults.httpAgent, httpsAgent: axios.defaults.httpsAgent }).to.deep.equal(before)
+  })
+
+  it('ignores environment proxies when the saved proxy address is empty', async () => {
+    const environmentKeys = ['http_proxy', 'HTTP_PROXY', 'https_proxy', 'HTTPS_PROXY', 'no_proxy', 'NO_PROXY']
+    const originalEnvironment = Object.fromEntries(environmentKeys.map((key) => [key, process.env[key]]))
+    try {
+      for (const key of environmentKeys) process.env[key] = key.toLowerCase() === 'no_proxy' ? '' : proxyUrl
+      const client = createMetadataHttpClient(() => '')
+      expect((await client.get(targetUrl, { timeout: 2000 })).data.route).to.equal('direct')
+      expect(proxied).to.have.length(0)
+      for (const protocol of ['http:', 'https:']) {
+        await client.get(`${protocol}//provider.invalid/`, {
+          adapter: async (config) => {
+            expect(config.proxy).to.equal(false)
+            expect(config.httpAgent).not.to.be.instanceOf(HttpProxyAgent)
+            expect(config.httpsAgent).not.to.be.instanceOf(HttpsProxyAgent)
+            return { status: 200, data: {}, headers: {}, config }
+          }
+        })
+      }
+    } finally {
+      for (const key of environmentKeys) {
+        if (originalEnvironment[key] === undefined) delete process.env[key]
+        else process.env[key] = originalEnvironment[key]
+      }
+    }
   })
 
   it('accepts HTTPS proxy endpoints with TLS verification enabled', async () => {

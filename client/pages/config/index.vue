@@ -154,13 +154,7 @@
 
           <section class="pt-4 pb-2 max-w-72" aria-labelledby="metadata-proxy-heading">
             <h2 id="metadata-proxy-heading" class="font-semibold mb-2">代理</h2>
-            <label for="metadata-proxy-url" class="block text-sm mb-1">HTTP/HTTPS 代理地址</label>
-            <input id="metadata-proxy-url" v-model="metadataProxyUrl" type="text" autocomplete="off" spellcheck="false" :disabled="loadingMetadataProxy || savingMetadataProxy || metadataProxyLoadFailed" class="w-full bg-primary border border-gray-600 rounded-md px-3 py-2 text-sm" placeholder="http://10.0.0.200:7893" @keydown.enter.prevent="saveMetadataProxy" />
-            <p class="text-xs text-gray-400 mt-2">用于内置元数据提供商的 HTTP/HTTPS API 请求，保存后新请求立即生效。留空恢复原有网络行为；兼容 NO_PROXY 环境变量。不会代理 AI、播放、媒体预读、自定义提供商及图片下载。</p>
-            <div class="flex justify-end mt-2">
-              <ui-btn v-if="metadataProxyLoadFailed" small color="bg-bg" @click="loadMetadataProxy">重新加载</ui-btn>
-              <ui-btn v-else small color="bg-success" :loading="savingMetadataProxy" :disabled="loadingMetadataProxy || updatingServerSettings" @click="saveMetadataProxy">{{ $strings.ButtonSave }}</ui-btn>
-            </div>
+            <input id="metadata-proxy-url" v-model="metadataProxyUrl" type="text" aria-labelledby="metadata-proxy-heading" autocomplete="off" spellcheck="false" :readonly="loadingMetadataProxy || savingMetadataProxy || metadataProxyLoadFailed" :aria-busy="loadingMetadataProxy || savingMetadataProxy" class="w-full bg-primary border border-gray-600 rounded-md px-3 py-2 text-sm" @focus="metadataProxyLoadFailed && loadMetadataProxy()" @keydown.enter.prevent="saveMetadataProxy" @blur="saveMetadataProxy" />
           </section>
         </div>
       </div>
@@ -245,6 +239,7 @@ export default {
       showConfirmPurgeCache: false,
       savingPrefixes: false,
       metadataProxyUrl: '',
+      savedMetadataProxyUrl: '',
       loadingMetadataProxy: true,
       savingMetadataProxy: false,
       metadataProxyLoadFailed: false
@@ -287,16 +282,18 @@ export default {
       try {
         const settings = await this.$axios.$get('/api/metadata-proxy/settings')
         this.metadataProxyUrl = settings.metadataProxyUrl || ''
+        this.savedMetadataProxyUrl = this.metadataProxyUrl
       } catch {
         this.metadataProxyLoadFailed = true
-        this.$toast.error('加载代理设置失败，请重试')
+        this.$toast.error('加载代理设置失败，请重新点击输入框重试')
       } finally {
         this.loadingMetadataProxy = false
       }
     },
     async saveMetadataProxy() {
-      if (this.loadingMetadataProxy || this.savingMetadataProxy || this.metadataProxyLoadFailed || this.updatingServerSettings) return
+      if (this.loadingMetadataProxy || this.savingMetadataProxy || this.metadataProxyLoadFailed) return
       const value = this.metadataProxyUrl.trim()
+      if (value === this.savedMetadataProxyUrl) return
       if (value) {
         try {
           if (value.length > 2048 || !/^https?:\/\//i.test(value)) throw new Error()
@@ -314,6 +311,7 @@ export default {
         const response = await this.$axios.$patch('/api/settings', { metadataProxyUrl: value || null })
         this.$store.commit('setServerSettings', response.serverSettings)
         this.metadataProxyUrl = value
+        this.savedMetadataProxyUrl = value
         this.$toast.success('代理设置已保存')
       } catch (error) {
         this.$toast.error(typeof error.response?.data === 'string' ? error.response.data : '保存代理设置失败')
