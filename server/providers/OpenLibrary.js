@@ -1,4 +1,4 @@
-const axios = require('axios').default
+const axios = require('../utils/metadataHttpClient')
 
 class OpenLibrary {
   #responseTimeout = 10000

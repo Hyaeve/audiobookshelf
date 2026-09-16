@@ -12,6 +12,7 @@ const PATCHABLE_SETTINGS_KEYS = new Set([
   'scannerCoverProvider',
   'scannerPreferMatchedMetadata',
   'scannerDisableWatcher',
+  'metadataProxyUrl',
   'storeCoverWithItem',
   'storeMetadataWithItem',
   'allowIframe',
@@ -71,6 +72,7 @@ class ServerSettings {
     this.scannerCoverProvider = 'google'
     this.scannerPreferMatchedMetadata = false
     this.scannerDisableWatcher = false
+    this.metadataProxyUrl = null
 
     // Metadata - choose to store inside users library item folder
     this.storeCoverWithItem = false
@@ -186,6 +188,7 @@ class ServerSettings {
     this.scannerParseSubtitle = settings.scannerParseSubtitle
     this.scannerPreferMatchedMetadata = !!settings.scannerPreferMatchedMetadata
     this.scannerDisableWatcher = !!settings.scannerDisableWatcher
+    this.metadataProxyUrl = typeof settings.metadataProxyUrl === 'string' ? settings.metadataProxyUrl.trim() || null : null
 
     this.storeCoverWithItem = !!settings.storeCoverWithItem
     this.storeMetadataWithItem = !!settings.storeMetadataWithItem
@@ -337,6 +340,7 @@ class ServerSettings {
       scannerParseSubtitle: this.scannerParseSubtitle,
       scannerPreferMatchedMetadata: this.scannerPreferMatchedMetadata,
       scannerDisableWatcher: this.scannerDisableWatcher,
+      metadataProxyUrl: this.metadataProxyUrl,
       storeCoverWithItem: this.storeCoverWithItem,
       storeMetadataWithItem: this.storeMetadataWithItem,
       metadataFileFormat: this.metadataFileFormat,
@@ -434,6 +438,8 @@ class ServerSettings {
     const json = this.toJSON()
     delete json.tokenSecret
     delete json.aiBookMatchApiKey
+    delete json.metadataProxyUrl
+    json.metadataProxyConfigured = !!this.metadataProxyUrl
     json.aiBookMatchApiConfigured = !!(this.aiBookMatchApiUrl && this.aiBookMatchApiKey && this.aiBookMatchModel)
     delete json.authOpenIDClientID
     delete json.authOpenIDClientSecret

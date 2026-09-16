@@ -312,6 +312,20 @@
 - 在支持 WebKit 伪元素的浏览器中显式恢复标准 `scrollbar-width/color: auto`，避免 `thin`/非 auto 颜色覆盖像素样式；选择器优先级覆盖主题滚动条颜色。清除旧组件局部重复规则，避免只有简介变细、真正外层或媒体库列表仍为粗亮滚动条。
 - 简介编辑器保留 `12px` 的原生调整器区域，以透明边框把其中滚动滑块的可见宽度收窄为 `3px`，防止把上长下短拉伸图标裁成 `3px`。不改变纵向拉伸、编辑和保存行为。系统强制高对比度模式恢复较宽、高对比滑块，便于无障碍操作。
 
+### 17. 2026-09-16 书籍描述框高度与内置元数据提供商代理
+
+- `client/components/widgets/BookDetailsEdit.vue` 的简介编辑器默认高度由约 4 行增加至 8 行，只覆盖书籍编辑窗口；保留原最小高度、纵向拖动、低可见度滚动条和右下角调整器。
+- `client/pages/config/index.vue` 在设置主页右栏“安全”下方新增“代理”：填写 HTTP/HTTPS 代理地址并保存，新请求立即生效。支持带用户名密码的地址；仅允许 HTTP/HTTPS 协议及主机、端口，不接受路径、查询参数或片段。清空后恢复原有 Axios 网络行为（包括原本支持的环境变量行为），并非强制直连。
+- 代理范围为内置提供商 Google Books、Audible、Audnexus、AudiobookCovers、FantLab、iTunes、MusicBrainz、OpenLibrary 的 API 请求，包括封面搜索 API；不代理返回图片地址的下载、浏览器图片加载、自定义提供商、AI 接口、播放或 STRM 媒体预读。
+- 新增独立 `server/utils/metadataHttpClient.js`，上述八个提供商仅替换 Axios 导入；不修改全局 Axios。使用 `http-proxy-agent@7.0.2` 和 `https-proxy-agent@7.0.6`（同步更新根依赖及锁文件），支持 HTTP 转发、HTTPS CONNECT 和 HTTPS 代理端点，保留正常 TLS 证书验证。
+- 兼容 `no_proxy` / `NO_PROXY`，支持精确主机/IP、`*`、点前缀或 `*.` 子域、端口及 IPv6；不支持 CIDR。每次请求和重定向均判断绕过规则，防止重定向后仍错误走代理或直连，并清除残留代理认证请求头。
+- `server/utils/metadataProxy.js` 独立承担地址校验和绕过规则；`ServerSettings.metadataProxyUrl` 持久化并加入设置可写白名单，无需新增数据库表或迁移。普通浏览器设置响应删除真实地址，仅返回 `metadataProxyConfigured`，避免向普通用户暴露认证信息。
+- 管理员通过 `GET /api/metadata-proxy/settings` 读取地址（响应禁止缓存）、现有 `PATCH /api/settings` 保存；非管理员禁止读取或修改。加载失败时禁用保存并允许重试，防止误清空配置。代理请求错误脱敏，不记录代理密码，保留 HTTP 状态及数字 Retry-After 以兼容 Audnexus 限流重试。
+- 上游升级时保留两个独立工具文件，重新接入八个提供商导入、`ServerSettings` 构造/加载/序列化/浏览器脱敏、`MiscController` 校验及管理员读取接口、`ApiRouter` 路由和设置主页代理区域；不要整文件覆盖上游代码，也不要把代理扩展到全局网络出口。
+- 回归：完整后端测试 **554 passing**，新增覆盖地址校验、绕过边界、HTTP 代理认证、HTTPS CONNECT、双向代理/直连重定向、动态设置、错误脱敏、Retry-After、保存重载及管理员权限。本地 TLS 冒烟验证 HTTP/HTTPS 两种代理到 HTTPS 源站均成功，启用证书验证且源站不接收代理认证头；未测试用户实际代理或外部提供商可达性。
+
+- 前端 `npm --prefix client run generate` 成功，保留现有 PostCSS、资源体积和 Node 弃用警告；`git diff --check` 通过。未进行实际浏览器视觉验收，部署后应确认右栏代理区域及简介默认高度。
+
 ## 代码锚点
 
 ### 后端 STRM 与补全队列

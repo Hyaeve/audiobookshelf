@@ -151,6 +151,17 @@
           <div class="py-2">
             <ui-multi-select v-model="newServerSettings.allowedOrigins" :items="newServerSettings.allowedOrigins" :label="$strings.LabelCorsAllowed" class="max-w-72" @input="updateCorsOrigins" />
           </div>
+
+          <section class="pt-4 pb-2 max-w-72" aria-labelledby="metadata-proxy-heading">
+            <h2 id="metadata-proxy-heading" class="font-semibold mb-2">代理</h2>
+            <label for="metadata-proxy-url" class="block text-sm mb-1">HTTP/HTTPS 代理地址</label>
+            <input id="metadata-proxy-url" v-model="metadataProxyUrl" type="text" autocomplete="off" spellcheck="false" :disabled="loadingMetadataProxy || savingMetadataProxy || metadataProxyLoadFailed" class="w-full bg-primary border border-gray-600 rounded-md px-3 py-2 text-sm" placeholder="http://10.0.0.200:7893" @keydown.enter.prevent="saveMetadataProxy" />
+            <p class="text-xs text-gray-400 mt-2">用于内置元数据提供商的 HTTP/HTTPS API 请求，保存后新请求立即生效。留空恢复原有网络行为；兼容 NO_PROXY 环境变量。不会代理 AI、播放、媒体预读、自定义提供商及图片下载。</p>
+            <div class="flex justify-end mt-2">
+              <ui-btn v-if="metadataProxyLoadFailed" small color="bg-bg" @click="loadMetadataProxy">重新加载</ui-btn>
+              <ui-btn v-else small color="bg-success" :loading="savingMetadataProxy" :disabled="loadingMetadataProxy || updatingServerSettings" @click="saveMetadataProxy">{{ $strings.ButtonSave }}</ui-btn>
+            </div>
+          </section>
         </div>
       </div>
     </app-settings-content>
@@ -232,7 +243,11 @@ export default {
       hasPrefixesChanged: false,
       newServerSettings: {},
       showConfirmPurgeCache: false,
-      savingPrefixes: false
+      savingPrefixes: false,
+      metadataProxyUrl: '',
+      loadingMetadataProxy: true,
+      savingMetadataProxy: false,
+      metadataProxyLoadFailed: false
     }
   },
   watch: {
@@ -266,6 +281,46 @@ export default {
     }
   },
   methods: {
+    async loadMetadataProxy() {
+      this.loadingMetadataProxy = true
+      this.metadataProxyLoadFailed = false
+      try {
+        const settings = await this.$axios.$get('/api/metadata-proxy/settings')
+        this.metadataProxyUrl = settings.metadataProxyUrl || ''
+      } catch {
+        this.metadataProxyLoadFailed = true
+        this.$toast.error('加载代理设置失败，请重试')
+      } finally {
+        this.loadingMetadataProxy = false
+      }
+    },
+    async saveMetadataProxy() {
+      if (this.loadingMetadataProxy || this.savingMetadataProxy || this.metadataProxyLoadFailed || this.updatingServerSettings) return
+      const value = this.metadataProxyUrl.trim()
+      if (value) {
+        try {
+          if (value.length > 2048 || !/^https?:\/\//i.test(value)) throw new Error()
+          const url = new URL(value)
+          if (!['http:', 'https:'].includes(url.protocol) || !url.hostname || url.pathname !== '/' || url.search || url.hash) throw new Error()
+          decodeURIComponent(url.username)
+          decodeURIComponent(url.password)
+        } catch {
+          this.$toast.error('请填写有效的 HTTP/HTTPS 代理地址，不要填写路径、查询参数或片段')
+          return
+        }
+      }
+      this.savingMetadataProxy = true
+      try {
+        const response = await this.$axios.$patch('/api/settings', { metadataProxyUrl: value || null })
+        this.$store.commit('setServerSettings', response.serverSettings)
+        this.metadataProxyUrl = value
+        this.$toast.success('代理设置已保存')
+      } catch (error) {
+        this.$toast.error(typeof error.response?.data === 'string' ? error.response.data : '保存代理设置失败')
+      } finally {
+        this.savingMetadataProxy = false
+      }
+    },
     sortingPrefixesUpdated(val) {
       const prefixes = [...new Set(val?.map((prefix) => prefix.trim().toLowerCase()) || [])]
       this.newServerSettings.sortingPrefixes = prefixes
@@ -417,6 +472,7 @@ export default {
   },
   mounted() {
     this.initServerSettings()
+    this.loadMetadataProxy()
     // Fetch providers if not already loaded (for cover provider dropdown)
     this.$store.dispatch('scanners/fetchProviders')
   }

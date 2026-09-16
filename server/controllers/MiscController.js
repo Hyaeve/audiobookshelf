@@ -160,6 +160,13 @@ class MiscController {
     if (!isObject(settingsUpdate)) {
       return res.status(400).send('Invalid settings update object')
     }
+    if (settingsUpdate.metadataProxyUrl !== undefined) {
+      try {
+        settingsUpdate.metadataProxyUrl = require('../utils/metadataProxy').normalizeProxyUrl(settingsUpdate.metadataProxyUrl)
+      } catch (error) {
+        return res.status(400).send(error.message)
+      }
+    }
     const cronSettingKeys = ['strmMetadataCompletionCronExpression', 'missingItemsCleanupCronExpression', 'scheduledLibraryScanCronExpression', 'aiBookMatchCronExpression', 'bookMetadataCompletionCronExpression', 'chineseSearchCronExpression']
     for (const key of cronSettingKeys) {
       if (settingsUpdate[key] === undefined) continue
@@ -829,6 +836,12 @@ class MiscController {
   async stopAiBookMatch(req, res) {
     if (!req.user.isAdminOrUp) return res.sendStatus(403)
     return res.json({ stopped: this.cronManager.cancelAiBookMatch() })
+  }
+
+  getMetadataProxySettings(req, res) {
+    if (!req.user.isAdminOrUp) return res.sendStatus(403)
+    res.setHeader('Cache-Control', 'no-store')
+    return res.json({ metadataProxyUrl: Database.serverSettings.metadataProxyUrl || '' })
   }
 
   async runChineseSearch(req, res) {

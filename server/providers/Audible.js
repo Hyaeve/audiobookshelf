@@ -1,4 +1,4 @@
-const axios = require('axios').default
+const axios = require('../utils/metadataHttpClient')
 const Logger = require('../Logger')
 const { isValidASIN } = require('../utils/index')
 

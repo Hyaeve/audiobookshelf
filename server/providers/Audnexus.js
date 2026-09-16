@@ -1,4 +1,4 @@
-const axios = require('axios').default
+const axios = require('../utils/metadataHttpClient')
 const Throttle = require('p-throttle')
 const Logger = require('../Logger')
 const { levenshteinDistance } = require('../utils/index')

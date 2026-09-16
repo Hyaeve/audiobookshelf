@@ -1,4 +1,4 @@
-const axios = require('axios')
+const axios = require('../utils/metadataHttpClient')
 const packageJson = require('../../package.json')
 const Logger = require('../Logger')
 const { isNullOrNaN } = require('../utils/index')

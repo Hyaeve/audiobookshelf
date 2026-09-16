@@ -354,6 +354,7 @@ export default {
   height: 1.75rem;
 }
 :deep(trix-editor) {
+  height: calc(8 * 1lh);
   resize: vertical;
   overflow: auto;
   padding-right: 2.75rem;

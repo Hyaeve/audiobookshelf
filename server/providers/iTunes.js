@@ -1,4 +1,4 @@
-const axios = require('axios')
+const axios = require('../utils/metadataHttpClient')
 const Logger = require('../Logger')
 const htmlSanitizer = require('../utils/htmlSanitizer')
 

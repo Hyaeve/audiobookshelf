@@ -107,6 +107,7 @@ describe('MiscController settings and upstream compatibility', () => {
       auth: { useAuthStrategy: sinon.spy(), unuseAuthStrategy: sinon.spy() }
     }
     response = {
+      setHeader: sinon.spy(),
       json: sinon.spy(),
       sendStatus: sinon.spy(),
       status: sinon.stub().returnsThis(),
@@ -239,6 +240,10 @@ describe('MiscController settings and upstream compatibility', () => {
   })
 
   const invalidPayloads = [
+    { metadataProxyUrl: 123 },
+    { metadataProxyUrl: 'socks5://localhost:1080' },
+    { metadataProxyUrl: 'http://localhost:7890/path' },
+    { metadataProxyUrl: 'http://localhost:7890?token=secret' },
     { chineseSearchCronExpression: 'invalid cron' },
     { chineseSearchFields: ['description'] },
     { chineseSearchFields: 'title' },
@@ -276,6 +281,33 @@ describe('MiscController settings and upstream compatibility', () => {
       expect(Object.values(context.cronManager).some((hook) => hook.called)).to.equal(false)
     })
   }
+
+  it('persists proxy settings without exposing credentials in browser settings', async () => {
+    await update({ metadataProxyUrl: '  http://user:secret@localhost:7890  ' })
+    expect(savedSettings.metadataProxyUrl).to.equal('http://user:secret@localhost:7890/')
+    expect(new ServerSettings(savedSettings).metadataProxyUrl).to.equal(savedSettings.metadataProxyUrl)
+    const browser = response.json.firstCall.args[0].serverSettings
+    expect(browser).not.to.have.property('metadataProxyUrl')
+    expect(browser.metadataProxyConfigured).to.equal(true)
+    expect(JSON.stringify(browser)).not.to.include('secret@localhost')
+    response.json.resetHistory()
+    await update({ metadataProxyUrl: '  ' })
+    expect(savedSettings.metadataProxyUrl).to.equal(null)
+    expect(response.json.firstCall.args[0].serverSettings.metadataProxyConfigured).to.equal(false)
+  })
+
+  it('protects proxy address reads and writes with administrator permission', async () => {
+    settings.metadataProxyUrl = 'http://user:secret@localhost:7890/'
+    await MiscController.getMetadataProxySettings({ user: { isAdminOrUp: false } }, response)
+    expect(response.sendStatus.calledOnceWithExactly(403)).to.equal(true)
+    expect(response.json.called).to.equal(false)
+    await MiscController.getMetadataProxySettings({ user: { isAdminOrUp: true } }, response)
+    expect(response.json.firstCall.args[0].metadataProxyUrl).to.equal(settings.metadataProxyUrl)
+    expect(response.setHeader.calledWith('Cache-Control', 'no-store')).to.equal(true)
+    await update({ metadataProxyUrl: 'http://other:7890' }, false)
+    expect(Database.updateServerSettings.called).to.equal(false)
+    expect(settings.metadataProxyUrl).to.equal('http://user:secret@localhost:7890/')
+  })
 
   it('defaults Chinese search to disabled and persists an empty field selection', async () => {
     expect(settings.chineseSearchFields).to.deep.equal([])
