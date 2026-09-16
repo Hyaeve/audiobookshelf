@@ -47,6 +47,7 @@ class CronManager {
     this.scheduledLibraryScanCron = null
     this.aiBookMatchCron = null
     this.bookMetadataCompletionCron = null
+    this.chineseSearchCron = null
     this.aiBookMatchExecuting = false
     this.bookMetadataCompletionExecuting = false
     this.bookMetadataCompletionCancelRequested = false
@@ -76,6 +77,7 @@ class CronManager {
     this.updateScheduledLibraryScanCron()
     this.updateAiBookMatchCron()
     this.updateBookMetadataCompletionCron()
+    this.updateChineseSearchCron()
     await this.initPodcastCrons()
   }
 
@@ -337,6 +339,17 @@ class CronManager {
     this.aiBookMatchCancelRequested = true
     if (this.aiBookMatchAbortController) this.aiBookMatchAbortController.abort()
     return true
+  }
+
+  updateChineseSearchCron() {
+    const expression = Database.serverSettings.chineseSearchCronExpression
+    if (this.chineseSearchCron && this.chineseSearchCron.expression !== expression) {
+      this.chineseSearchCron.task.stop()
+      this.chineseSearchCron = null
+    }
+    if (!expression || this.chineseSearchCron || !cron.validate(expression)) return
+    const task = cron.schedule(expression, () => require('./ChineseSearchManager').run(true).catch((error) => Logger.error('[CronManager] 中文搜索增强失败', error)))
+    this.chineseSearchCron = { expression, task }
   }
 
   updateBookMetadataCompletionCron() {

@@ -49,6 +49,10 @@ const PATCHABLE_SETTINGS_KEYS = new Set([
   'bookMetadataCompletionLibraryIds',
   'bookMetadataCompletionMaxHours',
   'bookMetadataCompletionFields',
+  'chineseSearchCronExpression',
+  'chineseSearchLibraryIds',
+  'chineseSearchMaxHours',
+  'chineseSearchFields',
   'scheduledLibraryScanCronExpression',
   'scheduledLibraryScanLibraryIds',
   'scheduledLibraryScanMaxHours'
@@ -117,6 +121,11 @@ class ServerSettings {
     this.bookMetadataCompletionMaxHours = 1
     this.bookMetadataCompletionFields = [...BOOK_METADATA_FIELD_KEYS]
     this.bookMetadataCompletionLastRun = null
+    this.chineseSearchCronExpression = null
+    this.chineseSearchLibraryIds = []
+    this.chineseSearchMaxHours = 1
+    this.chineseSearchFields = []
+    this.chineseSearchLastRun = null
     this.aiBookMatchApiKey = null
     this.aiBookMatchModel = null
     this.aiBookMatchConfidence = 0.9
@@ -221,6 +230,11 @@ class ServerSettings {
     this.bookMetadataCompletionMaxHours = Number(settings.bookMetadataCompletionMaxHours) > 0 ? Number(settings.bookMetadataCompletionMaxHours) : 1
     this.bookMetadataCompletionFields = normalizeBookMetadataFields(settings.bookMetadataCompletionFields)
     this.bookMetadataCompletionLastRun = settings.bookMetadataCompletionLastRun && typeof settings.bookMetadataCompletionLastRun === 'object' ? settings.bookMetadataCompletionLastRun : null
+    this.chineseSearchCronExpression = settings.chineseSearchCronExpression || null
+    this.chineseSearchLibraryIds = Array.isArray(settings.chineseSearchLibraryIds) ? settings.chineseSearchLibraryIds : []
+    this.chineseSearchMaxHours = Number(settings.chineseSearchMaxHours) > 0 ? Number(settings.chineseSearchMaxHours) : 1
+    this.chineseSearchFields = require('../../utils/chineseSearch').normalizeFields(settings.chineseSearchFields)
+    this.chineseSearchLastRun = settings.chineseSearchLastRun && typeof settings.chineseSearchLastRun === 'object' ? settings.chineseSearchLastRun : null
     this.scheduledLibraryScanCronExpression = settings.scheduledLibraryScanCronExpression || null
     this.scheduledLibraryScanLibraryIds = Array.isArray(settings.scheduledLibraryScanLibraryIds) ? settings.scheduledLibraryScanLibraryIds : []
     this.scheduledLibraryScanMaxHours = Number(settings.scheduledLibraryScanMaxHours) > 0 ? Number(settings.scheduledLibraryScanMaxHours) : 1
@@ -363,6 +377,11 @@ class ServerSettings {
       bookMetadataCompletionMaxHours: this.bookMetadataCompletionMaxHours,
       bookMetadataCompletionFields: [...this.bookMetadataCompletionFields],
       bookMetadataCompletionLastRun: this.bookMetadataCompletionLastRun ? { ...this.bookMetadataCompletionLastRun } : null,
+      chineseSearchCronExpression: this.chineseSearchCronExpression,
+      chineseSearchLibraryIds: [...this.chineseSearchLibraryIds],
+      chineseSearchMaxHours: this.chineseSearchMaxHours,
+      chineseSearchFields: [...this.chineseSearchFields],
+      chineseSearchLastRun: this.chineseSearchLastRun ? { ...this.chineseSearchLastRun } : null,
       scheduledLibraryScanCronExpression: this.scheduledLibraryScanCronExpression,
       scheduledLibraryScanLibraryIds: [...this.scheduledLibraryScanLibraryIds],
       scheduledLibraryScanMaxHours: this.scheduledLibraryScanMaxHours,

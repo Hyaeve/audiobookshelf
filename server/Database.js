@@ -345,6 +345,8 @@ class Database {
     require('./models/Setting').init(this.sequelize)
     require('./models/CustomMetadataProvider').init(this.sequelize)
     require('./models/MediaItemShare').init(this.sequelize)
+    require('./models/ChineseSearchIndex').init(this.sequelize)
+    require('./managers/ChineseSearchManager').installHooks(this.sequelize)
 
     return this.sequelize.sync({ force, alter: false })
   }

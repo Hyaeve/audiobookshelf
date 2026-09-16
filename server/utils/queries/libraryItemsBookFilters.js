@@ -1272,6 +1272,14 @@ module.exports = {
     // Search authors
     const authorMatches = await authorFilters.search(library.id, textSearchQuery, limit, offset)
 
+    try {
+      const remaining = Math.max(0, Math.min(100, Number(limit) || 12) - itemMatches.length)
+      const enhanced = await require('../../managers/ChineseSearchManager').search(user, library.id, query, remaining, itemMatches.map((entry) => entry.libraryItem.id))
+      itemMatches.push(...enhanced)
+    } catch (error) {
+      require('../../Logger').warn(`[ChineseSearchManager] 中文搜索增强查询失败，保留原始结果：${error.message}`)
+    }
+
     return {
       book: itemMatches,
       narrators: narratorMatches,

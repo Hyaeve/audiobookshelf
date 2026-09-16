@@ -19,7 +19,7 @@
     </div>
 
     <modals-modal v-model="showSettings" name="scheduled-task-settings" :width="selectedTask && selectedTask.key === 'bookMatch' ? 920 : 560" :height="'unset'" :processing="saving">
-      <div class="scheduled-task-settings-panel p-5 bg-bg rounded-md">
+      <div class="scheduled-task-settings-panel subtle-scrollbars p-5 bg-bg rounded-md">
         <h2 class="text-xl font-semibold mb-5">{{ selectedTask ? selectedTask.title + '设置' : '计划任务设置' }}</h2>
         <div v-if="selectedTask && selectedTask.key === 'bookMatch'" class="book-match-settings-grid">
           <section class="flex flex-col">
@@ -93,7 +93,20 @@
               <input id="scheduled-task-hours" v-model.number="draftMaxHours" type="number" min="0.5" step="0.5" class="w-full bg-primary border border-gray-600 rounded-md px-3 py-2" />
             </div>
           </div>
-          <div v-if="selectedTask && (selectedTask.key === 'scan' || selectedTask.key === 'bookMetadata' || selectedTask.key === 'metadata')" class="mt-5">
+          <div v-if="selectedTask && selectedTask.key === 'chineseSearch'" class="mt-5">
+            <label class="block text-sm font-semibold mb-2">增强媒体库</label>
+            <div class="max-h-40 overflow-y-auto bg-primary border border-gray-600 rounded-md p-2 space-y-1">
+              <label v-for="library in bookLibraries" :key="library.id" class="flex items-center text-sm py-1"><input v-model="draftLibraryIds" type="checkbox" :value="library.id" class="mr-2" /><span>{{ library.name }}</span></label>
+              <p v-if="!bookLibraries.length" class="text-sm text-gray-400">暂无图书媒体库</p>
+            </div>
+            <div class="flex items-center mt-4 mb-1">
+              <span class="text-sm font-semibold">增强元数据</span>
+              <ui-tooltip text="仅为选中字段建立中文、全拼、首字母和混合拼音搜索索引，默认全不选。首次保存后手动执行一次；新增书籍及元数据修改自动增量更新。取消选中立即停止该字段的增强搜索，不影响普通搜索。" class="inline-flex items-center ml-1"><span class="material-symbols icon-text text-sm">info</span></ui-tooltip>
+            </div>
+            <widgets-metadata-field-selector v-model="draftChineseSearchFields" :items="chineseSearchFieldItems" />
+            <p class="text-xs text-gray-400 mt-3">索引保存在现有数据库中，不修改原始元数据。Cron 留空不定时执行，仍会自动增量更新。</p>
+          </div>
+          <div v-else-if="selectedTask && (selectedTask.key === 'scan' || selectedTask.key === 'bookMetadata' || selectedTask.key === 'metadata')" class="mt-5">
             <label class="block text-sm font-semibold mb-2">{{ selectedTask.key === 'scan' ? '扫描媒体库' : selectedTask.key === 'bookMetadata' ? '补全媒体库' : '预读媒体库' }}</label>
             <div class="max-h-40 overflow-y-auto bg-primary border border-gray-600 rounded-md p-2 space-y-1"><label v-for="library in selectedTask.key === 'scan' ? libraries : bookLibraries" :key="library.id" class="flex items-center text-sm py-1"><input v-model="draftLibraryIds" type="checkbox" :value="library.id" class="mr-2" /><span>{{ library.name }}</span></label></div>
             <div v-if="selectedTask.key === 'bookMetadata'" class="mt-4">
@@ -150,7 +163,7 @@ const METADATA_FIELD_KEYS = METADATA_FIELD_OPTIONS.map((option) => option.value)
 
 export default {
   data() {
-    return { showSettings: false, saving: false, selectedTask: null, showAiKey: false, draftCron: null, draftMaxHours: 1, draftQps: 1, draftBatchSize: 5000, draftLibraryIds: [], draftAiGlobal: false, draftAiOnScan: false, draftAiUrl: '', draftAiKey: '', draftAiModel: '', draftAiConfidence: 0.9, draftAiOverrideFields: [], draftBookMetadataFields: [], running: {}, lastRuns: {} }
+    return { showSettings: false, saving: false, selectedTask: null, showAiKey: false, draftCron: null, draftMaxHours: 1, draftQps: 1, draftBatchSize: 5000, draftLibraryIds: [], draftAiGlobal: false, draftAiOnScan: false, draftAiUrl: '', draftAiKey: '', draftAiModel: '', draftAiConfidence: 0.9, draftAiOverrideFields: [], draftBookMetadataFields: [], draftChineseSearchFields: [], running: {}, lastRuns: {} }
   },
   computed: {
     tasks() { return this.$store.state.tasks.tasks || [] },
@@ -158,6 +171,7 @@ export default {
     bookLibraries() { return this.libraries.filter((library) => library.mediaType === 'book') },
     serverSettings() { return this.$store.state.serverSettings || {} },
     metadataFieldItems() { return METADATA_FIELD_OPTIONS },
+    chineseSearchFieldItems() { return METADATA_FIELD_OPTIONS.filter((option) => ['title', 'subtitle', 'authors', 'narrators'].includes(option.value)) },
     latestCompletedBookMatchTask() {
       return this.tasks
         .filter((task) => task.action === 'ai-book-match' && task.isFinished)
@@ -167,6 +181,7 @@ export default {
       return [
         { key: 'scan', title: '媒体库扫描', description: '扫描选定媒体库', hasMaxHours: true },
         { key: 'bookMatch', title: '书籍匹配', description: '按书名号、符号分隔、AI 辅助、全称逐级提取书名并匹配', hasMaxHours: true },
+        { key: 'chineseSearch', title: '中文搜索增强', description: '支持中文模糊搜索和拼音搜索', hasMaxHours: true },
         { key: 'bookMetadata', title: '补全元数据', description: '根据当前书名搜索并仅补充缺失的书籍元数据', hasMaxHours: true },
         { key: 'metadata', title: '媒体预读', description: '仅预读缺少有声书总时长的书籍', hasMaxHours: true },
         { key: 'missing', title: '清理丢失项目', description: '删除扫描后标记为丢失的项目数据库记录，不删除文件系统文件', hasMaxHours: false }
@@ -180,6 +195,7 @@ export default {
     Object.entries({
       scan: this.serverSettings.scheduledLibraryScanLastRun,
       bookMatch: this.serverSettings.aiBookMatchLastRun,
+      chineseSearch: this.serverSettings.chineseSearchLastRun,
       bookMetadata: this.serverSettings.bookMetadataCompletionLastRun,
       metadata: this.serverSettings.strmMetadataCompletionLastRun,
       missing: this.serverSettings.missingItemsCleanupLastRun
@@ -197,11 +213,11 @@ export default {
     }
   },
   methods: {
-    actionFor(task) { return { scan: 'scheduled-library-scan', bookMatch: 'ai-book-match', bookMetadata: 'book-metadata-completion', metadata: 'strm-metadata-completion', missing: 'missing-items-cleanup' }[task.key] },
+    actionFor(task) { return { scan: 'scheduled-library-scan', bookMatch: 'ai-book-match', chineseSearch: 'chinese-search', bookMetadata: 'book-metadata-completion', metadata: 'strm-metadata-completion', missing: 'missing-items-cleanup' }[task.key] },
     scheduledTask(task) { return this.tasks.find((item) => item.action === this.actionFor(task) && !item.isFinished) },
     isTaskRunning(task) { return !!this.scheduledTask(task) || !!this.running[task.key] },
     taskProgress(task) { return Number(this.scheduledTask(task)?.data?.progress) || 0 },
-    cronFor(task) { return { scan: this.serverSettings.scheduledLibraryScanCronExpression, bookMatch: this.serverSettings.aiBookMatchCronExpression, bookMetadata: this.serverSettings.bookMetadataCompletionCronExpression, metadata: this.serverSettings.strmMetadataCompletionCronExpression, missing: this.serverSettings.missingItemsCleanupCronExpression }[task.key] },
+    cronFor(task) { return { scan: this.serverSettings.scheduledLibraryScanCronExpression, bookMatch: this.serverSettings.aiBookMatchCronExpression, chineseSearch: this.serverSettings.chineseSearchCronExpression, bookMetadata: this.serverSettings.bookMetadataCompletionCronExpression, metadata: this.serverSettings.strmMetadataCompletionCronExpression, missing: this.serverSettings.missingItemsCleanupCronExpression }[task.key] },
     lastRunText(task) {
       const lastRun = this.lastRuns[task.key]
       if (!lastRun) return ''
@@ -212,7 +228,7 @@ export default {
       const prefix = lastRun.scheduledTask === true ? '上次计划执行' : '上次手动执行'
       if (task.key === 'missing') return `${prefix}：${timeText}，耗时 ${durationMinutes} 分钟，清理了 ${Number(lastRun.removed) || 0} 项`
       if (task.key === 'bookMatch') return `${prefix}：${timeText}，耗时 ${durationMinutes} 分钟，匹配了 ${Number(lastRun.matched) || 0} 本图书`
-      if (task.key === 'bookMetadata') return `${prefix}：${timeText}，耗时 ${durationMinutes} 分钟，更新了 ${Number(lastRun.updated) || 0} 本图书`
+      if (task.key === 'bookMetadata' || task.key === 'chineseSearch') return `${prefix}：${timeText}，耗时 ${durationMinutes} 分钟，更新了 ${Number(lastRun.updated) || 0} 本图书`
       return `${prefix}：${timeText}，耗时 ${durationMinutes} 分钟`
     },
     async openSettings(task) {
@@ -230,6 +246,11 @@ export default {
       this.draftAiConfidence = Number(this.serverSettings.aiBookMatchConfidence) || 0.9
       this.draftAiOverrideFields = this.normalizeFieldSelection(this.serverSettings.aiBookMatchOverrideFields)
       this.draftBookMetadataFields = this.normalizeFieldSelection(this.serverSettings.bookMetadataCompletionFields)
+      this.draftChineseSearchFields = [...(this.serverSettings.chineseSearchFields || [])]
+      if (task.key === 'chineseSearch') {
+        this.draftLibraryIds = [...(this.serverSettings.chineseSearchLibraryIds || [])]
+        this.draftMaxHours = Number(this.serverSettings.chineseSearchMaxHours) || 1
+      }
       this.showAiKey = false
       this.showSettings = true
       if (task.key === 'bookMatch') {
@@ -243,7 +264,7 @@ export default {
       }
     },
     scheduledTaskFinished(task) {
-      const key = { 'scheduled-library-scan': 'scan', 'ai-book-match': 'bookMatch', 'book-metadata-completion': 'bookMetadata', 'strm-metadata-completion': 'metadata', 'missing-items-cleanup': 'missing' }[task.action]
+      const key = { 'scheduled-library-scan': 'scan', 'ai-book-match': 'bookMatch', 'chinese-search': 'chineseSearch', 'book-metadata-completion': 'bookMetadata', 'strm-metadata-completion': 'metadata', 'missing-items-cleanup': 'missing' }[task.action]
       if (!key) return
       const taskResult = task.data?.result || {}
       const startedAt = Number(taskResult.startedAt) || Number(task.startedAt) || Date.now()
@@ -255,14 +276,14 @@ export default {
       const scheduledTask = taskResult.scheduledTask ?? task.data?.scheduledTask ?? false
       const summary = { startedAt, finishedAt, durationMs: Number(taskResult.durationMs) || Math.max(0, finishedAt - startedAt), scheduledTask: scheduledTask === true, removed: Number(taskResult.removed) || 0, matched: Number(taskResult.matched) || 0, updated: Number(taskResult.updated) || 0 }
       this.$set(this.lastRuns, key, summary)
-      const lastRunSettingKey = { scan: 'scheduledLibraryScanLastRun', bookMatch: 'aiBookMatchLastRun', bookMetadata: 'bookMetadataCompletionLastRun', metadata: 'strmMetadataCompletionLastRun', missing: 'missingItemsCleanupLastRun' }[key]
+      const lastRunSettingKey = { scan: 'scheduledLibraryScanLastRun', bookMatch: 'aiBookMatchLastRun', chineseSearch: 'chineseSearchLastRun', bookMetadata: 'bookMetadataCompletionLastRun', metadata: 'strmMetadataCompletionLastRun', missing: 'missingItemsCleanupLastRun' }[key]
       if (lastRunSettingKey) this.$store.commit('setServerSettings', { ...this.serverSettings, [lastRunSettingKey]: summary })
       this.$set(this.running, key, false)
       localStorage.setItem(LAST_RUN_STORAGE_KEY, JSON.stringify(this.lastRuns))
     },
     async runNow(task) {
       this.$set(this.running, task.key, true)
-      try { await this.$axios.$post(`/api/${this.actionFor(task)}/run`); this.$toast.success(`${task.title}已开始`) } catch (error) { this.$set(this.running, task.key, false); this.$toast.error(`${task.title}启动失败`) }
+      try { await this.$axios.$post(`/api/${this.actionFor(task)}/run`); this.$toast.success(`${task.title}已开始`) } catch (error) { this.$set(this.running, task.key, false); this.$toast.error(typeof error.response?.data === 'string' ? error.response.data : `${task.title}启动失败`) }
     },
     async stopTask(task) {
       this.$set(this.running, task.key + 'Stopping', true)
@@ -315,6 +336,7 @@ export default {
           payload = { aiBookMatchCronExpression: cronExpression, aiBookMatchLibraryIds: this.draftLibraryIds, aiBookMatchGlobal: this.draftAiGlobal, aiBookMatchOnScan: this.draftAiOnScan, aiBookMatchMaxHours: numbers.maxHours, aiBookMatchApiUrl: (this.draftAiUrl || '').trim() || null, aiBookMatchModel: (this.draftAiModel || '').trim() || null, aiBookMatchConfidence: numbers.confidence, aiBookMatchOverrideFields: this.normalizeFieldSelection(this.draftAiOverrideFields) }
           if ((this.draftAiKey || '').trim()) payload.aiBookMatchApiKey = this.draftAiKey.trim()
         } else if (taskKey === 'bookMetadata') payload = { bookMetadataCompletionCronExpression: cronExpression, bookMetadataCompletionLibraryIds: this.draftLibraryIds, bookMetadataCompletionMaxHours: numbers.maxHours, bookMetadataCompletionFields: this.normalizeFieldSelection(this.draftBookMetadataFields) }
+        else if (taskKey === 'chineseSearch') payload = { chineseSearchCronExpression: cronExpression, chineseSearchLibraryIds: this.draftLibraryIds, chineseSearchMaxHours: numbers.maxHours, chineseSearchFields: [...this.draftChineseSearchFields] }
         else if (taskKey === 'metadata') payload = { strmMetadataCompletionCronExpression: cronExpression, strmMetadataCompletionLibraryIds: this.draftLibraryIds, strmMetadataCompletionMaxHours: numbers.maxHours, strmMetadataCompletionQps: numbers.qps, strmMetadataCompletionBatchSize: numbers.batchSize }
         else payload = { missingItemsCleanupCronExpression: cronExpression, missingItemsCleanupLibraryIds: this.draftLibraryIds }
         const response = await this.$axios.$patch('/api/settings', payload)
@@ -347,11 +369,5 @@ export default {
 .scheduled-task-stop { color: var(--abs-theme-accent); background: transparent; }
 .scheduled-task-action:hover:not(:disabled) { color: var(--abs-theme-accent); transform: translateY(-1px); }
 .scheduled-task-action:disabled { opacity: 0.55; }
-.scheduled-task-settings-panel { max-height: 90vh; overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgba(156, 163, 175, 0.45) transparent; }
-.scheduled-task-settings-panel::-webkit-scrollbar,
-.scheduled-task-settings-panel .overflow-y-auto::-webkit-scrollbar { width: 6px; height: 6px; }
-.scheduled-task-settings-panel::-webkit-scrollbar-thumb,
-.scheduled-task-settings-panel .overflow-y-auto::-webkit-scrollbar-thumb { background-color: rgba(156, 163, 175, 0.45); border-radius: 999px; }
-.scheduled-task-settings-panel::-webkit-scrollbar-track,
-.scheduled-task-settings-panel .overflow-y-auto::-webkit-scrollbar-track { background: transparent; }
+.scheduled-task-settings-panel { max-height: 90vh; overflow-y: auto; }
 </style>

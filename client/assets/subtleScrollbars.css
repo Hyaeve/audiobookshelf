@@ -1,0 +1,87 @@
+html .subtle-scrollbars,
+html .subtle-scrollbars * {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(156, 163, 175, 0.1) transparent;
+}
+
+html .subtle-scrollbars:hover,
+html .subtle-scrollbars:focus-within,
+html .subtle-scrollbars *:hover,
+html .subtle-scrollbars *:focus-visible {
+  scrollbar-color: rgba(156, 163, 175, 0.28) transparent;
+}
+
+@supports selector(::-webkit-scrollbar) {
+  html .subtle-scrollbars,
+  html .subtle-scrollbars *,
+  html .subtle-scrollbars:hover,
+  html .subtle-scrollbars:focus-within,
+  html .subtle-scrollbars *:hover,
+  html .subtle-scrollbars *:focus-visible {
+    scrollbar-width: auto;
+    scrollbar-color: auto;
+  }
+
+  html .subtle-scrollbars::-webkit-scrollbar,
+  html .subtle-scrollbars *::-webkit-scrollbar {
+    width: 3px;
+    height: 3px;
+  }
+
+  html .subtle-scrollbars::-webkit-scrollbar-track,
+  html .subtle-scrollbars *::-webkit-scrollbar-track,
+  html .subtle-scrollbars::-webkit-scrollbar-corner,
+  html .subtle-scrollbars *::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  html .subtle-scrollbars::-webkit-scrollbar-thumb,
+  html .subtle-scrollbars *::-webkit-scrollbar-thumb {
+    background: rgba(156, 163, 175, 0.1);
+    border-radius: 999px;
+  }
+
+  html .subtle-scrollbars:hover::-webkit-scrollbar-thumb,
+  html .subtle-scrollbars:focus-within::-webkit-scrollbar-thumb,
+  html .subtle-scrollbars *:hover::-webkit-scrollbar-thumb,
+  html .subtle-scrollbars *:focus-visible::-webkit-scrollbar-thumb {
+    background-color: rgba(156, 163, 175, 0.28);
+  }
+
+  html .subtle-scrollbars trix-editor::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+  }
+
+  html .subtle-scrollbars trix-editor::-webkit-scrollbar-thumb {
+    border: 4.5px solid transparent;
+    background-clip: padding-box;
+  }
+}
+
+@media (forced-colors: active) {
+  html .subtle-scrollbars,
+  html .subtle-scrollbars *,
+  html .subtle-scrollbars:hover,
+  html .subtle-scrollbars:focus-within,
+  html .subtle-scrollbars *:hover,
+  html .subtle-scrollbars *:focus-visible {
+    scrollbar-width: auto;
+    scrollbar-color: auto;
+  }
+
+  html .subtle-scrollbars::-webkit-scrollbar,
+  html .subtle-scrollbars *::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+  }
+
+  html .subtle-scrollbars::-webkit-scrollbar-thumb,
+  html .subtle-scrollbars *::-webkit-scrollbar-thumb,
+  html .subtle-scrollbars:hover::-webkit-scrollbar-thumb,
+  html .subtle-scrollbars:focus-within::-webkit-scrollbar-thumb,
+  html .subtle-scrollbars *:hover::-webkit-scrollbar-thumb,
+  html .subtle-scrollbars *:focus-visible::-webkit-scrollbar-thumb {
+    background-color: CanvasText;
+  }
+}

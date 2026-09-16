@@ -160,7 +160,7 @@ class MiscController {
     if (!isObject(settingsUpdate)) {
       return res.status(400).send('Invalid settings update object')
     }
-    const cronSettingKeys = ['strmMetadataCompletionCronExpression', 'missingItemsCleanupCronExpression', 'scheduledLibraryScanCronExpression', 'aiBookMatchCronExpression', 'bookMetadataCompletionCronExpression']
+    const cronSettingKeys = ['strmMetadataCompletionCronExpression', 'missingItemsCleanupCronExpression', 'scheduledLibraryScanCronExpression', 'aiBookMatchCronExpression', 'bookMetadataCompletionCronExpression', 'chineseSearchCronExpression']
     for (const key of cronSettingKeys) {
       if (settingsUpdate[key] === undefined) continue
       const expression = typeof settingsUpdate[key] === 'string' ? settingsUpdate[key].trim() : settingsUpdate[key]
@@ -168,6 +168,23 @@ class MiscController {
       if (settingsUpdate[key] !== null && (typeof settingsUpdate[key] !== 'string' || !cron.validate(settingsUpdate[key]))) {
         return res.status(400).send(`Invalid cron expression for ${key}`)
       }
+    }
+    if (settingsUpdate.chineseSearchFields !== undefined) {
+      const { FIELD_KEYS, normalizeFields } = require('../utils/chineseSearch')
+      if (!Array.isArray(settingsUpdate.chineseSearchFields) || settingsUpdate.chineseSearchFields.some((field) => !FIELD_KEYS.includes(field))) return res.status(400).send('中文搜索增强包含无效元数据字段')
+      settingsUpdate.chineseSearchFields = normalizeFields(settingsUpdate.chineseSearchFields)
+    }
+    if (settingsUpdate.chineseSearchMaxHours !== undefined) {
+      const hours = Number(settingsUpdate.chineseSearchMaxHours)
+      if (!Number.isFinite(hours) || hours < 0.5 || hours * 2 !== Math.round(hours * 2)) return res.status(400).send('时间限制（h）必须是不小于 0.5 且为 0.5 倍数的数值')
+      settingsUpdate.chineseSearchMaxHours = hours
+    }
+    if (settingsUpdate.chineseSearchLibraryIds !== undefined) {
+      if (!Array.isArray(settingsUpdate.chineseSearchLibraryIds)) return res.status(400).send('中文搜索增强媒体库必须为数组')
+      const libraries = await Database.libraryModel.findAll({ attributes: ['id', 'mediaType'] })
+      const validIds = new Set(libraries.filter((library) => library.mediaType === 'book').map((library) => library.id))
+      if (settingsUpdate.chineseSearchLibraryIds.some((id) => typeof id !== 'string' || !validIds.has(id))) return res.status(400).send('中文搜索增强包含无效图书媒体库')
+      settingsUpdate.chineseSearchLibraryIds = [...new Set(settingsUpdate.chineseSearchLibraryIds)]
     }
     if (settingsUpdate.strmMetadataCompletionMaxHours !== undefined) {
       const maxHours = Number(settingsUpdate.strmMetadataCompletionMaxHours)
@@ -293,6 +310,7 @@ class MiscController {
       if (filteredUpdate.aiBookMatchCronExpression !== undefined || filteredUpdate.aiBookMatchLibraryIds !== undefined || filteredUpdate.aiBookMatchMaxHours !== undefined) {
         this.cronManager.updateAiBookMatchCron()
       }
+      if (filteredUpdate.chineseSearchCronExpression !== undefined) this.cronManager.updateChineseSearchCron()
       if (filteredUpdate.bookMetadataCompletionCronExpression !== undefined || filteredUpdate.bookMetadataCompletionLibraryIds !== undefined || filteredUpdate.bookMetadataCompletionMaxHours !== undefined) {
         this.cronManager.updateBookMetadataCompletionCron()
       }
@@ -811,6 +829,20 @@ class MiscController {
   async stopAiBookMatch(req, res) {
     if (!req.user.isAdminOrUp) return res.sendStatus(403)
     return res.json({ stopped: this.cronManager.cancelAiBookMatch() })
+  }
+
+  async runChineseSearch(req, res) {
+    if (!req.user.isAdminOrUp) return res.sendStatus(403)
+    const manager = require('../managers/ChineseSearchManager')
+    if (!Database.serverSettings.chineseSearchFields.length || !Database.serverSettings.chineseSearchLibraryIds.length) return res.status(400).send('请先选择媒体库及至少一项元数据')
+    if (manager.running) return res.status(409).send('中文搜索增强任务正在执行')
+    manager.run(false).catch((error) => Logger.error('[MiscController] 中文搜索增强失败', error))
+    return res.status(202).json({ startedAt: Date.now() })
+  }
+
+  async stopChineseSearch(req, res) {
+    if (!req.user.isAdminOrUp) return res.sendStatus(403)
+    return res.json({ stopped: require('../managers/ChineseSearchManager').cancel() })
   }
 
   async runBookMetadataCompletion(req, res) {

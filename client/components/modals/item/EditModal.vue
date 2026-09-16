@@ -1,5 +1,5 @@
 <template>
-  <modals-modal v-model="show" name="edit-book" :width="800" :height="height" :processing="processing" :content-margin-top="marginTop">
+  <modals-modal v-model="show" name="edit-book" class="subtle-scrollbars" :width="800" :height="height" :processing="processing" :content-margin-top="marginTop">
     <template #outer>
       <div class="absolute top-0 left-0 p-4 landscape:px-4 landscape:py-2 md:portrait:p-5 lg:p-5 w-2/3 overflow-hidden pointer-events-none">
         <h1 class="text-xl md:portrait:text-3xl md:landscape:text-lg lg:text-3xl text-white truncate pointer-events-none">{{ title }}</h1>

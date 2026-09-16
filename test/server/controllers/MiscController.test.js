@@ -10,6 +10,16 @@ const ServerSettings = require('../../../server/objects/settings/ServerSettings'
 
 const scheduledSettings = [
   {
+    name: 'Chinese search enhancement',
+    hook: 'updateChineseSearchCron',
+    payload: {
+      chineseSearchCronExpression: '0 6 * * *',
+      chineseSearchLibraryIds: ['book-library'],
+      chineseSearchMaxHours: 1.5,
+      chineseSearchFields: ['title', 'authors']
+    }
+  },
+  {
     name: 'library scanning',
     hook: 'updateScheduledLibraryScanCron',
     payload: {
@@ -150,9 +160,9 @@ describe('MiscController settings and upstream compatibility', () => {
     })
   }
 
-  it('keeps all 24 custom configuration fields in the model whitelist', () => {
+  it('keeps all 28 custom configuration fields in the model whitelist', () => {
     const keys = scheduledSettings.flatMap((task) => Object.keys(task.payload))
-    expect(keys).to.have.length(24)
+    expect(keys).to.have.length(28)
     expect(keys.every((key) => ServerSettings.patchableSettingsKeys.has(key))).to.equal(true)
   })
 
@@ -187,6 +197,7 @@ describe('MiscController settings and upstream compatibility', () => {
       bookMetadataCompletionLastRun: { finishedAt: 1 },
       aiBookMatchLastRun: { finishedAt: 1 },
       scheduledLibraryScanLastRun: { finishedAt: 1 },
+      chineseSearchLastRun: { finishedAt: 1 },
       unknownSetting: true
     }
     const original = settings.toJSON()
@@ -228,6 +239,14 @@ describe('MiscController settings and upstream compatibility', () => {
   })
 
   const invalidPayloads = [
+    { chineseSearchCronExpression: 'invalid cron' },
+    { chineseSearchFields: ['description'] },
+    { chineseSearchFields: 'title' },
+    { chineseSearchLibraryIds: ['podcast-library'] },
+    { chineseSearchLibraryIds: ['unknown-library'] },
+    { chineseSearchLibraryIds: 'book-library' },
+    { chineseSearchMaxHours: 0.25 },
+    { chineseSearchMaxHours: 'invalid' },
     { aiBookMatchCronExpression: 'invalid cron' },
     { strmMetadataCompletionQps: 0 },
     { strmMetadataCompletionQps: 10.1 },
@@ -257,6 +276,28 @@ describe('MiscController settings and upstream compatibility', () => {
       expect(Object.values(context.cronManager).some((hook) => hook.called)).to.equal(false)
     })
   }
+
+  it('defaults Chinese search to disabled and persists an empty field selection', async () => {
+    expect(settings.chineseSearchFields).to.deep.equal([])
+    expect(settings.chineseSearchLibraryIds).to.deep.equal([])
+    expect(settings.chineseSearchCronExpression).to.equal(null)
+    settings.chineseSearchFields = ['title']
+    await update({ chineseSearchFields: [] })
+    expect(new ServerSettings(savedSettings).chineseSearchFields).to.deep.equal([])
+  })
+
+  it('restricts Chinese search run and stop to administrators', async () => {
+    for (const method of ['runChineseSearch', 'stopChineseSearch']) {
+      response.sendStatus.resetHistory()
+      await MiscController[method].call(context, { user: { isAdminOrUp: false } }, response)
+      expect(response.sendStatus.calledOnceWithExactly(403)).to.equal(true)
+    }
+  })
+
+  it('rejects starting Chinese search without fields or libraries', async () => {
+    await MiscController.runChineseSearch.call(context, { user: { isAdminOrUp: true } }, response)
+    expect(response.status.calledWith(400)).to.equal(true)
+  })
 
   it('sanitizes custom login HTML through the dedicated authentication endpoint', async () => {
     await MiscController.updateAuthSettings.call(context, { user: { isAdminOrUp: true }, body: { authLoginCustomMessage: '<p>Hello <strong>reader</strong><script>alert(1)</script><img src=x onerror=alert(1)></p>' } }, response)

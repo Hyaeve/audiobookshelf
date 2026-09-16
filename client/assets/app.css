@@ -4,6 +4,7 @@
 @import './draggable.css';
 @import './defaultStyles.css';
 @import './absicons.css';
+@import './subtleScrollbars.css';
 
 :root {
   --bookshelf-texture-img: url(~static/textures/wood_default.jpg);

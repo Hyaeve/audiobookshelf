@@ -1,5 +1,5 @@
 <template>
-  <div class="w-full h-full relative">
+  <div class="w-full h-full relative subtle-scrollbars">
     <form class="w-full h-full px-2 md:px-4 py-6" @submit.prevent="submitForm">
       <div class="flex flex-wrap -mx-1">
         <div class="w-full md:w-1/2 px-1 metadata-field">
@@ -357,19 +357,6 @@ export default {
   resize: vertical;
   overflow: auto;
   padding-right: 2.75rem;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(156, 163, 175, 0.45) transparent;
-}
-:deep(trix-editor::-webkit-scrollbar) {
-  width: 6px;
-  height: 6px;
-}
-:deep(trix-editor::-webkit-scrollbar-thumb) {
-  background-color: rgba(156, 163, 175, 0.45);
-  border-radius: 999px;
-}
-:deep(trix-editor::-webkit-scrollbar-track) {
-  background: transparent;
 }
 :deep(trix-editor::-webkit-scrollbar-corner) {
   background-color: transparent;
