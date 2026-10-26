@@ -19,6 +19,7 @@ on:
       - server/**
       - index.js
       - package.json
+      - tsconfig.server.json
       - package-lock.json
       - Dockerfile
       - .dockerignore

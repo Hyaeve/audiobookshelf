@@ -796,7 +796,7 @@ class LibraryController {
       .filter((v) => !!v)
 
     const series = await Database.seriesModel.findByPk(req.params.seriesId)
-    if (!series) return res.sendStatus(404)
+    if (!series || series.libraryId !== req.library.id) return res.sendStatus(404)
 
     const libraryItemsInSeries = await libraryItemsBookFilters.getLibraryItemsForSeries(series, req.user)
 
@@ -1181,11 +1181,11 @@ class LibraryController {
     }
 
     // Update filter data
-    Database.replaceNarratorInFilterData(narratorName, updatedName)
+    Database.replaceNarratorInFilterData(req.library.id, narratorName, updatedName)
 
     const itemsUpdated = []
 
-    const itemsWithNarrator = await libraryItemFilters.getAllLibraryItemsWithNarrators([narratorName])
+    const itemsWithNarrator = await libraryItemFilters.getAllLibraryItemsWithNarrators([narratorName], req.library.id)
 
     for (const libraryItem of itemsWithNarrator) {
       libraryItem.media.narrators = libraryItem.media.narrators.filter((n) => n !== narratorName)
@@ -1225,11 +1225,11 @@ class LibraryController {
     const narratorName = libraryFilters.decode(req.params.narratorId)
 
     // Update filter data
-    Database.removeNarratorFromFilterData(narratorName)
+    Database.removeNarratorFromFilterData(req.library.id, narratorName)
 
     const itemsUpdated = []
 
-    const itemsWithNarrator = await libraryItemFilters.getAllLibraryItemsWithNarrators([narratorName])
+    const itemsWithNarrator = await libraryItemFilters.getAllLibraryItemsWithNarrators([narratorName], req.library.id)
 
     for (const libraryItem of itemsWithNarrator) {
       libraryItem.media.narrators = libraryItem.media.narrators.filter((n) => n !== narratorName)

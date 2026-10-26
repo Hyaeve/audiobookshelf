@@ -334,6 +334,19 @@
 - 上游耦合点仅为 `client/pages/config/index.vue` 的代理模板/状态/读写方法与 `server/utils/metadataHttpClient.js` 的空地址分支。回归覆盖清空后下一次请求直连，以及环境变量配置代理时空地址仍直连。
 - 验证：完整后端测试 **555 passing**；Vue 模板编译、自动保存、回车/失焦绑定、重复提交防护、非法地址拦截、清空及失败重试逻辑检查通过。未进行实际浏览器视觉验收。
 
+### 19. 2026-10-26 合入上游 v2.37.2 并适配编译构建
+
+- 用户在二改冲突评估后确认采用完整适配方案，目标固定为上游 `v2.37.2`，提交 `edb1f7efc92ecacdef51aafb4d9d5054ce10604f`，不追随开发分支。根目录、前端和对应锁文件版本统一为 `2.37.2`。之前 2026-09-15 的快照选择性合入保留为历史记录，不再作为当前完整版本基准。
+- 上游改为 Node.js 24、TypeScript 编译服务器/测试到 `dist-server`、新增 ESLint。接入 `npm run build:server`、编译后 `npm start` / `npm test`、Windows/Linux 打包和 Docker 编译阶段；入口 `global.appRoot` 在编译目录运行时回到仓库/应用根目录，静态前端和配置目录不被错误定位到 `dist-server`。
+- 保留本项目 `main`、`ghcr.io/hyaeve/audiobookshelf` 和仅 `linux/amd64` 镜像发布目标，未恢复上游默认镜像或双架构发布；Docker workflow 仅增加 `tsconfig.server.json` 触发条件。`pinyin-pro`、`http-proxy-agent`、`https-proxy-agent` 保持原配置，并重新生成根依赖锁。ESLint 保留原生检查规则，只补充 Node 的 `setImmediate` 全局声明及本地资料目录排除，不通过关闭 `no-undef` 绕过检查。
+- 合入原生修复：WebSocket API key 认证、过滤/系列归属校验、封面本地路径和缓存 ID/尺寸约束、OIDC 回调及会话清理、第二个 root 事务防护、EPERM 文件复制回退、RSS 封面刷新、重复上传字段展平、Audible 成人内容及空结果、Debian 权限和翻译更新。上游的普通设置白名单与早前本地适配继续并存。
+- 共享文件按函数适配，不覆盖二改。`scandir.getBookDataFromDir` 保留顶层锚点和分组/排序，只吸收严格模式变量声明及分阶段提取写法；`prober.js` 吸收变量清理并保留 `probeBuffer` 和 User-Agent 参数；`nodeFfprobe` 的本地包装器已包含上游清理目的，保留其 Buffer stdin、EPIPE 和错误输出处理，不退回纯文件路径探测。
+- `Database.buildModels` 保留中文索引模型与事务提交后钩子，所有任务/代理设置的加载、序列化、校验、白名单及敏感信息删除不丢失。Audible 保留独立代理客户端导入。翻译按键吸收更新并保留本地键，所有语言键序检查通过。21 个关键二改模块/界面文件与合入前内容一致，包括预读队列、AI 匹配、Cron、索引、STRM 安全解析、代理、字段锁、扫描接入和计划任务界面。
+- 新增 8 项针对性回归：`test/server/Database.test.js` 验证首次 root 创建、拒绝第二个 root、失败回滚；`test/server/utils/nodeFfprobe.test.js` 验证编译后 Buffer stdin、精确 User-Agent、EPIPE、其他输入错误及无效 JSON 错误信息。缓存测试改用合法 UUID 隔离格式校验，并扩展非法 ID 与尺寸用例。上游新增文件复制、OIDC 和 Audible 测试一并接入。
+- 验证：`npm run lint`、`npm run build:server`、完整 `npm test -- --reporter dot`（**596 passing**）、前端 `npm --prefix client run generate`、版本/锁文件/翻译排序及 `git diff --check` 通过。独立临时配置和数据库的编译入口冒烟检查通过：启动、无前导斜杠的 base path 归一化、前端资源、初始化/登录、第二 root 拒绝、入库/中文增强/代理配置保存、敏感地址不回传及重启后持久化。
+- 验证边界：本机无 Docker 命令，未构建容器、未运行 Linux/Windows `pkg` 打包；冒烟跳过二进制探测，仅用模拟 FFmpeg/FFprobe 路径验证服务启动，不代表真实媒体探测验收。未访问生产库、真实网盘、AI 或外部提供商。前端保留原有构建警告；npm 审计仍报告 56 项依赖问题，未擅自执行破坏性升级。
+- 后续上游升级须检查 `dist-server` 输出、`appRoot` 和打包资产路径，同时保留二改依赖及编译后测试。当前源码合入已在本地验证，尚未提交或推送；AGENTS、本地基线、Word 及评估资料不纳入推送。
+
 ## 代码锚点
 
 ### 后端 STRM 与补全队列

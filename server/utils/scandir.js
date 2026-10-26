@@ -254,15 +254,11 @@ function getBookDataFromDir(relPath, parseSubtitle = false, topLevelBookAnchor =
   }
 
   // Extract optional metadata markers from the first-level folder name.
-  let asin
-  ;[folder, asin] = getASIN(folder)
-  let narrators
-  ;[folder, narrators] = getNarrator(folder)
-  let sequence
-  ;[folder, sequence] = series ? getSequence(folder) : [folder, null]
-  let publishedYear
-  ;[folder, publishedYear] = getPublishedYear(folder)
-  const [title, subtitle] = parseSubtitle ? getSubtitle(folder) : [folder, null]
+  const [afterAsin, asin] = getASIN(folder)
+  const [afterNarrators, narrators] = getNarrator(afterAsin)
+  const [afterSequence, sequence] = series ? getSequence(afterNarrators) : [afterNarrators, null]
+  const [afterYear, publishedYear] = getPublishedYear(afterSequence)
+  const [title, subtitle] = parseSubtitle ? getSubtitle(afterYear) : [afterYear, null]
 
   return {
     title,
@@ -284,8 +280,8 @@ module.exports.getBookDataFromDir = getBookDataFromDir
  * @returns {[string, string]} [folder, narrator]
  */
 function getNarrator(folder) {
-  let pattern = /^(?<title>.*) \{(?<narrators>.*)\}$/
-  let match = folder.match(pattern)
+  const pattern = /^(?<title>.*) \{(?<narrators>.*)\}$/
+  const match = folder.match(pattern)
   return match ? [match.groups.title, match.groups.narrators] : [folder, null]
 }
 
@@ -308,12 +304,12 @@ function getNarrator(folder) {
  */
 function getSequence(folder) {
   // Matches a valid volume string. Also matches a book whose title starts with a 1 to 3 digit number. Will handle that later.
-  let pattern = /^(?<volumeLabel>vol\.? |volume |book )?(?<sequence>\d{0,3}(?:\.\d{1,2})?)(?<trailingDot>\.?)(?: (?<suffix>.*))?$/i
+  const pattern = /^(?<volumeLabel>vol\.? |volume |book )?(?<sequence>\d{0,3}(?:\.\d{1,2})?)(?<trailingDot>\.?)(?: (?<suffix>.*))?$/i
 
   let volumeNumber = null
-  let parts = folder.split(' - ')
+  const parts = folder.split(' - ')
   for (let i = 0; i < parts.length; i++) {
-    let match = parts[i].match(pattern)
+    const match = parts[i].match(pattern)
     // This excludes '101 Dalmations' but includes '101. Dalmations'
     if (match && !(match.groups.suffix && !(match.groups.volumeLabel || match.groups.trailingDot))) {
       volumeNumber = isNaN(match.groups.sequence) ? match.groups.sequence : Number(match.groups.sequence).toString()
@@ -336,10 +332,10 @@ function getSequence(folder) {
  * @returns {[string, string]} [folder, publishedYear]
  */
 function getPublishedYear(folder) {
-  var publishedYear = null
+  let publishedYear = null
 
-  pattern = /^ *\(?([0-9]{4})\)? * - *(.+)/ //Matches #### - title or (####) - title
-  var match = folder.match(pattern)
+  const pattern = /^ *\(?([0-9]{4})\)? * - *(.+)/ //Matches #### - title or (####) - title
+  const match = folder.match(pattern)
   if (match) {
     publishedYear = match[1]
     folder = match[2]
@@ -356,7 +352,7 @@ function getPublishedYear(folder) {
  */
 function getSubtitle(folder) {
   // Subtitle is everything after " - "
-  var splitTitle = folder.split(' - ')
+  const splitTitle = folder.split(' - ')
   return [splitTitle.shift(), splitTitle.join(' - ')]
 }
 
@@ -369,7 +365,7 @@ function getSubtitle(folder) {
 function getASIN(folder) {
   let asin = null
 
-  let pattern = /(?: |^)\[([A-Z0-9]{10})](?= |$)/ // Matches "[B0015T963C]"
+  const pattern = /(?: |^)\[([A-Z0-9]{10})](?= |$)/ // Matches "[B0015T963C]"
   const match = folder.match(pattern)
   if (match) {
     asin = match[1]

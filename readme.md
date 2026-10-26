@@ -189,7 +189,7 @@ sudo snap install code --classic
 
 ## 手动配置开发环境
 
-如果不使用开发容器，也可以手动配置环境。首先安装 [Node.js 20](https://nodejs.org/) 和 [FFmpeg](https://ffmpeg.org/)。
+如果不使用开发容器，也可以手动配置环境。首先安装 [Node.js 24](https://nodejs.org/) 和 [FFmpeg](https://ffmpeg.org/)。
 
 然后在项目根目录创建 `dev.js` 文件，用于保存本地开发环境的配置和路径。可以参考 `.devcontainer/dev.js` 示例文件。
 
@@ -211,7 +211,7 @@ cd ..
 npm run dev
 ```
 
-该命令会使用在 `client` 目录执行 `npm run generate` 或由开发容器生成的客户端文件。修改服务端代码后需要重启服务；修改客户端代码后，需要重新执行 `(cd client; npm run generate)` 并重启服务。默认地址为 `localhost:3333`，端口可以在 `dev.js` 中配置。
+该命令会先将服务端编译到 `dist-server`，并使用在 `client` 目录执行 `npm run generate` 或由开发容器生成的客户端文件。修改服务端代码后会自动重新编译和启动；修改客户端代码后，需要重新执行 `(cd client; npm run generate)` 并重启服务。默认地址为 `localhost:3333`，端口可以在 `dev.js` 中配置。
 
 运行支持热更新的客户端：
 

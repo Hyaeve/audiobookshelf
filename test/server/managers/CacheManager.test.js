@@ -4,6 +4,7 @@ const sinon = require('sinon')
 const CacheManager = require('../../../server/managers/CacheManager')
 const Database = require('../../../server/Database')
 const fs = require('../../../server/libs/fsExtra')
+const imageId = '11111111-1111-4111-8111-111111111111'
 
 describe('CacheManager image format validation', () => {
   beforeEach(() => {
@@ -22,7 +23,7 @@ describe('CacheManager image format validation', () => {
     for (const format of ['jpg', 'gif', 'svg', '../png', ['png']]) {
       it(`${method} rejects ${JSON.stringify(format)} before accessing files`, async () => {
         const response = { type: sinon.spy(), sendStatus: sinon.spy() }
-        await CacheManager[method](response, 'item', { format })
+        await CacheManager[method](response, imageId, { format })
         expect(response.sendStatus.calledOnceWithExactly(400)).to.equal(true)
         expect(response.type.called).to.equal(false)
         expect(fs.pathExists.called).to.equal(false)
@@ -32,11 +33,31 @@ describe('CacheManager image format validation', () => {
     for (const format of ['webp', 'jpeg', 'png', undefined]) {
       it(`${method} allows ${format || 'the default format'}`, async () => {
         const response = { type: sinon.spy(), sendStatus: sinon.spy() }
-        await CacheManager[method](response, 'item', { format })
+        await CacheManager[method](response, imageId, { format })
         expect(response.type.calledOnceWithExactly(`image/${format || 'webp'}`)).to.equal(true)
         expect(fs.pathExists.calledOnce).to.equal(true)
         expect(response.sendStatus.calledOnceWithExactly(404)).to.equal(true)
       })
+    }
+
+    for (const id of ['item', '../outside', null, ['invalid']]) {
+      it(`${method} rejects invalid image id ${JSON.stringify(id)}`, async () => {
+        const response = { type: sinon.spy(), sendStatus: sinon.spy() }
+        await CacheManager[method](response, id, { format: 'png' })
+        expect(response.sendStatus.calledOnceWithExactly(400)).to.equal(true)
+        expect(fs.pathExists.called).to.equal(false)
+      })
+    }
+
+    for (const field of ['width', 'height']) {
+      for (const value of [-1, 1.5, '20', Infinity]) {
+        it(`${method} rejects invalid ${field} ${value}`, async () => {
+          const response = { type: sinon.spy(), sendStatus: sinon.spy() }
+          await CacheManager[method](response, imageId, { [field]: value })
+          expect(response.sendStatus.calledOnceWithExactly(400)).to.equal(true)
+          expect(fs.pathExists.called).to.equal(false)
+        })
+      }
     }
   }
 })
