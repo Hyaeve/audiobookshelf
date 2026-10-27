@@ -130,6 +130,20 @@ class MiscController {
     res.json(data)
   }
 
+  async cancelStrmPreloadTask(req, res) {
+    if (!req.user.isAdminOrUp) return res.sendStatus(403)
+    const libraryItemId = req.body?.libraryItemId
+    if (typeof libraryItemId !== 'string' || !libraryItemId) return res.sendStatus(400)
+    const task = TaskManager.tasks.find((entry) => entry.id === req.params.taskId && entry.action === 'strm-metadata-completion' && !entry.isFinished)
+    if (!task) return res.sendStatus(404)
+    if (task.data.libraryItemId !== libraryItemId) return res.sendStatus(409)
+    const libraryItem = await Database.libraryItemModel.getExpandedById(libraryItemId)
+    if (!libraryItem) return res.sendStatus(404)
+    if (!req.user.checkCanAccessLibraryItem(libraryItem)) return res.sendStatus(403)
+    if (!this.playbackSessionManager.cancelStrmPreloadTask(task.id, libraryItemId)) return res.sendStatus(409)
+    return res.json({ cancelled: true, libraryItemId })
+  }
+
   /**
    * GET: /api/ai-book-match/settings
    * Get sensitive AI book matching settings for administrators.

@@ -1,8 +1,11 @@
 <template>
   <div class="flex items-center px-1 overflow-hidden">
-    <div class="w-8 flex items-center justify-center">
-      <span v-if="isFinished" :class="taskIconStatus" class="material-symbols text-base">{{ actionIcon }}</span>
-      <widgets-loading-spinner v-else />
+    <div class="shrink-0 flex items-center justify-center" :class="libraryItemId ? 'relative w-10 h-12' : 'w-8'">
+      <img v-if="libraryItemId" :src="coverFailed ? placeholderCover : coverSrc" :alt="task.data.libraryItemTitle || title" width="40" height="48" loading="lazy" class="w-full h-full object-contain rounded-xs" @error="coverFailed = true" />
+      <div class="flex items-center justify-center" :class="libraryItemId ? 'absolute bottom-0 right-0 bg-bg rounded-full w-5 h-5' : ''" aria-hidden="true">
+        <span v-if="isFinished" :class="taskIconStatus" class="material-symbols text-base">{{ actionIcon }}</span>
+        <widgets-loading-spinner v-else />
+      </div>
     </div>
     <div class="grow px-2 taskRunningCardContent">
       <p class="truncate text-sm">{{ title }}</p>
@@ -12,9 +15,10 @@
       <p v-if="specialMessage" class="truncate text-xs text-gray-300">{{ specialMessage }}</p>
 
       <p v-if="isFailed && failedMessage" class="text-xs truncate text-red-500">{{ failedMessage }}</p>
-      <p v-else-if="!isFinished && cancelingScan" class="text-xs truncate">Canceling...</p>
+      <p v-else-if="!isFinished && (cancelingScan || isCancelingPreload)" class="text-xs truncate" role="status">{{ $strings.MessageTaskCanceling }}</p>
+      <p v-else-if="isFinished && currentBookCancelled" class="text-xs truncate">{{ $strings.MessageTaskCanceledByUser }}</p>
     </div>
-    <ui-btn v-if="userIsAdminOrUp && !isFinished && isLibraryScan && !cancelingScan" color="bg-primary" :padding-y="1" :padding-x="1" class="text-xs w-16 max-w-16 truncate mr-1" @click.stop="cancelScan">{{ this.$strings.ButtonCancel }}</ui-btn>
+    <ui-btn v-if="userIsAdminOrUp && !isFinished && (isLibraryScan || canCancelPreload || isCancelingPreload)" color="bg-primary" :padding-y="1" :padding-x="1" :disabled="cancelingScan || isCancelingPreload" class="text-xs shrink-0 w-16 max-w-16 truncate mr-1" @click.stop.prevent="cancelTask">{{ $strings.ButtonCancel }}</ui-btn>
   </div>
 </template>
 
@@ -29,6 +33,8 @@ export default {
   data() {
     return {
       cancelingScan: false,
+      cancelingBookId: null,
+      coverFailed: false,
       specialMessage: ''
     }
   },
@@ -38,6 +44,12 @@ export default {
       handler() {
         this.initTask()
       }
+    },
+    coverSrc() {
+      this.coverFailed = false
+    },
+    libraryItemId() {
+      this.cancelingBookId = null
     }
   },
   computed: {
@@ -54,7 +66,25 @@ export default {
       if (this.task.descriptionKey && this.$strings[this.task.descriptionKey]) {
         return this.$getString(this.task.descriptionKey, this.task.descriptionSubs)
       }
-      return this.task.description || ''
+      return this.task.description || this.task.data?.libraryItemTitle || ''
+    },
+    libraryItemId() {
+      return this.task.data?.libraryItemId || null
+    },
+    placeholderCover() {
+      return this.$store.getters['globals/getPlaceholderCoverSrc']
+    },
+    coverSrc() {
+      return this.$store.getters['globals/getLibraryItemCoverSrcById'](this.libraryItemId, this.task.data?.coverUpdatedAt || this.task.startedAt)
+    },
+    currentBookCancelled() {
+      return this.task.action === 'strm-metadata-completion' && !!this.task.data?.currentBookCancelled
+    },
+    canCancelPreload() {
+      return this.task.action === 'strm-metadata-completion' && !!this.task.data?.canCancelPreload && !!this.libraryItemId
+    },
+    isCancelingPreload() {
+      return !this.isFinished && this.task.action === 'strm-metadata-completion' && (this.task.data?.cancelRequested || (!!this.cancelingBookId && this.cancelingBookId === this.libraryItemId))
     },
     isFinished() {
       return !!this.task.isFinished
@@ -75,7 +105,9 @@ export default {
       return this.task.action || ''
     },
     actionIcon() {
-      if (this.isFailed) {
+      if (this.isFinished && this.currentBookCancelled && !this.isFailed) {
+        return 'cancel'
+      } else if (this.isFailed) {
         return 'error'
       } else if (this.isSuccess) {
         return 'done'
@@ -92,6 +124,7 @@ export default {
       }
     },
     taskIconStatus() {
+      if (this.currentBookCancelled && !this.isFailed) return 'text-gray-300'
       if (this.isFinished && this.isFailed) {
         return 'text-red-500'
       }
@@ -115,6 +148,18 @@ export default {
     }
   },
   methods: {
+    async cancelTask() {
+      if (this.isLibraryScan) return this.cancelScan()
+      if (!this.canCancelPreload || this.isCancelingPreload) return
+      const libraryItemId = this.libraryItemId
+      this.cancelingBookId = libraryItemId
+      try {
+        await this.$axios.$post(`/api/tasks/${this.task.id}/cancel-preload`, { libraryItemId })
+      } catch (error) {
+        if (this.cancelingBookId === libraryItemId) this.cancelingBookId = null
+        this.$toast.error(this.$strings.MessageTaskCancelFailed)
+      }
+    },
     initTask() {
       // special message for library scan tasks
       if (this.task?.data?.scanResults) {
@@ -146,8 +191,8 @@ export default {
 
 <style>
 .taskRunningCardContent {
-  width: calc(100% - 84px);
-  height: 60px;
+  min-width: 0;
+  min-height: 60px;
   display: flex;
   flex-direction: column;
   justify-content: center;

@@ -8,9 +8,10 @@ const spawn = require('child_process').spawn
 const probeArgs = ['-hide_banner', '-loglevel', 'fatal', '-show_error', '-show_format', '-show_streams', '-show_programs', '-show_chapters', '-show_private_data', '-print_format', 'json']
 
 module.exports = (function () {
-  function runProbe(input, isBuffer = false, inputArgs = []) {
+  function runProbe(input, isBuffer = false, inputArgs = [], options = {}) {
     return new Promise((resolve, reject) => {
-      const proc = spawn(module.exports.FFPROBE_PATH || 'ffprobe', [...probeArgs, ...inputArgs, isBuffer ? 'pipe:0' : input])
+      options.signal?.throwIfAborted()
+      const proc = spawn(module.exports.FFPROBE_PATH || 'ffprobe', [...probeArgs, ...inputArgs, isBuffer ? 'pipe:0' : input], options.signal ? { signal: options.signal } : {})
       const probeData = []
       const probeErrors = []
 
@@ -19,8 +20,14 @@ module.exports = (function () {
 
       proc.stdout.on('data', (data) => probeData.push(data))
       proc.stderr.on('data', (data) => probeErrors.push(data))
-      proc.on('error', reject)
+      proc.on('error', (error) => {
+        if (!options.signal?.aborted) reject(error)
+      })
       proc.on('close', (code) => {
+        if (options.signal?.aborted) {
+          reject(options.signal.reason)
+          return
+        }
         try {
           const result = JSON.parse(probeData.join(''))
           resolve(result)
@@ -44,7 +51,7 @@ module.exports = (function () {
 
   function doProbe(file, options = {}) {
     const inputArgs = options.userAgent ? ['-user_agent', options.userAgent] : []
-    return runProbe(file, false, inputArgs)
+    return runProbe(file, false, inputArgs, options)
   }
 
   doProbe.probeBuffer = (buffer) => runProbe(buffer, true)

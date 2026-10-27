@@ -123,18 +123,23 @@ async function requestRemoteMedia(targetUrl) {
   return { body, status: response.status, headers: response.headers }
 }
 
-async function probeStrmTargetMedia(filePath, allowedLocalRoots = []) {
+async function probeStrmTargetMedia(filePath, allowedLocalRoots = [], options = {}) {
+  options.signal?.throwIfAborted()
   const target = await resolveStrmTarget(filePath, allowedLocalRoots)
+  options.signal?.throwIfAborted()
   if (!target) return null
 
   if (target.type === 'local') {
-    return prober.probe(target.value)
+    const probeData = await prober.probe(target.value, false, { signal: options.signal })
+    options.signal?.throwIfAborted()
+    return probeData
   }
 
   // Let ffprobe open the remote URL directly. Downloading the whole remote file
   // into a buffer is unreliable for large cloud-drive audio files and can cause
   // ffprobe stdin EPIPE before metadata has been parsed.
-  const probeData = await prober.probe(target.value, false, { userAgent: AUDIOBOOKSHELF_USER_AGENT })
+  const probeData = await prober.probe(target.value, false, { userAgent: AUDIOBOOKSHELF_USER_AGENT, signal: options.signal })
+  options.signal?.throwIfAborted()
   if (probeData?.error) {
     throw new Error(`Unable to probe remote STRM media at "${target.value}": ${probeData.error}`)
   }

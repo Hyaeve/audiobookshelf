@@ -275,6 +275,7 @@ class CronManager {
           result.skipped += items.length - matchItems.length
           for (const libraryItem of matchItems) {
             if (this.aiBookMatchCancelRequested || Date.now() >= deadline) break
+            TaskManager.updateTaskLibraryItem(task, libraryItem)
             let matchResult
             try {
               matchResult = await AiBookMatchManager.matchLibraryItem(this.apiRouterCtx, libraryItem, library, {
@@ -309,6 +310,7 @@ class CronManager {
             else result.skipped += 1
             Logger.info(`[CronManager] 书籍匹配：媒体库 "${library.name}"，原名称 "${libraryItem.media?.title || libraryItem.title || '未命名'}"，提取规则：${matchResult.ruleLabel || '-'}，搜索标题 "${matchResult.searchTitle || '-'}"，搜索作者 "${matchResult.searchAuthor || '-'}"，结果：${AiBookMatchManager.getMatchStatusLabel(matchResult.status)}${matchResult.candidateTitle ? `，匹配为 "${matchResult.candidateTitle}"` : ''}${matchResult.reason ? `，原因：${matchResult.reason}` : ''}`)
             processed += 1
+            TaskManager.updateTaskLibraryItem(task, libraryItem)
             TaskManager.updateTaskProgress(task, selectedLibraries.length ? Math.min(99, ((selectedLibraries.indexOf(library) + 1) / selectedLibraries.length) * 100) : 100, { currentLibrary: library.name, processed, ...result })
           }
           if (items.length < 50) break
@@ -401,6 +403,7 @@ class CronManager {
           offset += items.length
           for (const libraryItem of items) {
             if (this.bookMetadataCompletionCancelRequested || Date.now() >= deadline) break
+            TaskManager.updateTaskLibraryItem(task, libraryItem)
             result.processed += 1
             try {
               const matchResult = await Scanner.quickMatchLibraryItem(this.apiRouterCtx, libraryItem, {
@@ -429,6 +432,7 @@ class CronManager {
               result.skipped += 1
               Logger.warn(`[CronManager] 书籍元数据补全失败：书籍 "${libraryItem.media?.title || libraryItem.title || libraryItem.id}"，原因：${error.message}`)
             }
+            TaskManager.updateTaskLibraryItem(task, libraryItem)
             TaskManager.updateTaskProgress(task, selectedLibraries.length ? Math.min(99, ((libraryIndex + 1) / selectedLibraries.length) * 100) : 100, { currentLibrary: library.name, ...result })
           }
           if (items.length < 50) break

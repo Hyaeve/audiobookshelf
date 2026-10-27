@@ -219,6 +219,7 @@ class ChineseSearchManager {
           cursor = items[items.length - 1].id
           for (const item of items) {
             if (this.cancelled || Date.now() >= deadline || !this.enabled(libraryId)) break
+            TaskManager.updateTaskLibraryItem(task, { id: item.id, libraryId, mediaType: 'book' })
             const updated = await this.updateItem(item.id)
             result.processed += 1
             result[updated ? 'updated' : 'skipped'] += 1

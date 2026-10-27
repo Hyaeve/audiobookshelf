@@ -7,6 +7,7 @@ const Logger = require('../../../server/Logger')
 const fs = require('../../../server/libs/fsExtra')
 const MiscController = require('../../../server/controllers/MiscController')
 const ServerSettings = require('../../../server/objects/settings/ServerSettings')
+const TaskManager = require('../../../server/managers/TaskManager')
 
 const scheduledSettings = [
   {
@@ -74,6 +75,69 @@ const scheduledSettings = [
     }
   }
 ]
+
+describe('MiscController activity media preload cancellation', () => {
+  let task
+  let request
+  let response
+  let context
+  let lookup
+
+  beforeEach(() => {
+    task = { id: 'task', action: 'strm-metadata-completion', data: { libraryItemId: 'book' }, isFinished: false }
+    sinon.stub(TaskManager, 'tasks').value([task])
+    lookup = sinon.stub().resolves({ id: 'book', libraryId: 'library' })
+    sinon.stub(Database, 'libraryItemModel').get(() => ({ getExpandedById: lookup }))
+    request = { params: { taskId: 'task' }, body: { libraryItemId: 'book' }, user: { isAdminOrUp: true, checkCanAccessLibraryItem: sinon.stub().returns(true) } }
+    response = { sendStatus: sinon.spy(), json: sinon.spy() }
+    context = { playbackSessionManager: { cancelStrmPreloadTask: sinon.stub().returns(true) } }
+  })
+
+  afterEach(() => sinon.restore())
+
+  it('cancels the requested book after checking administrator and book access', async () => {
+    await MiscController.cancelStrmPreloadTask.call(context, request, response)
+    expect(request.user.checkCanAccessLibraryItem.calledOnce).to.equal(true)
+    expect(context.playbackSessionManager.cancelStrmPreloadTask.calledOnceWithExactly('task', 'book')).to.equal(true)
+    expect(response.json.calledWith({ cancelled: true, libraryItemId: 'book' })).to.equal(true)
+  })
+
+  it('rejects non-administrators before looking up a book', async () => {
+    request.user.isAdminOrUp = false
+    await MiscController.cancelStrmPreloadTask.call(context, request, response)
+    expect(response.sendStatus.calledWith(403)).to.equal(true)
+    expect(lookup.called).to.equal(false)
+  })
+
+  it('rejects cancellation of a book the administrator cannot access', async () => {
+    request.user.checkCanAccessLibraryItem.returns(false)
+    await MiscController.cancelStrmPreloadTask.call(context, request, response)
+    expect(response.sendStatus.calledWith(403)).to.equal(true)
+    expect(context.playbackSessionManager.cancelStrmPreloadTask.called).to.equal(false)
+  })
+
+  it('does not cancel the next book if the displayed book has already changed', async () => {
+    task.data.libraryItemId = 'next'
+    await MiscController.cancelStrmPreloadTask.call(context, request, response)
+    expect(response.sendStatus.calledWith(409)).to.equal(true)
+    expect(context.playbackSessionManager.cancelStrmPreloadTask.called).to.equal(false)
+  })
+
+  it('rechecks the book identity after an asynchronous access check', async () => {
+    context.playbackSessionManager.cancelStrmPreloadTask.returns(false)
+    await MiscController.cancelStrmPreloadTask.call(context, request, response)
+    expect(response.sendStatus.calledWith(409)).to.equal(true)
+  })
+
+  it('rejects finished tasks and invalid request payloads', async () => {
+    task.isFinished = true
+    await MiscController.cancelStrmPreloadTask.call(context, request, response)
+    expect(response.sendStatus.calledWith(404)).to.equal(true)
+    request.body = {}
+    await MiscController.cancelStrmPreloadTask.call(context, request, response)
+    expect(response.sendStatus.calledWith(400)).to.equal(true)
+  })
+})
 
 describe('MiscController settings and upstream compatibility', () => {
   let originalMetadataPath

@@ -356,6 +356,7 @@ class ApiRouter {
     //
     this.router.post('/upload', MiscController.handleUpload.bind(this))
     this.router.get('/tasks', MiscController.getTasks.bind(this))
+    this.router.post('/tasks/:taskId/cancel-preload', MiscController.cancelStrmPreloadTask.bind(this))
     this.router.post('/strm-metadata-completion/run', MiscController.runStrmMetadataCompletion.bind(this))
     this.router.post('/strm-metadata-completion/stop', MiscController.stopStrmMetadataCompletion.bind(this))
     this.router.post('/missing-items-cleanup/run', MiscController.runMissingItemsCleanup.bind(this))

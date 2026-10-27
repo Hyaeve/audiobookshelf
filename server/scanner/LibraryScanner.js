@@ -86,7 +86,7 @@ class LibraryScanner {
     Logger.info(`[LibraryScanner] Starting${forceRescan ? ' (forced)' : ''} library scan ${libraryScan.id} for ${libraryScan.libraryName}`)
 
     try {
-      const canceled = await this.scanLibrary(libraryScan, forceRescan)
+      const canceled = await this.scanLibrary(libraryScan, forceRescan, task)
       libraryScan.setComplete()
 
       Logger.info(`[LibraryScanner] Library scan "${libraryScan.id}" ${canceled ? 'canceled after' : 'completed in'} ${libraryScan.elapsedTimestamp} | ${libraryScan.resultStats}`)
@@ -140,7 +140,7 @@ class LibraryScanner {
    * @param {boolean} forceRescan
    * @returns {Promise<boolean>} true if scan canceled
    */
-  async scanLibrary(libraryScan, forceRescan) {
+  async scanLibrary(libraryScan, forceRescan, task = null) {
     // Make sure library filter data is set
     //   this is used to check for existing authors & series
     await libraryFilters.getFilterData(libraryScan.libraryMediaType, libraryScan.libraryId)
@@ -169,6 +169,7 @@ class LibraryScanner {
     const libraryItemIdsMissing = []
     let libraryItemsUpdated = []
     for (const existingLibraryItem of existingLibraryItems) {
+      if (libraryScan.libraryMediaType === 'book') TaskManager.updateTaskLibraryItem(task, existingLibraryItem)
       // First try to find matching library item with exact file path
       let libraryItemData = libraryItemDataFound.find((lid) => lid.path === existingLibraryItem.path)
       if (!libraryItemData) {
@@ -260,6 +261,7 @@ class LibraryScanner {
       let newLibraryItems = []
       for (const libraryItemData of libraryItemDataFound) {
         const newLibraryItem = await LibraryItemScanner.scanNewLibraryItem(libraryItemData, libraryScan.library.settings, libraryScan)
+        if (newLibraryItem?.mediaType === 'book') TaskManager.updateTaskLibraryItem(task, newLibraryItem)
         if (newLibraryItem) {
           newLibraryItems.push(newLibraryItem)
 

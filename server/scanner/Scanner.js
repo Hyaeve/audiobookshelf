@@ -522,7 +522,7 @@ class Scanner {
    * @param {LibraryScan} libraryScan
    * @returns {Promise<boolean>} false if scan canceled
    */
-  async matchLibraryItemsChunk(apiRouterCtx, library, libraryItems, libraryScan) {
+  async matchLibraryItemsChunk(apiRouterCtx, library, libraryItems, libraryScan, task = null) {
     for (let i = 0; i < libraryItems.length; i++) {
       const libraryItem = libraryItems[i]
 
@@ -537,7 +537,9 @@ class Scanner {
       }
 
       Logger.debug(`[Scanner] matchLibraryItems: Quick matching "${libraryItem.media.title}" (${i + 1} of ${libraryItems.length})`)
+      TaskManager.updateTaskLibraryItem(task, libraryItem)
       const result = await this.quickMatchLibraryItem(apiRouterCtx, libraryItem, { provider: library.provider })
+      TaskManager.updateTaskLibraryItem(task, libraryItem)
       if (result.warning) {
         Logger.warn(`[Scanner] matchLibraryItems: Match warning ${result.warning} for library item "${libraryItem.media.title}"`)
       } else if (result.updated) {
@@ -598,7 +600,7 @@ class Scanner {
       offset += limit
       hasMoreChunks = libraryItems.length === limit
 
-      const shouldContinue = await this.matchLibraryItemsChunk(apiRouterCtx, library, libraryItems, libraryScan)
+      const shouldContinue = await this.matchLibraryItemsChunk(apiRouterCtx, library, libraryItems, libraryScan, task)
       if (!shouldContinue) {
         isCanceled = true
         break

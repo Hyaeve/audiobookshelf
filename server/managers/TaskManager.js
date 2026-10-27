@@ -49,6 +49,17 @@ class TaskManager {
     })
   }
 
+  updateTaskLibraryItem(task, libraryItem) {
+    if (!task || !libraryItem?.id) return
+    this.updateTaskProgress(task, Number(task.data?.progress) || 0, {
+      libraryItemId: libraryItem.id,
+      libraryId: libraryItem.libraryId,
+      mediaType: libraryItem.mediaType,
+      libraryItemTitle: libraryItem.media?.title || libraryItem.title || '',
+      coverUpdatedAt: Date.now()
+    })
+  }
+
   /**
    * Create new task and add
    *

@@ -65,6 +65,7 @@ export const mutations = {
     } else {
       // Remove duplicate (only have one library item per action)
       state.tasks = state.tasks.filter((_task) => {
+        if (_task.action === 'strm-metadata-completion' && !_task.isFinished) return true
         if (!_task.data?.libraryItemId || _task.action !== task.action) return true
         return _task.data.libraryItemId !== task.data.libraryItemId
       })
