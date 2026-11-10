@@ -143,6 +143,20 @@ describe('Chinese search SQLite integration and incremental maintenance', () => 
     expect(await search('lcx')).to.deep.equal([])
   })
 
+  it('keeps Chinese author search synchronized through deduplicated edits and stale links', async () => {
+    const { book, item } = await addBook('测试书籍')
+    book.authors = []
+    await book.updateAuthorsFromRequest([' 王凯 ', '王凯', '王凯'], library.id)
+    await manager.drain()
+    expect(await Database.bookAuthorModel.count({ where: { bookId: book.id } })).to.equal(1)
+    expect(await search('wangk')).to.deep.equal([item.id])
+    book.authors = []
+    await book.updateAuthorsFromRequest(['王凯'], library.id)
+    await manager.drain()
+    expect(await Database.bookAuthorModel.count({ where: { bookId: book.id } })).to.equal(1)
+    expect(await search('wangk')).to.deep.equal([item.id])
+  })
+
   it('removes deleted or missing books from the index', async () => {
     const { item } = await addBook('三体')
     await manager.drain()

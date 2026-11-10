@@ -12,6 +12,7 @@ const date = require('../libs/dateAndTime')
 const CacheManager = require('../managers/CacheManager')
 const RssFeedManager = require('../managers/RssFeedManager')
 const AiBookMatchManager = require('../managers/AiBookMatchManager')
+const { fileUploadParser, requireUploadPermission } = require('../utils/fileUploadMiddleware')
 
 const LibraryController = require('../controllers/LibraryController')
 const UserController = require('../controllers/UserController')
@@ -120,7 +121,7 @@ class ApiRouter {
     this.router.patch('/items/:id/media', LibraryItemController.middleware.bind(this), LibraryItemController.updateMedia.bind(this))
     this.router.patch('/items/:id/metadata-locks', LibraryItemController.middleware.bind(this), LibraryItemController.updateMetadataLocks.bind(this))
     this.router.get('/items/:id/cover', LibraryItemController.getCover.bind(this))
-    this.router.post('/items/:id/cover', LibraryItemController.middleware.bind(this), LibraryItemController.uploadCover.bind(this))
+    this.router.post('/items/:id/cover', LibraryItemController.middleware.bind(this), requireUploadPermission, fileUploadParser, LibraryItemController.uploadCover.bind(this))
     this.router.patch('/items/:id/cover', LibraryItemController.middleware.bind(this), LibraryItemController.updateCover.bind(this))
     this.router.delete('/items/:id/cover', LibraryItemController.middleware.bind(this), LibraryItemController.removeCover.bind(this))
     this.router.post('/items/:id/match', LibraryItemController.middleware.bind(this), LibraryItemController.match.bind(this))
@@ -213,7 +214,7 @@ class ApiRouter {
     this.router.delete('/backups/:id', BackupController.middleware.bind(this), BackupController.delete.bind(this))
     this.router.get('/backups/:id/download', BackupController.middleware.bind(this), BackupController.download.bind(this))
     this.router.get('/backups/:id/apply', BackupController.middleware.bind(this), BackupController.apply.bind(this))
-    this.router.post('/backups/upload', BackupController.middleware.bind(this), BackupController.upload.bind(this))
+    this.router.post('/backups/upload', BackupController.middleware.bind(this), fileUploadParser, BackupController.upload.bind(this))
     this.router.patch('/backups/path', BackupController.middleware.bind(this), BackupController.updatePath.bind(this))
 
     //
@@ -354,7 +355,7 @@ class ApiRouter {
     //
     // Misc Routes
     //
-    this.router.post('/upload', MiscController.handleUpload.bind(this))
+    this.router.post('/upload', requireUploadPermission, fileUploadParser, MiscController.handleUpload.bind(this))
     this.router.get('/tasks', MiscController.getTasks.bind(this))
     this.router.post('/tasks/:taskId/cancel-preload', MiscController.cancelStrmPreloadTask.bind(this))
     this.router.post('/strm-metadata-completion/run', MiscController.runStrmMetadataCompletion.bind(this))

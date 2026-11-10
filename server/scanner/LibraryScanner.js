@@ -116,7 +116,8 @@ class LibraryScanner {
     } catch (err) {
       libraryScan.setComplete()
 
-      Logger.error(`[LibraryScanner] Library scan ${libraryScan.id} failed after ${libraryScan.elapsedTimestamp} | ${libraryScan.resultStats}.`, err)
+      const failedItem = libraryScan.failureItem ? ` while scanning ${libraryScan.failureItem}` : ''
+      Logger.error(`[LibraryScanner] Library scan ${libraryScan.id} failed after ${libraryScan.elapsedTimestamp} | ${libraryScan.resultStats}${failedItem}.`, err)
 
       task.data.scanResults = libraryScan.scanResults
       const taskFailedString = {
@@ -170,6 +171,7 @@ class LibraryScanner {
     let libraryItemsUpdated = []
     for (const existingLibraryItem of existingLibraryItems) {
       if (libraryScan.libraryMediaType === 'book') TaskManager.updateTaskLibraryItem(task, existingLibraryItem)
+      libraryScan.failureItem = scanItemFailureLabel(existingLibraryItem.title, existingLibraryItem.path)
       // First try to find matching library item with exact file path
       let libraryItemData = libraryItemDataFound.find((lid) => lid.path === existingLibraryItem.path)
       if (!libraryItemData) {
@@ -222,6 +224,8 @@ class LibraryScanner {
         }
       }
 
+      libraryScan.failureItem = null
+
       // Emit item updates in chunks of 10 to client
       if (libraryItemsUpdated.length === 10) {
         SocketAuthority.libraryItemsEmitter('items_updated', libraryItemsUpdated)
@@ -260,6 +264,7 @@ class LibraryScanner {
     if (libraryItemDataFound.length) {
       let newLibraryItems = []
       for (const libraryItemData of libraryItemDataFound) {
+        libraryScan.failureItem = scanItemFailureLabel(libraryItemData.mediaMetadata?.title, libraryItemData.path)
         const newLibraryItem = await LibraryItemScanner.scanNewLibraryItem(libraryItemData, libraryScan.library.settings, libraryScan)
         if (newLibraryItem?.mediaType === 'book') TaskManager.updateTaskLibraryItem(task, newLibraryItem)
         if (newLibraryItem) {
@@ -267,6 +272,7 @@ class LibraryScanner {
 
           libraryScan.resultsAdded++
         }
+        libraryScan.failureItem = null
 
         // Emit new items in chunks of 10 to client
         if (newLibraryItems.length === 10) {
@@ -599,7 +605,12 @@ class LibraryScanner {
         }
         // Scan library item for updates
         Logger.debug(`[LibraryScanner] Folder update for relative path "${itemDir}" is in library item "${existingLibraryItem.media.title}" with id "${existingLibraryItem.id}" - scan for updates`)
-        itemGroupingResults[itemDir] = await LibraryItemScanner.scanLibraryItem(existingLibraryItem.id, updatedLibraryItemDetails)
+        try {
+          itemGroupingResults[itemDir] = await LibraryItemScanner.scanLibraryItem(existingLibraryItem.id, updatedLibraryItemDetails)
+        } catch (err) {
+          Logger.error(`[LibraryScanner] Failed while scanning ${scanItemFailureLabel(existingLibraryItem.media?.title, existingLibraryItem.path)}`)
+          throw err
+        }
         continue
       } else if (library.settings.audiobooksOnly && !hasAudioFiles(fileUpdateGroup, itemDir)) {
         Logger.debug(`[LibraryScanner] Folder update for relative path "${itemDir}" has no audio files`)
@@ -628,7 +639,13 @@ class LibraryScanner {
 
       Logger.debug(`[LibraryScanner] Folder update group must be a new item "${itemDir}" in library "${library.name}"`)
       const isSingleMediaItem = isSingleMediaFile(fileUpdateGroup, itemDir)
-      const newLibraryItem = await LibraryItemScanner.scanPotentialNewLibraryItem(fullPath, library, folder, isSingleMediaItem)
+      let newLibraryItem
+      try {
+        newLibraryItem = await LibraryItemScanner.scanPotentialNewLibraryItem(fullPath, library, folder, isSingleMediaItem)
+      } catch (err) {
+        Logger.error(`[LibraryScanner] Failed while scanning ${scanItemFailureLabel(null, fullPath)}`)
+        throw err
+      }
       if (newLibraryItem) {
         SocketAuthority.libraryItemEmitter('item_added', newLibraryItem)
       }
@@ -639,6 +656,16 @@ class LibraryScanner {
   }
 }
 module.exports = new LibraryScanner()
+
+/**
+ * @param {string} title
+ * @param {string} path
+ * @returns {string}
+ */
+function scanItemFailureLabel(title, path) {
+  if (title && path) return `"${title}" at "${path}"`
+  return `"${path || title || 'unknown item'}"`
+}
 
 function ItemToFileInoMatch(libraryItem1, libraryItem2) {
   return libraryItem1.isFile && libraryItem2.libraryFiles.some((lf) => lf.ino === libraryItem1.ino)
