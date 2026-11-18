@@ -101,6 +101,19 @@ describe('Chinese search SQLite integration and incremental maintenance', () => 
     expect(await manager.search(user, 'other-library', 'wangk', 12)).to.deep.equal([])
   })
 
+  it('applies empty tag lists consistently to original and pinyin matches', async () => {
+    const direct = await addBook('wangk 音频')
+    const enhanced = await addBook('王凯作品')
+    await manager.drain()
+    expect(await search('wangk')).to.deep.equal([direct.item.id, enhanced.item.id])
+
+    user.permissions = { ...user.permissions, itemTagsSelected: [] }
+    expect(await search('wangk')).to.deep.equal([])
+
+    user.permissions = { ...user.permissions, selectedTagsNotAccessible: true }
+    expect(await search('wangk')).to.deep.equal([direct.item.id, enhanced.item.id])
+  })
+
   it('matches subtitles and narrators, and disables deselected fields immediately', async () => {
     const subtitle = await addBook('第一本书', { subtitle: '王凯' })
     const narrator = await addBook('第二本书', { narrators: ['王奎荣'] })

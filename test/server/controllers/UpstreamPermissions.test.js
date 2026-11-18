@@ -5,6 +5,7 @@ const Logger = require('../../../server/Logger')
 const SocketAuthority = require('../../../server/SocketAuthority')
 const SessionController = require('../../../server/controllers/SessionController')
 const CollectionController = require('../../../server/controllers/CollectionController')
+const LibraryController = require('../../../server/controllers/LibraryController')
 const MeController = require('../../../server/controllers/MeController')
 
 describe('Upstream controller permission boundaries', () => {
@@ -54,6 +55,37 @@ describe('Upstream controller permission boundaries', () => {
       if (!filtered) expect(targeted.calledOnceWithExactly(user.id, 'collection_updated', visible)).to.equal(true)
     })
   }
+
+  it('shows no libraries for an empty allow list with all-library access disabled', async () => {
+    const library = { id: 'library', toOldJSON: () => ({ id: 'library' }) }
+    sinon.stub(Database, 'libraryModel').get(() => ({ getAllWithFolders: sinon.stub().resolves([library]) }))
+    const request = { query: {}, user: { permissions: { accessAllLibraries: false, librariesAccessible: [] } } }
+    const response = { json: sinon.spy() }
+    await LibraryController.findAll(request, response)
+    expect(response.json.firstCall.args[0].libraries).to.deep.equal([])
+
+    request.user.permissions.accessAllLibraries = true
+    await LibraryController.findAll(request, response)
+    expect(response.json.secondCall.args[0].libraries).to.deep.equal([{ id: library.id }])
+  })
+
+  it('separates permission to remove a collection entry from permission to delete the collection', async () => {
+    sinon.stub(Logger, 'warn')
+    sinon.stub(Database, 'collectionModel').get(() => ({ findByPk: sinon.stub().resolves({ libraryId: 'library' }) }))
+    const user = { username: 'reader', canUpdate: true, canDelete: false, checkCanAccessLibrary: () => true }
+    const request = { method: 'DELETE', params: { id: 'collection', bookId: 'book' }, user }
+    const response = { sendStatus: sinon.spy() }
+    const next = sinon.spy()
+    await CollectionController.middleware(request, response, next)
+    expect(next.calledOnce).to.equal(true)
+
+    await CollectionController.middleware({ ...request, params: { id: 'collection' } }, response, next)
+    expect(response.sendStatus.calledOnceWithExactly(403)).to.equal(true)
+
+    await CollectionController.middleware({ ...request, user: { ...user, canUpdate: false, canDelete: true } }, response, next)
+    expect(response.sendStatus.secondCall.args).to.deep.equal([403])
+    expect(next.calledOnce).to.equal(true)
+  })
 
   it('omits inaccessible books from the combined in-progress response', async () => {
     const items = ['allowed', 'private'].map((id) => ({ id, toOldJSONMinified: () => ({ id }) }))
